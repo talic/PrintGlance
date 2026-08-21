@@ -9,7 +9,7 @@ struct PrinterSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Printer")
                 .font(.headline)
-            Text("On the printer, open Settings, then LAN Only. Copy the IP address, access code, and serial number.")
+            Text("On the printer, open Settings, then LAN or Network. Copy the IP address, access code, and serial number. You do not need LAN Only mode.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

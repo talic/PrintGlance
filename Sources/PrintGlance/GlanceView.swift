@@ -162,7 +162,7 @@ struct GlanceView: View {
         case .invalid:
             return "Can't read the feed."
         case .needsSetup:
-            return "Click … and choose Printer. Enter the IP address, serial number, and access code from the printer's LAN Only page."
+            return "Click … and choose Printer. Enter the IP address, serial number, and access code from the printer's LAN or Network page."
         case .connecting:
             return "Connecting to the printer."
         case .doc:

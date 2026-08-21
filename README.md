@@ -10,8 +10,10 @@ PrintGlance is a small icon in the Mac menu bar. While your Bambu printer is pri
 
 ## Get the values from the printer
 
+You do not need **LAN Only** mode. That mode cuts the printer off from Bambu's cloud. PrintGlance uses the local network while the printer stays on the cloud, the same way Bambu Studio does on your LAN.
+
 1. On the printer screen, open **Settings**.
-2. Open **LAN Only**.
+2. Open the **LAN** or **Network** page (the name varies by model).
 3. Write down **IP**, **Access code**, and **Serial**.
 
 If **Serial** is not on that page, look under **Settings** for device info, or on the sticker on the printer.
@@ -40,9 +42,9 @@ To start PrintGlance when you log in, click **…** and turn on **Open at Login*
 ## If it cannot connect
 
 - Mac and printer are on the same Wi-Fi
-- IP address and access code match **LAN Only**
+- IP address and access code match the printer's LAN or Network page
 - The printer is switched on
-- If MQTT still fails, turn on LAN or Developer Mode on the printer (wording varies by model)
+- On some A1 models the access code is hidden until you open the **LAN-only Mode** page. You can copy the code there without leaving the printer on LAN Only.
 
 ## License
 
