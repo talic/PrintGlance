@@ -4,14 +4,31 @@ import SwiftUI
 struct GlanceView: View {
     @ObservedObject var model: GlanceModel
     @State private var openAtLogin = LoginItem.isEnabled
+    @State private var showPrinter = false
+    @State private var draft = PrinterSettings.empty
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            bodyContent
+        Group {
+            if showPrinter {
+                PrinterSettingsView(
+                    settings: $draft,
+                    onSave: { model.saveSettings($0) },
+                    onClose: { showPrinter = false }
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    header
+                    bodyContent
+                }
+                .padding(14)
+                .frame(width: 248, alignment: .leading)
+            }
         }
-        .padding(14)
-        .frame(width: 248, alignment: .leading)
+        .onAppear {
+            if case .needsSetup = model.content.result {
+                openPrinter()
+            }
+        }
     }
 
     private var header: some View {
@@ -84,6 +101,7 @@ struct GlanceView: View {
 
     private var overflowMenu: some View {
         Menu {
+            Button("Printer") { openPrinter() }
             Toggle("Open at Login", isOn: $openAtLogin)
             Divider()
             Button("Quit") {
@@ -105,6 +123,11 @@ struct GlanceView: View {
         }
     }
 
+    private func openPrinter() {
+        draft = model.settings
+        showPrinter = true
+    }
+
     private var headline: String {
         if let row = model.content.row, case .doc = model.content.result {
             if let job = row.job, !job.isEmpty { return job }
@@ -115,6 +138,8 @@ struct GlanceView: View {
         case .unauthorized: return "Can't update"
         case .http: return "Can't update"
         case .invalid: return "Can't update"
+        case .needsSetup: return "Add your printer"
+        case .connecting: return "Connecting"
         case .doc: return "No printer"
         }
     }
@@ -129,13 +154,17 @@ struct GlanceView: View {
     private var emptyDetail: String {
         switch model.content.result {
         case .feedDown:
-            return "The printer feed isn't running."
+            return "Can't reach the printer. Check Wi-Fi, the IP address, and the access code."
         case .unauthorized:
             return "This Mac needs the feed token."
         case let .http(code):
             return "The feed returned HTTP \(code)."
         case .invalid:
             return "Can't read the feed."
+        case .needsSetup:
+            return "Click … and choose Printer. Enter the IP address, serial number, and access code from the printer's LAN or Network page."
+        case .connecting:
+            return "Connecting to the printer."
         case .doc:
             return "The feed has no printer."
         }

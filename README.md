@@ -1,75 +1,47 @@
 # PrintGlance
 
-Mac menu bar extra for a Bambu printer on your LAN. It shows remaining time and finish clock so you don't need Bambu Studio open.
+PrintGlance is a small icon in the Mac menu bar. While your Bambu printer is printing, it shows how far the job has got and what time it should finish. You do not need Bambu Studio open.
 
-PrintGlance does not open MQTT. A local feed (`print_loop.py`) subscribes read-only to the printer and serves `GET /print.json`. The extra polls `http://127.0.0.1:8080/print.json`.
+## What you need
 
-## Install
+- A Mac with macOS 14 or later
+- A Bambu printer on the **same Wi-Fi** as the Mac
+- Three values from the printer: **IP address**, **serial number**, and **access code**
 
-1. Clone the repository:
+## Get the values from the printer
 
-```bash
-git clone https://github.com/talic/PrintGlance.git
-cd PrintGlance
-```
+1. On the printer screen, open **Settings**.
+2. Open the **LAN** or **Network** page (the name varies by model).
+3. Write down **IP**, **Access code**, and **Serial**.
 
-2. Copy `.env.example` to `.env`.
-3. Set `BAMBU_IP`, `BAMBU_SERIAL`, and `BAMBU_ACCESS_CODE` from the printer's WLAN screen. Enable Developer Mode on the printer if LAN MQTT refuses the connection.
-4. Create the Python environment and install the extra:
+If **Serial** is not on that page, look under **Settings** for device info, or on the sticker on the printer.
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-make install
-```
+The Mac and the printer must be on the same Wi-Fi network. Guest Wi-Fi that isolates devices does not work.
 
-`make install` does the following:
+## Install PrintGlance
 
-- Builds `PrintGlance.app`, copies it to `~/Applications`, and opens it
-- Loads a LaunchAgent (`local.PrintGlance.feed`) that runs `print_loop.py` and restarts it if it exits
+1. Open the [latest PrintGlance release](https://github.com/talic/PrintGlance/releases/latest).
+2. Download **PrintGlance.zip** and double-click it to unzip.
+3. Drag **PrintGlance** into the **Applications** folder.
+4. Control-click **PrintGlance** and choose **Open**. Click **Open** again if macOS asks.
+5. If you do not see a printer icon in the menu bar, turn PrintGlance on in **System Settings > Menu Bar**.
 
-Install does not turn on **Open at Login**. To start the extra when you log in, turn on **Open at Login** in the extra's **…** menu. To quit the extra, choose **Quit** from that menu.
+## Connect to your printer
 
-If the extra does not appear, enable it in **System Settings > Menu Bar**. Ad-hoc-signed extras can stay hidden until you do.
+1. Click the printer icon in the menu bar.
+2. If the printer form is not already open, click **…** and choose **Printer**.
+3. Enter the IP address, serial number, and access code. Name is optional.
+4. Click **Save**.
 
-Feed log: `~/Library/Logs/PrintGlance-feed.log`.
+When a print is running, the menu bar shows percent and finish time. Click the icon for more detail.
 
-To stop the feed until the next `make install`:
+To start PrintGlance when you log in, click **…** and turn on **Open at Login**. To quit, click **…** and choose **Quit**.
 
-```bash
-launchctl bootout gui/$(id -u)/local.PrintGlance.feed
-```
+## If it cannot connect
 
-## Desk-check the feed
-
-```bash
-source .venv/bin/activate
-set -a; source .env; set +a
-python bambu.py --self-test
-python bambu.py --once
-```
-
-Do not run a second `print_loop.py` on the same port as the LaunchAgent.
-
-## Optional token
-
-`STATS_TOKEN` is off by default. If you set it on the feed, set the same value on the extra:
-
-```bash
-defaults write local.PrintGlance feedToken 'TOKEN'
-```
-
-Replace `TOKEN` with the feed token. Clients must send header `X-Stats-Token`.
-
-## Layout
-
-| Path | Role |
-|------|------|
-| `Sources/PrintGlance` | Menu bar extra |
-| `print_loop.py` | LAN MQTT subscriber + `GET /print.json` |
-| `bambu.py` | Snapshot merge (read-only; no pause/stop/print) |
-| `print_loop.sh` | LaunchAgent entry |
-| `.env.example` | Printer env vars (no secrets) |
+- Mac and printer are on the same Wi-Fi
+- IP address and access code match the printer's LAN or Network page
+- The printer is switched on
 
 ## License
 

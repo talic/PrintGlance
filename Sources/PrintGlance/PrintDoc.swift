@@ -38,6 +38,8 @@ enum FeedResult: Equatable, Sendable {
     case unauthorized
     case http(Int)
     case invalid
+    case needsSetup
+    case connecting
 }
 
 enum JSONCoding {

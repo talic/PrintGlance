@@ -32,6 +32,10 @@ struct GlanceContent: Equatable, Sendable {
             return "HTTP \(code)"
         case .invalid:
             return "Bad feed"
+        case .needsSetup:
+            return "Add printer"
+        case .connecting:
+            return "Connecting"
         case .doc:
             guard let row else { return "No printer" }
             return "\(row.name) · \(Self.humanState(row.state))"
@@ -40,8 +44,10 @@ struct GlanceContent: Equatable, Sendable {
 
     var pollInterval: TimeInterval {
         switch result {
-        case .feedDown, .unauthorized, .http, .invalid:
+        case .feedDown, .unauthorized, .http, .invalid, .connecting:
             return 15
+        case .needsSetup:
+            return 60
         case .doc:
             guard let row else { return 15 }
             switch row.state.uppercased() {
@@ -80,6 +86,18 @@ struct GlanceContent: Equatable, Sendable {
                 systemImage: "printer.slash",
                 title: "",
                 accessibilityLabel: "Print feed unreadable"
+            )
+        case .needsSetup:
+            return StripPresentation(
+                systemImage: "printer",
+                title: "",
+                accessibilityLabel: "Add your Bambu printer"
+            )
+        case .connecting:
+            return StripPresentation(
+                systemImage: "printer",
+                title: "",
+                accessibilityLabel: "Connecting to printer"
             )
         case let .doc(doc):
             guard let row = doc.focusRow() else {
@@ -230,48 +248,120 @@ struct GlanceContent: Equatable, Sendable {
 
 @MainActor
 final class GlanceModel: ObservableObject {
-    @Published private(set) var content = GlanceContent(result: .feedDown)
+    @Published private(set) var content = GlanceContent(result: .needsSetup)
+    @Published var settings = PrinterSettings.load()
 
-    private let feed: PrintFeed
-    private var loopTask: Task<Void, Never>?
-    private var wakeTask: Task<Void, Never>?
-    private var lastBody: Data?
+    private let mqtt = MQTT311Client()
+    private var snapshot: BambuSnapshot?
+    private var staleTask: Task<Void, Never>?
+    private var connectTimeout: Task<Void, Never>?
+
+    private func log(_ msg: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/PrintGlance.log")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(line.utf8))
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
+    }
 
     var strip: StripPresentation { content.strip }
 
-    init(feed: PrintFeed = PrintFeed()) {
-        self.feed = feed
-    }
-
     func start() {
-        guard loopTask == nil else { return }
-        loopTask = Task { @MainActor [weak self] in
+        mqtt.onConnect = { [weak self] in self?.didConnect() }
+        mqtt.onDisconnect = { [weak self] reason in self?.didDisconnect(reason) }
+        mqtt.onMessage = { [weak self] _, data in self?.didMessage(data) }
+        applySettingsAndConnect()
+        staleTask = Task { @MainActor [weak self] in
             while let self, !Task.isCancelled {
-                await self.refresh()
-                let ns = UInt64(self.content.pollInterval * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: ns)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                self.publishSnapshot()
             }
         }
-        wakeTask = Task { @MainActor [weak self] in
-            let notes = NSWorkspace.shared.notificationCenter.notifications(
-                named: NSWorkspace.didWakeNotification
-            )
-            for await _ in notes {
-                guard let self, !Task.isCancelled else { break }
-                await self.refresh()
+        _ = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.applySettingsAndConnect()
             }
         }
     }
 
-    func refresh() async {
-        guard let (code, data) = await feed.fetchRaw() else {
-            lastBody = nil
-            apply(GlanceContent(result: .feedDown))
+    func saveSettings(_ next: PrinterSettings) {
+        next.save()
+        settings = next
+        applySettingsAndConnect()
+    }
+
+    private func applySettingsAndConnect() {
+        mqtt.disconnect()
+        snapshot = nil
+        guard settings.isComplete else {
+            apply(GlanceContent(result: .needsSetup))
             return
         }
-        if data == lastBody { return }
-        lastBody = data
-        apply(GlanceContent(result: PrintFeed.interpret(status: code, data: data)))
+        apply(GlanceContent(result: .connecting))
+        let id = settings.serial
+        let name = settings.name.isEmpty ? "Printer" : settings.name
+        snapshot = BambuSnapshot(printerID: id, name: name)
+        let suffix = settings.serial.suffix(6)
+        log("connecting \(settings.ip):8883")
+        mqtt.connect(
+            host: settings.ip,
+            port: 8883,
+            clientID: "printglance-\(suffix)",
+            username: "bblp",
+            password: settings.accessCode
+        )
+        connectTimeout?.cancel()
+        connectTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            if case .connecting = self.content.result {
+                self.log("connect timed out")
+                self.apply(GlanceContent(result: .feedDown))
+            }
+        }
+    }
+
+    private func didConnect() {
+        connectTimeout?.cancel()
+        log("connected")
+        NSLog("PrintGlance: connected to printer")
+        mqtt.subscribe("device/\(settings.serial)/report")
+        let body = Data(#"{"pushing":{"command":"pushall","sequence_id":"0"}}"#.utf8)
+        mqtt.publish(topic: "device/\(settings.serial)/request", payload: body)
+        snapshot?.markConnected(true)
+    }
+
+    private func didDisconnect(_ reason: String?) {
+        log("disconnected \(reason ?? "")")
+        NSLog("PrintGlance: printer connection dropped")
+        snapshot?.markConnected(false)
+        if settings.isComplete {
+            apply(GlanceContent(result: .feedDown))
+        } else {
+            apply(GlanceContent(result: .needsSetup))
+        }
+    }
+
+    private func didMessage(_ data: Data) {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        snapshot?.ingest(obj)
+        publishSnapshot()
+    }
+
+    private func publishSnapshot() {
+        guard settings.isComplete, let snapshot, snapshot.hasReport else { return }
+        apply(GlanceContent(result: .doc(snapshot.doc())))
     }
 
     private func apply(_ next: GlanceContent) {
