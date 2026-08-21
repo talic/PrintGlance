@@ -137,6 +137,54 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "printer.slash")
     }
 
+    func testNeedsSetupStrip() {
+        XCTAssertEqual(GlanceContent.strip(.needsSetup).systemImage, "printer")
+        XCTAssertEqual(GlanceContent(result: .needsSetup).pollInterval, 60)
+    }
+
+    func testJobLabelStripsProcessSuffix() {
+        XCTAssertEqual(
+            BambuPrint.jobLabel(["subtask_name": "Print in Parts 0.16mm layer, 2 walls, 10% infill"]),
+            "Print in Parts"
+        )
+        XCTAssertNil(BambuPrint.humanGcodeStem("cache/012345678.gcode"))
+        XCTAssertEqual(BambuPrint.humanGcodeStem("models/stomp-t-rex.gcode"), "stomp-t-rex")
+    }
+
+    func testMergeClearsLayerOnNewJob() {
+        var dst: [String: Any] = [
+            "subtask_name": "old",
+            "layer_num": 90,
+            "gcode_file": "old.gcode",
+            "gcode_state": "RUNNING",
+        ]
+        BambuPrint.merge(&dst, incoming: ["subtask_name": "new", "gcode_state": "RUNNING"])
+        XCTAssertNil(dst["layer_num"])
+        XCTAssertNil(dst["gcode_file"])
+    }
+
+    func testRowOfflineKeepsPercent() {
+        let row = BambuPrint.row(
+            id: "x2d",
+            name: "X2D",
+            printObj: ["gcode_state": "RUNNING", "mc_percent": 62],
+            online: false
+        )
+        XCTAssertEqual(row.state, "OFFLINE")
+        XCTAssertEqual(row.percent, 62)
+    }
+
+    func testRemainingLengthRoundTrip() {
+        for n in [0, 1, 127, 128, 16383] {
+            let encoded = MQTT311Client.encodeRemainingLength(n)
+            var packet = Data([0x10])
+            packet.append(encoded)
+            packet.append(Data(repeating: 0, count: n))
+            let decoded = MQTT311Client.decodeRemainingLength([UInt8](packet), start: 1)
+            XCTAssertEqual(decoded?.0, n, "n=\(n)")
+        }
+    }
+
     private func load(_ name: String) throws -> PrintDoc {
         let url = try XCTUnwrap(
             Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Fixtures")
