@@ -2,6 +2,8 @@
 
 PrintGlance is a small icon in the Mac menu bar. While your Bambu printer is printing, it shows how far the job has got and what time it should finish. You do not need Bambu Studio open.
 
+PrintGlance runs only on your Mac. It talks only to the printer whose IP address you enter, on your Wi-Fi. It does not use the internet or Bambu's cloud. It does not pause, stop, or start prints. It only asks for status and shows it.
+
 ## What you need
 
 - A Mac with macOS 14 or later
@@ -34,6 +36,8 @@ The Mac and the printer must be on the same Wi-Fi network. Guest Wi-Fi that isol
 4. Click **Save**.
 
 When a print is running, the menu bar shows percent and finish time. Click the icon for more detail.
+
+The access code stays on this Mac. PrintGlance does not send it to the internet.
 
 To start PrintGlance when you log in, click **…** and turn on **Open at Login**. To quit, click **…** and choose **Quit**.
 
