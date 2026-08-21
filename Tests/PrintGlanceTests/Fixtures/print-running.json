@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "updated_at": "2026-08-21T12:00:00Z",
+  "focus_id": "x2d",
+  "printers": [
+    {
+      "id": "x2d",
+      "name": "X2D",
+      "state": "RUNNING",
+      "percent": 16,
+      "remaining_s": 16980,
+      "job": "Print in Parts",
+      "layer": 32,
+      "layer_total": 230,
+      "eta": "18:30",
+      "filament": "PLA",
+      "filament_remain": 42
+    }
+  ]
+}

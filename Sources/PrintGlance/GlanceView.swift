@@ -1,0 +1,219 @@
+import AppKit
+import SwiftUI
+
+struct GlanceView: View {
+    @ObservedObject var model: GlanceModel
+    @State private var openAtLogin = LoginItem.isEnabled
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            bodyContent
+        }
+        .padding(14)
+        .frame(width: 248, alignment: .leading)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(headline)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let sub = subtitle {
+                    Text(sub)
+                        .font(.subheadline)
+                        .foregroundStyle(statusColor)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            overflowMenu
+        }
+    }
+
+    @ViewBuilder
+    private var bodyContent: some View {
+        if let row = model.content.row, case .doc = model.content.result {
+            printerBody(row)
+        } else {
+            Text(emptyDetail)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private func printerBody(_ row: Printer) -> some View {
+        let timed = GlanceContent.isTimed(row.state)
+
+        if timed {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(GlanceContent.hero(row))
+                    .font(.system(size: 28, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+                if let left = GlanceContent.remainingLine(row) {
+                    Text(left)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+
+            if let percent = row.percent {
+                HStack(spacing: 8) {
+                    CapsuleBar(percent: percent, tint: barTint(row.state))
+                    Text("\(percent)%")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 36, alignment: .trailing)
+                }
+            }
+
+            metaRow(row)
+        } else if let caption = printerCaption(row) {
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var overflowMenu: some View {
+        Menu {
+            Toggle("Open at Login", isOn: $openAtLogin)
+            Divider()
+            Button("Quit") {
+                NSApp.terminate(nil)
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .menuIndicator(.hidden)
+        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
+        .onChange(of: openAtLogin) { _, on in
+            LoginItem.setEnabled(on)
+            openAtLogin = LoginItem.isEnabled
+        }
+    }
+
+    private var headline: String {
+        if let row = model.content.row, case .doc = model.content.result {
+            if let job = row.job, !job.isEmpty { return job }
+            return row.name
+        }
+        switch model.content.result {
+        case .feedDown: return "Can't update"
+        case .unauthorized: return "Can't update"
+        case .http: return "Can't update"
+        case .invalid: return "Can't update"
+        case .doc: return "No printer"
+        }
+    }
+
+    private var subtitle: String? {
+        if let row = model.content.row, case .doc = model.content.result {
+            return GlanceContent.humanState(row.state)
+        }
+        return nil
+    }
+
+    private var emptyDetail: String {
+        switch model.content.result {
+        case .feedDown:
+            return "The printer feed isn't running."
+        case .unauthorized:
+            return "This Mac needs the feed token."
+        case let .http(code):
+            return "The feed returned HTTP \(code)."
+        case .invalid:
+            return "Can't read the feed."
+        case .doc:
+            return "The feed has no printer."
+        }
+    }
+
+    private var statusColor: Color {
+        guard let row = model.content.row, case .doc = model.content.result else {
+            return .secondary
+        }
+        switch row.state.uppercased() {
+        case "PAUSE": return .orange
+        case "FAILED": return .red
+        default: return .secondary
+        }
+    }
+
+    private func barTint(_ state: String) -> Color {
+        switch state.uppercased() {
+        case "PAUSE": return .orange
+        case "FAILED": return .red
+        default: return .primary
+        }
+    }
+
+    private func printerCaption(_ row: Printer) -> String? {
+        if let job = row.job, !job.isEmpty { return row.name }
+        return nil
+    }
+
+    @ViewBuilder
+    private func metaRow(_ row: Printer) -> some View {
+        let layer = GlanceContent.layerLine(row)
+        let fil = GlanceContent.filamentLine(row)
+        if layer != nil || fil != nil {
+            HStack(alignment: .firstTextBaseline) {
+                if let layer {
+                    Text(layer).monospacedDigit()
+                }
+                Spacer(minLength: 8)
+                if let fil {
+                    Text(fil).monospacedDigit()
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+        }
+    }
+}
+
+struct CapsuleBar: View {
+    var percent: Int
+    var tint: Color
+
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.08))
+                Capsule()
+                    .fill(tint)
+                    .frame(width: max(0, g.size.width * CGFloat(min(max(percent, 0), 100)) / 100))
+            }
+        }
+        .frame(height: 4)
+        .transaction { $0.animation = nil }
+    }
+}
+
+struct StripLabel: View {
+    var strip: StripPresentation
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: strip.systemImage)
+            if !strip.title.isEmpty {
+                Text(strip.title).monospacedDigit()
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(strip.accessibilityLabel)
+    }
+}

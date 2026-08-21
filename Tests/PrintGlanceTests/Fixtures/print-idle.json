@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "updated_at": "2026-08-21T12:00:00Z",
+  "focus_id": "x2d",
+  "printers": [
+    {
+      "id": "x2d",
+      "name": "X2D",
+      "state": "IDLE",
+      "percent": null,
+      "remaining_s": null,
+      "job": null
+    }
+  ]
+}

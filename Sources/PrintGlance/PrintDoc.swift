@@ -1,0 +1,49 @@
+import Foundation
+
+struct PrintDoc: Codable, Equatable, Sendable {
+    var v: Int
+    var updatedAt: String?
+    var focusId: String?
+    var printers: [Printer]
+
+    static func == (lhs: PrintDoc, rhs: PrintDoc) -> Bool {
+        lhs.v == rhs.v && lhs.focusId == rhs.focusId && lhs.printers == rhs.printers
+    }
+
+    func focusRow() -> Printer? {
+        if let id = focusId, let row = printers.first(where: { $0.id == id }) {
+            return row
+        }
+        return printers.first
+    }
+}
+
+struct Printer: Codable, Equatable, Sendable {
+    var id: String
+    var name: String
+    var state: String
+    var percent: Int?
+    var remainingS: Int?
+    var job: String?
+    var layer: Int?
+    var layerTotal: Int?
+    var eta: String?
+    var filament: String?
+    var filamentRemain: Int?
+}
+
+enum FeedResult: Equatable, Sendable {
+    case doc(PrintDoc)
+    case feedDown
+    case unauthorized
+    case http(Int)
+    case invalid
+}
+
+enum JSONCoding {
+    static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.keyDecodingStrategy = .convertFromSnakeCase
+        return d
+    }()
+}
