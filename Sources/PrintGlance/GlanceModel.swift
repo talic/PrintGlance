@@ -254,7 +254,6 @@ final class GlanceModel: ObservableObject {
     private let mqtt = MQTT311Client()
     private var snapshot: BambuSnapshot?
     private var staleTask: Task<Void, Never>?
-    private var wakeTask: Task<Void, Never>?
     private var connectTimeout: Task<Void, Never>?
 
     private func log(_ msg: String) {
@@ -283,13 +282,13 @@ final class GlanceModel: ObservableObject {
                 self.publishSnapshot()
             }
         }
-        wakeTask = Task { @MainActor [weak self] in
-            let notes = NSWorkspace.shared.notificationCenter.notifications(
-                named: NSWorkspace.didWakeNotification
-            )
-            for await _ in notes {
-                guard let self, !Task.isCancelled else { break }
-                self.applySettingsAndConnect()
+        _ = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.applySettingsAndConnect()
             }
         }
     }
