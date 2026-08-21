@@ -24,6 +24,7 @@ struct GlanceView: View {
                 .frame(width: 248, alignment: .leading)
             }
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             if case .needsSetup = model.content.result {
                 openPrinter()

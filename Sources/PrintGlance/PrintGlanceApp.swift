@@ -13,6 +13,7 @@ struct PrintGlanceApp: App {
     var body: some Scene {
         MenuBarExtra {
             GlanceView(model: model)
+                .hugMenuBarPanel()
         } label: {
             StripLabel(strip: model.strip)
                 .id(model.strip)
