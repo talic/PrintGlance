@@ -312,7 +312,7 @@ final class GlanceModel: ObservableObject {
         self.notify = PrintNotify(
             serial: settings.focusId ?? settings.printers.first?.serial ?? "",
             prefs: prefs,
-            stamp: PrintNotifyStamp.load(.standard)
+            stamps: PrintNotifyStamp.loadAll(.standard)
         )
     }
 
@@ -377,14 +377,12 @@ final class GlanceModel: ObservableObject {
         let next = settings.focusing(id)
         next.save()
         settings = next
-        notify.serial = id
         publishSnapshot()
     }
 
     func saveSettings(_ next: SavedPrinters) {
         next.save()
         settings = next
-        notify.serial = next.focusId ?? next.printers.first?.serial ?? ""
         applySettingsAndConnect()
     }
 
@@ -512,7 +510,8 @@ final class GlanceModel: ObservableObject {
                 focusId: settings.focusId
             )
             apply(GlanceContent(result: .doc(doc)))
-            if let row = doc.focusRow(), let snap = snaps[row.id] {
+            for row in doc.printers {
+                guard let snap = snaps[row.id] else { continue }
                 let fil = BambuPrint.activeFilament(snap.printObj)
                 if let notice = filament.consider(
                     serial: row.id,
@@ -561,18 +560,19 @@ final class GlanceModel: ObservableObject {
         if outcome.requestPermission {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
-        guard let alert = outcome.alert else { return }
-        let content = UNMutableNotificationContent()
-        content.title = alert.title
-        content.body = alert.body
-        content.sound = .default
-        let id = notify.serial.isEmpty ? "printer" : notify.serial
-        let request = UNNotificationRequest(
-            identifier: "pg.\(alert.kind.rawValue).\(id)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request)
+        for alert in outcome.alerts {
+            let content = UNMutableNotificationContent()
+            content.title = alert.title
+            content.body = alert.body
+            content.sound = .default
+            let id = alert.serial.isEmpty ? "printer" : alert.serial
+            let request = UNNotificationRequest(
+                identifier: "pg.\(alert.kind.rawValue).\(id)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
     }
 }
 
