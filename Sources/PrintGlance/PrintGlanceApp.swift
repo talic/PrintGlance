@@ -15,8 +15,9 @@ struct PrintGlanceApp: App {
             GlanceView(model: model)
                 .hugMenuBarPanel()
         } label: {
+            // Do not `.id(strip)`: on macOS 26 that recreates the extra and it
+            // never returns to the bar.
             StripLabel(strip: model.strip)
-                .id(model.strip)
         }
         .menuBarExtraStyle(.window)
     }
