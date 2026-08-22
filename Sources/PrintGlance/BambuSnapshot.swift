@@ -298,17 +298,37 @@ enum BambuPrint {
         return nil
     }
 
-    static func etaHM(state: String, remainingS: Int?) -> String? {
+    static func etaHM(
+        state: String,
+        remainingS: Int?,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> String? {
         switch state {
         case "RUNNING", "PREPARE", "PAUSE": break
         default: return nil
         }
         guard let remainingS, remainingS > 0 else { return nil }
-        let t = Date().addingTimeInterval(TimeInterval(remainingS))
+        let t = now.addingTimeInterval(TimeInterval(remainingS))
+        let time = format(t, "HH:mm", calendar: calendar)
+        if calendar.isDate(t, inSameDayAs: now) {
+            return time
+        }
+        if let next = calendar.date(byAdding: .day, value: 1, to: now),
+           calendar.isDate(t, inSameDayAs: next)
+        {
+            return "\(time) tomorrow"
+        }
+        return "\(time) \(format(t, "EEE", calendar: calendar))"
+    }
+
+    private static func format(_ date: Date, _ dateFormat: String, calendar: Calendar) -> String {
         let f = DateFormatter()
-        f.dateFormat = "HH:mm"
+        f.dateFormat = dateFormat
         f.locale = Locale(identifier: "en_US_POSIX")
-        return f.string(from: t)
+        f.timeZone = calendar.timeZone
+        f.calendar = calendar
+        return f.string(from: date)
     }
 
     static func row(
