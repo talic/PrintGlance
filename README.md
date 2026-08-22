@@ -31,10 +31,11 @@ The Mac and the printer must be on the same Wi-Fi network. Guest Wi-Fi that isol
 ## Install PrintGlance
 
 1. Open the [latest PrintGlance release](https://github.com/talic/PrintGlance/releases/latest).
-2. Download **PrintGlance.zip** and double-click it to unzip.
+2. Download **PrintGlance.zip** and double-click it to extract it.
 3. Drag **PrintGlance** into the **Applications** folder.
-4. Control-click **PrintGlance** and choose **Open**. Click **Open** again if macOS asks.
-5. If you do not see a printer icon in the menu bar, turn PrintGlance on in **System Settings > Menu Bar**.
+4. Open **PrintGlance**. If macOS shows **"PrintGlance" Not Opened**, click **Done**.
+5. Open **System Settings > Privacy & Security**. In **Security**, click **Open Anyway**, then click **Open**. Enter your password if macOS asks.
+6. If you do not see a printer icon in the menu bar, turn PrintGlance on in **System Settings > Menu Bar**.
 
 ## Connect to your printer
 
@@ -79,7 +80,8 @@ Once a day PrintGlance checks GitHub. When a newer version is on GitHub, the pri
 1. Click **Update available**, or click **…** and choose **Download update**.
 2. Download **PrintGlance.zip** and double-click it to extract it.
 3. Drag **PrintGlance** into the **Applications** folder. Replace the existing app when macOS asks.
-4. Control-click **PrintGlance** and choose **Open**.
+4. Open **PrintGlance**. If macOS shows **"PrintGlance" Not Opened**, click **Done**.
+5. Open **System Settings > Privacy & Security**. In **Security**, click **Open Anyway**, then click **Open**.
 
 Your printer IP, serial, and access code stay on this Mac.
 
