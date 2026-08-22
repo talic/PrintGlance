@@ -558,7 +558,12 @@ final class GlanceModel: ObservableObject {
 
     private func deliver(_ outcome: PrintNotifyOutcome) {
         if outcome.requestPermission {
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            // The completion runs on Apple's notify queue. A MainActor
+            // closure traps (SIGTRAP) and the extra vanishes.
+            Task {
+                _ = try? await UNUserNotificationCenter.current()
+                    .requestAuthorization(options: [.alert, .sound])
+            }
         }
         for alert in outcome.alerts {
             let content = UNMutableNotificationContent()
