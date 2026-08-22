@@ -250,6 +250,31 @@ final class PrintDocTests: XCTestCase {
         XCTAssertNil(dst["gcode_file"])
     }
 
+    func testEtaQualifiesFinishDay() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        // Saturday 2026-08-22 10:00 GMT
+        let morning = Date(timeIntervalSince1970: 1_787_392_800)
+        XCTAssertEqual(
+            BambuPrint.etaHM(state: "RUNNING", remainingS: 30_600, now: morning, calendar: cal),
+            "18:30"
+        )
+        XCTAssertEqual(
+            BambuPrint.etaHM(state: "RUNNING", remainingS: 26 * 3600, now: morning, calendar: cal),
+            "12:00 tomorrow"
+        )
+        XCTAssertEqual(
+            BambuPrint.etaHM(state: "RUNNING", remainingS: 203_400, now: morning, calendar: cal),
+            "18:30 Mon"
+        )
+        // Saturday 2026-08-22 22:00 GMT, 3h overnight
+        let evening = Date(timeIntervalSince1970: 1_787_436_000)
+        XCTAssertEqual(
+            BambuPrint.etaHM(state: "RUNNING", remainingS: 3 * 3600, now: evening, calendar: cal),
+            "01:00 tomorrow"
+        )
+    }
+
     func testRowOfflineKeepsPercent() {
         let row = BambuPrint.row(
             id: "x2d",
