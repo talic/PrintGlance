@@ -13,14 +13,41 @@ final class MQTT311Client: @unchecked Sendable {
     private let queue = DispatchQueue(label: "local.PrintGlance.mqtt")
     private let keepAlive: UInt16 = 30
     private var packetID: UInt16 = 1
+    /// Bumped on each `connect` / `disconnect` so a cancelled socket cannot
+    /// fail the attempt that replaced it.
+    private var generation: UInt64 = 0
+
+    /// 1s, 2s, 4s, 8s, 16s, then 30s. `attempt` is 1 after the first drop.
+    static func reconnectDelaySeconds(attempt: Int) -> TimeInterval {
+        let n = max(attempt, 1)
+        let shift = min(n - 1, 5)
+        return min(30, TimeInterval(1 << shift))
+    }
+
+    static func reconnectDelayNanoseconds(attempt: Int) -> UInt64 {
+        UInt64(reconnectDelaySeconds(attempt: attempt) * 1_000_000_000)
+    }
 
     func connect(host: String, port: UInt16, clientID: String, username: String, password: String) {
         queue.async { [weak self] in
-            self?.connectOnQueue(host: host, port: port, clientID: clientID, username: username, password: password)
+            guard let self else { return }
+            self.generation &+= 1
+            let gen = self.generation
+            self.connectOnQueue(
+                host: host, port: port, clientID: clientID, username: username, password: password,
+                generation: gen
+            )
         }
     }
 
-    private func connectOnQueue(host: String, port: UInt16, clientID: String, username: String, password: String) {
+    private func connectOnQueue(
+        host: String,
+        port: UInt16,
+        clientID: String,
+        username: String,
+        password: String,
+        generation: UInt64
+    ) {
         pingTimer?.cancel()
         pingTimer = nil
         connection?.cancel()
@@ -41,15 +68,18 @@ final class MQTT311Client: @unchecked Sendable {
         )
         connection = conn
         conn.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
+            guard let self, generation == self.generation else { return }
             switch state {
             case .ready:
-                self.receiveLoop()
-                self.send(Self.connectPacket(
-                    clientID: clientID, username: username, password: password, keepAlive: self.keepAlive
-                ))
+                self.receiveLoop(generation: generation)
+                self.send(
+                    Self.connectPacket(
+                        clientID: clientID, username: username, password: password, keepAlive: self.keepAlive
+                    ),
+                    generation: generation
+                )
             case let .failed(err):
-                self.fail("\(err)")
+                self.fail("\(err)", generation: generation)
             default:
                 break
             }
@@ -60,19 +90,21 @@ final class MQTT311Client: @unchecked Sendable {
     func subscribe(_ topic: String) {
         queue.async { [weak self] in
             guard let self else { return }
-            self.send(Self.subscribePacket(id: self.nextID(), topic: topic))
+            self.send(Self.subscribePacket(id: self.nextID(), topic: topic), generation: self.generation)
         }
     }
 
     func publish(topic: String, payload: Data) {
         queue.async { [weak self] in
-            self?.send(Self.publishPacket(topic: topic, payload: payload))
+            guard let self else { return }
+            self.send(Self.publishPacket(topic: topic, payload: payload), generation: self.generation)
         }
     }
 
     func disconnect() {
         queue.async { [weak self] in
             guard let self else { return }
+            self.generation &+= 1
             self.pingTimer?.cancel()
             self.pingTimer = nil
             self.connection?.cancel()
@@ -81,14 +113,17 @@ final class MQTT311Client: @unchecked Sendable {
         }
     }
 
-    private func fail(_ reason: String?) {
+    private func fail(_ reason: String?, generation: UInt64) {
+        guard generation == self.generation else { return }
+        self.generation &+= 1
         pingTimer?.cancel()
         pingTimer = nil
         connection?.cancel()
         connection = nil
         buffer.removeAll()
-        let cb = onDisconnect
-        DispatchQueue.main.async { cb?(reason) }
+        DispatchQueue.main.async { [weak self] in
+            self?.onDisconnect?(reason)
+        }
     }
 
     private func nextID() -> UInt16 {
@@ -96,32 +131,33 @@ final class MQTT311Client: @unchecked Sendable {
         return packetID
     }
 
-    private func send(_ data: Data) {
+    private func send(_ data: Data, generation: UInt64) {
         connection?.send(content: data, completion: .contentProcessed { [weak self] err in
-            if let err { self?.fail("\(err)") }
+            if let err { self?.fail("\(err)", generation: generation) }
         })
     }
 
-    private func receiveLoop() {
-        connection?.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, err in
-            guard let self else { return }
+    private func receiveLoop(generation: UInt64) {
+        connection?.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) {
+            [weak self] data, _, isComplete, err in
+            guard let self, generation == self.generation else { return }
             if let err {
-                self.fail("\(err)")
+                self.fail("\(err)", generation: generation)
                 return
             }
             if let data, !data.isEmpty {
                 self.buffer.append(data)
-                self.drain()
+                self.drain(generation: generation)
             }
             if isComplete {
-                self.fail("closed")
+                self.fail("closed", generation: generation)
                 return
             }
-            self.receiveLoop()
+            self.receiveLoop(generation: generation)
         }
     }
 
-    private func drain() {
+    private func drain(generation: UInt64) {
         while true {
             let bytes = [UInt8](buffer)
             guard bytes.count >= 2 else { return }
@@ -130,24 +166,27 @@ final class MQTT311Client: @unchecked Sendable {
             guard bytes.count >= total else { return }
             let packet = Array(bytes.prefix(total))
             buffer = Data(bytes.dropFirst(total))
-            handle(packet)
+            handle(packet, generation: generation)
         }
     }
 
-    private func handle(_ packet: [UInt8]) {
+    private func handle(_ packet: [UInt8], generation: UInt64) {
         guard let first = packet.first else { return }
         let type = first >> 4
         switch type {
         case 2: // CONNACK
             let code = packet.count >= 4 ? packet[3] : 1
             if code == 0 {
-                startPing()
-                DispatchQueue.main.async { [weak self] in self?.onConnect?() }
+                startPing(generation: generation)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, generation == self.generation else { return }
+                    self.onConnect?()
+                }
             } else {
-                fail("MQTT CONNACK \(code)")
+                fail("MQTT CONNACK \(code)", generation: generation)
             }
         case 3: // PUBLISH
-            parsePublish(packet)
+            parsePublish(packet, generation: generation)
         case 13: // PINGRESP
             break
         default:
@@ -155,7 +194,7 @@ final class MQTT311Client: @unchecked Sendable {
         }
     }
 
-    private func parsePublish(_ packet: [UInt8]) {
+    private func parsePublish(_ packet: [UInt8], generation: UInt64) {
         guard let first = packet.first,
               let (len, size) = Self.decodeRemainingLength(packet, start: 1) else { return }
         let qos = (first >> 1) & 0x03
@@ -169,15 +208,19 @@ final class MQTT311Client: @unchecked Sendable {
         if qos > 0 { i += 2 }
         let payload = i <= packet.count ? Data(packet[i...]) : Data()
         _ = len
-        DispatchQueue.main.async { [weak self] in self?.onMessage?(topic, payload) }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, generation == self.generation else { return }
+            self.onMessage?(topic, payload)
+        }
     }
 
-    private func startPing() {
+    private func startPing(generation: UInt64) {
         pingTimer?.cancel()
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + 20, repeating: 20)
         t.setEventHandler { [weak self] in
-            self?.send(Data([0xC0, 0x00]))
+            guard let self, generation == self.generation else { return }
+            self.send(Data([0xC0, 0x00]), generation: generation)
         }
         t.resume()
         pingTimer = t

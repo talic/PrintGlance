@@ -275,10 +275,15 @@ final class GlanceModel: ObservableObject {
     private final class Link {
         let mqtt = MQTT311Client()
         let snapshot: BambuSnapshot
+        let printer: PrinterSettings
         var timeout: Task<Void, Never>?
         var failed = false
+        /// CONNACK for this attempt. A prior session can still have `hasReport`.
+        var handshake = false
+        var reconnectAttempt = 0
 
         init(printer: PrinterSettings) {
+            self.printer = printer
             snapshot = BambuSnapshot(printerID: printer.serial, name: printer.displayName)
         }
 
@@ -346,7 +351,7 @@ final class GlanceModel: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.applySettingsAndConnect()
+                self?.reconnectAfterWake()
                 await self?.updates.checkIfDue()
             }
         }
@@ -401,22 +406,60 @@ final class GlanceModel: ObservableObject {
             link.mqtt.onDisconnect = { [weak self] reason in self?.didDisconnect(id, reason) }
             link.mqtt.onMessage = { [weak self] _, data in self?.didMessage(id, data) }
             links[id] = link
-            log("connecting \(printer.ip):8883")
-            link.mqtt.connect(
-                host: printer.ip,
-                port: 8883,
-                clientID: "printglance-\(id.suffix(6))",
-                username: "bblp",
-                password: printer.accessCode
-            )
-            link.timeout = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 8_000_000_000)
-                guard let self, !Task.isCancelled else { return }
-                guard let link = self.links[id], !link.snapshot.hasReport else { return }
-                link.failed = true
-                self.log("connect timed out \(id)")
-                self.publishSnapshot()
-            }
+            beginConnect(id)
+        }
+    }
+
+    private func reconnectAfterWake() {
+        if links.isEmpty {
+            applySettingsAndConnect()
+            return
+        }
+        for id in links.keys {
+            links[id]?.reconnectAttempt = 0
+            beginConnect(id)
+        }
+    }
+
+    private func beginConnect(_ id: String) {
+        guard let link = links[id] else { return }
+        link.timeout?.cancel()
+        link.handshake = false
+        if !link.snapshot.hasReport {
+            link.failed = false
+        }
+        let printer = link.printer
+        log("connecting \(printer.ip):8883")
+        link.mqtt.connect(
+            host: printer.ip,
+            port: 8883,
+            clientID: "printglance-\(id.suffix(6))",
+            username: "bblp",
+            password: printer.accessCode
+        )
+        link.timeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            guard let link = self.links[id], !link.handshake else { return }
+            link.failed = true
+            self.log("connect timed out \(id)")
+            link.mqtt.disconnect()
+            self.publishSnapshot()
+            self.scheduleReconnect(id)
+        }
+    }
+
+    private func scheduleReconnect(_ id: String) {
+        guard let link = links[id] else { return }
+        link.timeout?.cancel()
+        link.reconnectAttempt += 1
+        let attempt = link.reconnectAttempt
+        let ns = MQTT311Client.reconnectDelayNanoseconds(attempt: attempt)
+        log("reconnect \(id) in \(MQTT311Client.reconnectDelaySeconds(attempt: attempt))s")
+        link.timeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: ns)
+            guard let self, !Task.isCancelled else { return }
+            self.beginConnect(id)
         }
     }
 
@@ -424,21 +467,26 @@ final class GlanceModel: ObservableObject {
         guard let link = links[id] else { return }
         link.timeout?.cancel()
         link.failed = false
+        link.handshake = true
+        link.reconnectAttempt = 0
         log("connected \(id)")
         NSLog("PrintGlance: connected to printer")
         link.mqtt.subscribe("device/\(id)/report")
         let body = Data(#"{"pushing":{"command":"pushall","sequence_id":"0"}}"#.utf8)
         link.mqtt.publish(topic: "device/\(id)/request", payload: body)
         link.snapshot.markConnected(true)
+        publishSnapshot()
     }
 
     private func didDisconnect(_ id: String, _ reason: String?) {
         guard let link = links[id] else { return }
         log("disconnected \(id) \(reason ?? "")")
         NSLog("PrintGlance: printer connection dropped")
+        link.handshake = false
         link.snapshot.markConnected(false)
         link.failed = true
         publishSnapshot()
+        scheduleReconnect(id)
     }
 
     private func didMessage(_ id: String, _ data: Data) {
