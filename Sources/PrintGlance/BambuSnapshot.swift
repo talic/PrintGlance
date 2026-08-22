@@ -117,26 +117,34 @@ enum BambuPrint {
         return label.isEmpty ? nil : label
     }
 
-    static func activeFilament(_ printObj: [String: Any]) -> (String?, Int?) {
+    /// Remaining filament percent. Values below 0 mean no sensor and become nil.
+    static func remainPercent(_ raw: Any?) -> Int? {
+        guard let r = BambuJSON.intValue(raw), r >= 0 else { return nil }
+        return min(100, r)
+    }
+
+    static func taskId(_ printObj: [String: Any]) -> String? {
+        jobIdentity(printObj)
+    }
+
+    static func activeFilament(_ printObj: [String: Any]) -> (type: String?, remain: Int?, tray: Int?) {
         let ams = BambuJSON.dict(printObj["ams"]) ?? [:]
         var now = BambuJSON.intValue(ams["tray_now"])
         if now == nil { now = BambuJSON.intValue(ams["tray_tar"]) }
-        guard let now, now != 255 else { return (nil, nil) }
+        guard let now, now != 255 else { return (nil, nil, nil) }
         var tray: [String: Any]?
         if now == 254 {
             tray = BambuJSON.dict(printObj["vt_tray"])
         } else {
             tray = findAMSTray(ams, idx: now)
         }
-        guard let tray else { return (nil, nil) }
+        guard let tray else { return (nil, nil, nil) }
         var fil: String?
         if let raw = BambuJSON.stringValue(tray["tray_type"]) ?? BambuJSON.stringValue(tray["type"]) {
             let t = raw.trimmingCharacters(in: .whitespaces)
             if !t.isEmpty { fil = String(t.prefix(8)) }
         }
-        var remain = BambuJSON.intValue(tray["remain"])
-        if let r = remain { remain = min(100, max(0, r)) }
-        return (fil, remain)
+        return (fil, remainPercent(tray["remain"]), now)
     }
 
     private static func findAMSTray(_ ams: [String: Any], idx: Int) -> [String: Any]? {
@@ -204,8 +212,8 @@ enum BambuPrint {
             layer: layer,
             layerTotal: layerTotal,
             eta: etaHM(state: state, remainingS: remainingS),
-            filament: fil.0,
-            filamentRemain: fil.1,
+            filament: fil.type,
+            filamentRemain: fil.remain,
             jobId: jobIdentity(printObj)
         )
     }
@@ -214,7 +222,7 @@ enum BambuPrint {
 final class BambuSnapshot {
     let printerID: String
     var name: String
-    private var printObj: [String: Any] = [:]
+    private(set) var printObj: [String: Any] = [:]
     private var lastReport: Date?
     private var connected = false
 
@@ -248,5 +256,31 @@ final class BambuSnapshot {
     func doc() -> PrintDoc {
         let row = printer()
         return PrintDoc(v: 1, updatedAt: nil, focusId: row.id, printers: [row])
+    }
+
+    static func fleetDoc(
+        printers: [PrinterSettings],
+        snapshots: [String: BambuSnapshot],
+        focusId: String?
+    ) -> PrintDoc {
+        let rows: [Printer] = printers.map { p in
+            if let snap = snapshots[p.serial] {
+                return snap.printer()
+            }
+            return Printer(
+                id: p.serial,
+                name: p.displayName,
+                state: "OFFLINE",
+                percent: nil,
+                remainingS: nil,
+                job: nil,
+                layer: nil,
+                layerTotal: nil,
+                eta: nil,
+                filament: nil,
+                filamentRemain: nil
+            )
+        }
+        return PrintDoc(v: 1, updatedAt: nil, focusId: focusId, printers: rows)
     }
 }

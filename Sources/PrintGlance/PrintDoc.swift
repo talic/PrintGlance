@@ -14,7 +14,15 @@ struct PrintDoc: Codable, Equatable, Sendable {
         if let id = focusId, let row = printers.first(where: { $0.id == id }) {
             return row
         }
-        return printers.first
+        let active = printers.first {
+            switch $0.state.uppercased() {
+            case "RUNNING", "PREPARE": return true
+            default: return false
+            }
+        }
+        return active
+            ?? printers.first { $0.state.uppercased() == "PAUSE" }
+            ?? printers.first
     }
 }
 

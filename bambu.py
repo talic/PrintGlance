@@ -142,6 +142,14 @@ def _find_ams_tray(ams: dict[str, Any], idx: int) -> dict[str, Any] | None:
     return None
 
 
+def _remain_percent(raw: Any) -> int | None:
+    """Remaining filament percent. Values below 0 mean no sensor and become None."""
+    remain = _int_or_none(raw)
+    if remain is None or remain < 0:
+        return None
+    return min(100, remain)
+
+
 def active_filament(print_obj: dict[str, Any]) -> tuple[str | None, int | None]:
     """Active AMS (or external) tray type and remain %."""
     ams = print_obj.get("ams")
@@ -167,10 +175,7 @@ def active_filament(print_obj: dict[str, Any]) -> tuple[str | None, int | None]:
     fil = None
     if isinstance(raw_type, str):
         fil = raw_type.strip()[:8] or None
-    remain = _int_or_none(tray.get("remain"))
-    if remain is not None:
-        remain = max(0, min(100, remain))
-    return fil, remain
+    return fil, _remain_percent(tray.get("remain"))
 
 
 def eta_hm(state: str, remaining_s: int | None) -> str | None:
@@ -500,6 +505,17 @@ def self_test() -> int:
     assert active_filament(
         {"ams": {"tray_now": 254}, "vt_tray": {"tray_type": "PETG", "remain": 80}}
     ) == ("PETG", 80)
+    assert active_filament(
+        {
+            "ams": {
+                "tray_now": 1,
+                "ams": [{"tray": [{"id": "1", "tray_type": "PLA", "remain": -1}]}],
+            }
+        }
+    ) == ("PLA", None)
+    assert active_filament(
+        {"ams": {"tray_now": 254}, "vt_tray": {"tray_type": "PETG"}}
+    ) == ("PETG", None)
     fil_row = printer_row("x2d", "X2D", {"gcode_state": "IDLE", "ams": ams}, online=True)
     assert fil_row["filament"] == "PLA"
     assert fil_row["filament_remain"] == 42
