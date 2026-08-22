@@ -37,6 +37,7 @@ struct GlanceView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Download PrintGlance update")
                     }
+                    VersionLine()
                 }
                 .padding(14)
                 .frame(width: 248, alignment: .leading)
@@ -322,6 +323,15 @@ struct GlanceView: View {
             .font(.caption)
             .foregroundStyle(.tertiary)
         }
+    }
+}
+
+struct VersionLine: View {
+    var body: some View {
+        Text("PrintGlance \(AppUpdate.bundledVersion)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("PrintGlance version \(AppUpdate.bundledVersion)")
     }
 }
 
