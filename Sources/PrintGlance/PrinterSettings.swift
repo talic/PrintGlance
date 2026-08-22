@@ -1,6 +1,7 @@
 import Foundation
 import Security
 
+/// Reads a 1.1.7 Keychain item so the first launch can put the code on the printer row.
 enum AccessCodeStore {
     static let service = "local.PrintGlance.accessCode"
 
@@ -115,32 +116,17 @@ struct SavedPrinters: Equatable {
     }
 
     func save(to d: UserDefaults = .standard) {
-        let useKeychain = d === UserDefaults.standard
-        if useKeychain {
-            let previous = (d.array(forKey: Self.printersKey) as? [[String: Any]] ?? [])
-                .compactMap { $0["serial"] as? String }
-            let keep = Set(printers.map(\.serial))
-            for serial in previous where !keep.contains(serial) {
-                AccessCodeStore.delete(serial)
-            }
-        }
         let arr: [[String: String]] = printers.map { p in
-            if useKeychain {
-                AccessCodeStore.set(p.serial, p.accessCode)
-            }
-            var row = [
+            [
                 "ip": p.ip,
                 "serial": p.serial,
                 "name": p.name,
+                "accessCode": p.accessCode,
             ]
-            if !useKeychain {
-                row["accessCode"] = p.accessCode
-            }
-            return row
         }
         d.set(arr, forKey: Self.printersKey)
         d.set(focusId, forKey: Self.focusKey)
-        if useKeychain {
+        if d === UserDefaults.standard {
             d.removeObject(forKey: Self.legacyCode)
         }
     }
@@ -193,30 +179,22 @@ struct SavedPrinters: Equatable {
             .hydratingCodes(from: d)
     }
 
-    /// UserDefaults.standard keeps the MQTT password in Keychain, not the plist.
-    /// Suite defaults (tests) still store `accessCode` on the printer row.
+    /// 1.1.7 stored the MQTT password in Keychain. Copy it back onto the row
+    /// once, then delete the Keychain item so ad-hoc zips stop prompting.
     fileprivate func hydratingCodes(from d: UserDefaults) -> SavedPrinters {
-        guard d === UserDefaults.standard else { return self }
+        var dirty = false
         let printers = self.printers.map { p -> PrinterSettings in
             var p = p
-            if p.accessCode.isEmpty {
-                p.accessCode = AccessCodeStore.get(p.serial) ?? ""
-            } else {
-                AccessCodeStore.set(p.serial, p.accessCode)
+            if p.accessCode.isEmpty, let code = AccessCodeStore.get(p.serial), !code.isEmpty {
+                p.accessCode = code
+                AccessCodeStore.delete(p.serial)
+                dirty = true
             }
             return p
         }
         let next = SavedPrinters(printers: printers, focusId: focusId)
-        if printers.contains(where: { !$0.accessCode.isEmpty }) {
-            let raw = d.array(forKey: Self.printersKey) ?? []
-            let plistHasCode = raw.contains { item in
-                guard let dict = item as? [String: Any] else { return false }
-                let code = dict["accessCode"] as? String ?? ""
-                return !code.isEmpty
-            }
-            if plistHasCode || d.object(forKey: Self.legacyCode) != nil {
-                next.save(to: d)
-            }
+        if dirty {
+            next.save(to: d)
         }
         return next
     }
