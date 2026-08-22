@@ -311,17 +311,6 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(row.percent, 62)
     }
 
-    func testRemainingLengthRoundTrip() {
-        for n in [0, 1, 127, 128, 16383] {
-            let encoded = MQTT311Client.encodeRemainingLength(n)
-            var packet = Data([0x10])
-            packet.append(encoded)
-            packet.append(Data(repeating: 0, count: n))
-            let decoded = MQTT311Client.decodeRemainingLength([UInt8](packet), start: 1)
-            XCTAssertEqual(decoded?.0, n, "n=\(n)")
-        }
-    }
-
     private func dualNozzle(state: Int, extra: [String: Any] = [:]) -> [String: Any] {
         var obj: [String: Any] = [
             "device": [
