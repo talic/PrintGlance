@@ -142,6 +142,22 @@ enum BambuPrint {
         return (filamentName(tray), remainPercent(tray["remain"]), now, trayColorHex(tray))
     }
 
+    /// Returns Left or Right for the nozzle that is down.
+    /// Reads `device.extruder.state` bits 4 to 7 (0 is Right, 1 is Left). Nil on a single-nozzle printer.
+    static func activeNozzle(_ printObj: [String: Any]) -> String? {
+        let device = BambuJSON.dict(printObj["device"]) ?? [:]
+        let extruder = BambuJSON.dict(device["extruder"]) ?? [:]
+        guard let packed = BambuJSON.intValue(extruder["state"]) else { return nil }
+        let count = packed & 0xF
+        let infoCount = BambuJSON.array(extruder["info"])?.count ?? 0
+        guard count >= 2 || infoCount >= 2 else { return nil }
+        switch (packed >> 4) & 0xF {
+        case 0: return "Right"
+        case 1: return "Left"
+        default: return nil
+        }
+    }
+
     /// MQTT `tray_color` or first `cols` entry, as RRGGBBAA. Nil if missing or fully transparent.
     static func trayColorHex(_ tray: [String: Any]) -> String? {
         if let hex = normalizeFilamentColor(trayString(tray, "tray_color")) { return hex }
@@ -372,6 +388,7 @@ enum BambuPrint {
             filament: fil.type,
             filamentRemain: fil.remain,
             filamentColor: fil.color,
+            nozzle: activeNozzle(printObj),
             jobId: jobIdentity(printObj)
         )
     }
