@@ -77,6 +77,15 @@ final class FilamentAlertTests: XCTestCase {
                 taskId: "task-1"
             )
         )
+
+        XCTAssertEqual(
+            BambuPrint.taskId(["subtask_id": "sub-9"]),
+            "sub-9"
+        )
+        XCTAssertEqual(
+            BambuPrint.taskId(["task_id": "task-1", "subtask_id": "sub-9"]),
+            "task-1"
+        )
     }
 
     private func ams(
