@@ -275,6 +275,31 @@ final class PrintDocTests: XCTestCase {
         )
     }
 
+    func testActiveNozzleLeftRight() {
+        XCTAssertEqual(BambuPrint.activeNozzle(dualNozzle(state: 2)), "Right")
+        XCTAssertEqual(BambuPrint.activeNozzle(dualNozzle(state: 18)), "Left")
+        XCTAssertEqual(BambuPrint.activeNozzle(dualNozzle(state: 33042)), "Left")
+        XCTAssertNil(BambuPrint.activeNozzle(["gcode_state": "RUNNING"]))
+        XCTAssertNil(BambuPrint.activeNozzle([
+            "device": ["extruder": ["state": 1, "info": [["id": 0]]]],
+        ]))
+
+        let right = BambuPrint.row(
+            id: "h2d",
+            name: "H2D",
+            printObj: dualNozzle(state: 2, extra: ["gcode_state": "RUNNING"]),
+            online: true
+        )
+        XCTAssertEqual(right.nozzle, "Right")
+        XCTAssertEqual(GlanceContent.filamentLine(right), "Right")
+
+        var withFil = right
+        withFil.filament = "PLA"
+        withFil.filamentRemain = 42
+        XCTAssertEqual(GlanceContent.filamentLine(withFil), "PLA  42% · Right")
+        XCTAssertTrue(GlanceContent.strip(row: withFil).accessibilityLabel.contains("right nozzle"))
+    }
+
     func testRowOfflineKeepsPercent() {
         let row = BambuPrint.row(
             id: "x2d",
@@ -295,6 +320,21 @@ final class PrintDocTests: XCTestCase {
             let decoded = MQTT311Client.decodeRemainingLength([UInt8](packet), start: 1)
             XCTAssertEqual(decoded?.0, n, "n=\(n)")
         }
+    }
+
+    private func dualNozzle(state: Int, extra: [String: Any] = [:]) -> [String: Any] {
+        var obj: [String: Any] = [
+            "device": [
+                "extruder": [
+                    "state": state,
+                    "info": [["id": 0], ["id": 1]],
+                ],
+            ],
+        ]
+        for (k, v) in extra {
+            obj[k] = v
+        }
+        return obj
     }
 
     private func load(_ name: String) throws -> PrintDoc {

@@ -225,11 +225,21 @@ struct GlanceContent: Equatable, Sendable {
     }
 
     static func filamentLine(_ row: Printer) -> String? {
-        guard let fil = row.filament, !fil.isEmpty else { return nil }
-        if let remain = row.filamentRemain {
-            return "\(fil)  \(remain)%"
+        var text: String?
+        if let fil = row.filament, !fil.isEmpty {
+            if let remain = row.filamentRemain {
+                text = "\(fil)  \(remain)%"
+            } else {
+                text = fil
+            }
         }
-        return fil
+        if let nozzle = row.nozzle, !nozzle.isEmpty {
+            if let text {
+                return "\(text) · \(nozzle)"
+            }
+            return nozzle
+        }
+        return text
     }
 
     private static func a11y(_ row: Printer) -> String {
@@ -242,6 +252,9 @@ struct GlanceContent: Equatable, Sendable {
         }
         if let layer = layerLine(row) {
             parts.append(layer.lowercased())
+        }
+        if let nozzle = row.nozzle, !nozzle.isEmpty {
+            parts.append("\(nozzle.lowercased()) nozzle")
         }
         return parts.joined(separator: ", ")
     }
