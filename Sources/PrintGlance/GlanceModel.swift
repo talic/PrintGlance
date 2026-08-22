@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import UserNotifications
 
 struct StripPresentation: Equatable, Hashable, Sendable {
     var systemImage: String
@@ -250,13 +251,33 @@ struct GlanceContent: Equatable, Sendable {
 final class GlanceModel: ObservableObject {
     @Published private(set) var content = GlanceContent(result: .needsSetup)
     @Published private(set) var availableUpdate: String?
-    @Published var settings = PrinterSettings.load()
+    @Published var settings: PrinterSettings
+    @Published var notifyPrefs: PrintNotifyPrefs {
+        didSet {
+            notify.prefs = notifyPrefs
+            notifyPrefs.save(.standard)
+        }
+    }
 
     private let mqtt = MQTT311Client()
     private let updates = AppUpdateChecker()
     private var snapshot: BambuSnapshot?
     private var staleTask: Task<Void, Never>?
     private var connectTimeout: Task<Void, Never>?
+    private var notify: PrintNotify
+    private let notifyPresenter = PrintNotifyPresenter()
+
+    init() {
+        let settings = PrinterSettings.load()
+        let prefs = PrintNotifyPrefs.load(.standard)
+        self.settings = settings
+        self.notify = PrintNotify(
+            serial: settings.serial,
+            prefs: prefs,
+            stamp: PrintNotifyStamp.load(.standard)
+        )
+        self.notifyPrefs = prefs
+    }
 
     private func log(_ msg: String) {
         let line = "\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
@@ -274,6 +295,7 @@ final class GlanceModel: ObservableObject {
     var strip: StripPresentation { content.strip }
 
     func start() {
+        UNUserNotificationCenter.current().delegate = notifyPresenter
         mqtt.onConnect = { [weak self] in self?.didConnect() }
         mqtt.onDisconnect = { [weak self] reason in self?.didDisconnect(reason) }
         mqtt.onMessage = { [weak self] _, data in self?.didMessage(data) }
@@ -308,6 +330,7 @@ final class GlanceModel: ObservableObject {
     func saveSettings(_ next: PrinterSettings) {
         next.save()
         settings = next
+        notify.serial = next.serial
         applySettingsAndConnect()
     }
 
@@ -378,7 +401,39 @@ final class GlanceModel: ObservableObject {
 
     private func apply(_ next: GlanceContent) {
         if content != next {
+            let outcome = notify.observe(next)
+            notify.persistStamp(.standard)
+            deliver(outcome)
             content = next
         }
+    }
+
+    private func deliver(_ outcome: PrintNotifyOutcome) {
+        if outcome.requestPermission {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
+        guard let alert = outcome.alert else { return }
+        let content = UNMutableNotificationContent()
+        content.title = alert.title
+        content.body = alert.body
+        content.sound = .default
+        let id = settings.serial.isEmpty ? "printer" : settings.serial
+        let request = UNNotificationRequest(
+            identifier: "pg.\(alert.kind.rawValue).\(id)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+}
+
+/// Menu bar extras stay running, so banners must be presented while the extra is active.
+private final class PrintNotifyPresenter: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
     }
 }
