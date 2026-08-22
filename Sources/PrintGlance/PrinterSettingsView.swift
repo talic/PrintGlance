@@ -75,6 +75,7 @@ struct PrinterSettingsView: View {
                 .disabled(!settings.trimmed.isComplete)
                 .keyboardShortcut(.defaultAction)
             }
+            VersionLine()
         }
         .padding(14)
         .frame(width: 280)

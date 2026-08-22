@@ -35,7 +35,7 @@ The Mac and the printer must be on the same Wi-Fi network. Guest Wi-Fi that isol
 3. Enter the IP address, serial number, and access code. Name is optional.
 4. Click **Save**.
 
-When a print is running, the menu bar shows percent and finish time. Click the icon for more detail.
+When a print is running, the menu bar shows percent and finish time. Click the icon for more detail. The print card and the printer form show **PrintGlance** and the version you are running.
 
 The access code stays on this Mac. PrintGlance does not send it to the internet.
 
