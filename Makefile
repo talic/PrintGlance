@@ -8,8 +8,9 @@ PREFIX   := $(HOME)/Applications
 BUILD    := .build/release/$(APP_NAME)
 APP      := dist/$(APP_NAME).app
 ZIP      := dist/$(APP_NAME).zip
+ICNS     := dist/AppIcon.icns
 
-.PHONY: test release app zip install clean
+.PHONY: test release app zip install clean icon
 
 test:
 	swift test
@@ -17,12 +18,21 @@ test:
 release:
 	swift build -c release
 
-app: release
+icon: $(ICNS)
+
+$(ICNS): scripts/render-appicon.swift
+	mkdir -p dist
+	swift scripts/render-appicon.swift $(ICNS)
+	test -f $(ICNS)
+
+app: release $(ICNS)
 	rm -rf $(APP)
-	mkdir -p $(APP)/Contents/MacOS
+	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp $(BUILD) $(APP)/Contents/MacOS/$(APP_NAME)
 	cp Info.plist $(APP)/Contents/Info.plist
 	printf 'APPL????' > $(APP)/Contents/PkgInfo
+	cp $(ICNS) $(APP)/Contents/Resources/AppIcon.icns
+	test -f $(APP)/Contents/Resources/AppIcon.icns
 	codesign -s - --force $(APP)
 
 zip: app
