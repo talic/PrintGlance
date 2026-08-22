@@ -4,6 +4,14 @@ PrintGlance is a small icon in the Mac menu bar. While your Bambu printer is pri
 
 PrintGlance runs on your Mac. It talks to printers on your Wi-Fi. You can watch up to four printers. Once a day it checks GitHub for a newer PrintGlance version. It does not use Bambu's cloud. It does not pause, stop, or start prints. It only asks printers for status and shows it.
 
+<p align="center">
+  <img src="docs/menu-bar.png" alt="PrintGlance in the Mac menu bar, showing percent complete and a finish time" width="226">
+</p>
+
+<p align="center">
+  <img src="docs/print-card.png" alt="PrintGlance print card for a running print, with remaining time, layer, and filament" width="496">
+</p>
+
 ## What you need
 
 - A Mac with macOS 14 or later
