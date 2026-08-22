@@ -88,6 +88,34 @@ final class FilamentAlertTests: XCTestCase {
         )
     }
 
+    func testSecondAMSUsesGlobalTrayNow() {
+        let printObj: [String: Any] = [
+            "ams": [
+                "tray_now": 4,
+                "ams": [
+                    [
+                        "id": "0",
+                        "tray": [
+                            ["id": "0", "tray_type": "ABS", "remain": 5],
+                            ["id": "1", "tray_type": "PLA", "remain": 90],
+                        ],
+                    ],
+                    [
+                        "id": "1",
+                        "tray": [
+                            ["id": "0", "tray_type": "PETG", "remain": 33],
+                            ["id": "1", "tray_type": "TPU", "remain": 12],
+                        ],
+                    ],
+                ],
+            ]
+        ]
+        let fil = BambuPrint.activeFilament(printObj)
+        XCTAssertEqual(fil.type, "PETG")
+        XCTAssertEqual(fil.remain, 33)
+        XCTAssertEqual(fil.tray, 4)
+    }
+
     func testFilamentNameFromSkuAndSubBrand() {
         let pure = BambuPrint.activeFilament(
             ams(

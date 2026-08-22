@@ -302,13 +302,25 @@ enum BambuPrint {
 
     private static func findAMSTray(_ ams: [String: Any], idx: Int) -> [String: Any]? {
         guard let units = BambuJSON.array(ams["ams"]) else { return nil }
-        for unit in units {
+        // tray_now is global (AMS1 = 0–3, AMS2 = 4–7). Each unit's tray ids are 0–3.
+        if let hit = matchAMSTray(units, unitId: idx / 4, trayId: idx % 4) {
+            return hit
+        }
+        return matchAMSTray(units, unitId: nil, trayId: idx)
+    }
+
+    private static func matchAMSTray(_ units: [Any], unitId: Int?, trayId: Int) -> [String: Any]? {
+        for (i, unit) in units.enumerated() {
             guard let unit = BambuJSON.dict(unit), let trays = BambuJSON.array(unit["tray"]) else {
                 continue
             }
+            if let unitId {
+                let uid = BambuJSON.intValue(unit["id"]) ?? i
+                if uid != unitId { continue }
+            }
             for tray in trays {
                 guard let tray = BambuJSON.dict(tray) else { continue }
-                if BambuJSON.intValue(tray["id"]) == idx { return tray }
+                if BambuJSON.intValue(tray["id"]) == trayId { return tray }
             }
         }
         return nil
