@@ -112,6 +112,12 @@ struct GlanceView: View {
     private var overflowMenu: some View {
         Menu {
             Button("Printer") { openPrinter() }
+            Menu("Notifications") {
+                Toggle("Print finished", isOn: $model.notifyPrefs.finish)
+                Toggle("Print failed", isOn: $model.notifyPrefs.fail)
+                Toggle("Print paused", isOn: $model.notifyPrefs.pause)
+                Toggle("Printer went offline", isOn: $model.notifyPrefs.offline)
+            }
             Toggle("Open at Login", isOn: $openAtLogin)
             if model.availableUpdate != nil {
                 Button("Download update") { model.openUpdatePage() }

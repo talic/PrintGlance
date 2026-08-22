@@ -30,6 +30,8 @@ struct Printer: Codable, Equatable, Sendable {
     var eta: String?
     var filament: String?
     var filamentRemain: Int?
+    /// MQTT `task_id`, or `subtask_id` when `task_id` is missing. Not the display job label.
+    var jobId: String? = nil
 }
 
 enum FeedResult: Equatable, Sendable {

@@ -194,19 +194,27 @@ final class PrintDocTests: XCTestCase {
 }
 
 extension Printer {
-    init(id: String, name: String, state: String, percent: Int? = nil) {
+    init(
+        id: String,
+        name: String,
+        state: String,
+        percent: Int? = nil,
+        job: String? = nil,
+        jobId: String? = nil
+    ) {
         self.init(
             id: id,
             name: name,
             state: state,
             percent: percent,
             remainingS: nil,
-            job: nil,
+            job: job,
             layer: nil,
             layerTotal: nil,
             eta: nil,
             filament: nil,
-            filamentRemain: nil
+            filamentRemain: nil,
+            jobId: jobId
         )
     }
 }

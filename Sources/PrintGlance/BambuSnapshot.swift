@@ -94,6 +94,13 @@ enum BambuPrint {
             .trimmingCharacters(in: .whitespaces)
     }
 
+    static func jobIdentity(_ printObj: [String: Any]) -> String? {
+        let task = stringify(printObj["task_id"])
+        if !task.isEmpty { return task }
+        let sub = stringify(printObj["subtask_id"])
+        return sub.isEmpty ? nil : sub
+    }
+
     static func jobLabel(_ printObj: [String: Any]) -> String? {
         var label: String
         if let stem = humanGcodeStem(printObj["gcode_file"]) {
@@ -198,7 +205,8 @@ enum BambuPrint {
             layerTotal: layerTotal,
             eta: etaHM(state: state, remainingS: remainingS),
             filament: fil.0,
-            filamentRemain: fil.1
+            filamentRemain: fil.1,
+            jobId: jobIdentity(printObj)
         )
     }
 }
