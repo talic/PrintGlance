@@ -36,6 +36,8 @@ install: app
 	cp -R $(APP) $(PREFIX)/$(APP_NAME).app
 	@if [ -f .env ]; then \
 	  set -a; . ./.env; set +a; \
+	  defaults delete local.PrintGlance printers >/dev/null 2>&1 || true; \
+	  defaults delete local.PrintGlance printerFocusId >/dev/null 2>&1 || true; \
 	  [ -n "$$BAMBU_IP" ] && defaults write local.PrintGlance printerIP "$$BAMBU_IP"; \
 	  [ -n "$$BAMBU_SERIAL" ] && defaults write local.PrintGlance printerSerial "$$BAMBU_SERIAL"; \
 	  [ -n "$$BAMBU_ACCESS_CODE" ] && defaults write local.PrintGlance printerAccessCode "$$BAMBU_ACCESS_CODE"; \
