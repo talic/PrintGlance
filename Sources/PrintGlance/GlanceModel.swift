@@ -262,6 +262,7 @@ final class GlanceModel: ObservableObject {
     private let mqtt = MQTT311Client()
     private let updates = AppUpdateChecker()
     private var snapshot: BambuSnapshot?
+    private var filament = FilamentAlert()
     private var staleTask: Task<Void, Never>?
     private var connectTimeout: Task<Void, Never>?
     private var notify: PrintNotify
@@ -396,7 +397,34 @@ final class GlanceModel: ObservableObject {
 
     private func publishSnapshot() {
         guard settings.isComplete, let snapshot, snapshot.hasReport else { return }
-        apply(GlanceContent(result: .doc(snapshot.doc())))
+        let doc = snapshot.doc()
+        apply(GlanceContent(result: .doc(doc)))
+        guard let row = doc.focusRow() else { return }
+        let fil = BambuPrint.activeFilament(snapshot.printObj)
+        if let notice = filament.consider(
+            serial: row.id,
+            name: row.name,
+            state: row.state,
+            filament: fil.type,
+            tray: fil.tray,
+            remain: fil.remain,
+            taskId: BambuPrint.taskId(snapshot.printObj)
+        ) {
+            deliverFilament(notice)
+        }
+    }
+
+    private func deliverFilament(_ notice: FilamentAlert.Notice) {
+        let content = UNMutableNotificationContent()
+        content.title = notice.title
+        content.body = notice.body
+        content.sound = .default
+        let req = UNNotificationRequest(
+            identifier: notice.identifier,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(req)
     }
 
     private func apply(_ next: GlanceContent) {
