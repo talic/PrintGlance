@@ -249,9 +249,11 @@ struct GlanceContent: Equatable, Sendable {
 @MainActor
 final class GlanceModel: ObservableObject {
     @Published private(set) var content = GlanceContent(result: .needsSetup)
+    @Published private(set) var availableUpdate: String?
     @Published var settings = PrinterSettings.load()
 
     private let mqtt = MQTT311Client()
+    private let updates = AppUpdateChecker()
     private var snapshot: BambuSnapshot?
     private var staleTask: Task<Void, Never>?
     private var connectTimeout: Task<Void, Never>?
@@ -275,6 +277,11 @@ final class GlanceModel: ObservableObject {
         mqtt.onConnect = { [weak self] in self?.didConnect() }
         mqtt.onDisconnect = { [weak self] reason in self?.didDisconnect(reason) }
         mqtt.onMessage = { [weak self] _, data in self?.didMessage(data) }
+        updates.onAvailable = { [weak self] tag in
+            guard let self, self.availableUpdate != tag else { return }
+            self.availableUpdate = tag
+        }
+        updates.start()
         applySettingsAndConnect()
         staleTask = Task { @MainActor [weak self] in
             while let self, !Task.isCancelled {
@@ -289,8 +296,13 @@ final class GlanceModel: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.applySettingsAndConnect()
+                await self?.updates.checkIfDue()
             }
         }
+    }
+
+    func openUpdatePage() {
+        NSWorkspace.shared.open(AppUpdate.latestReleaseURL)
     }
 
     func saveSettings(_ next: PrinterSettings) {
