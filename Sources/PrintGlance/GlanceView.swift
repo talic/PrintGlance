@@ -148,6 +148,8 @@ struct GlanceView: View {
                     .font(.system(size: 28, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 if let left = GlanceContent.remainingLine(row) {
                     Text(left)
                         .font(.subheadline)
