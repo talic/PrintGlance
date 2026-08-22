@@ -3,9 +3,7 @@ import SwiftUI
 
 extension View {
     /// MenuBarExtra `.window` on Tahoe draws a glass panel larger than the
-    /// SwiftUI content. Apps behind it show through, and a second grouped
-    /// card sits inside empty chrome. Hug the panel to the view and paint it
-    /// opaque so the glance is one card.
+    /// SwiftUI content. Hug the panel to the view. Keep the system frost.
     func hugMenuBarPanel() -> some View {
         modifier(HugMenuBarPanel())
     }
@@ -15,7 +13,12 @@ private struct HugMenuBarPanel: ViewModifier {
     @State private var size = CGSize.zero
 
     func body(content: Content) -> some View {
-        opaque(content)
+        sized(content)
+    }
+
+    @ViewBuilder
+    private func sized(_ content: Content) -> some View {
+        let view = content
             .fixedSize()
             .background {
                 GeometryReader { proxy in
@@ -25,18 +28,10 @@ private struct HugMenuBarPanel: ViewModifier {
                 }
             }
             .background(MenuBarPanelHost(size: size))
-    }
-
-    @ViewBuilder
-    private func opaque(_ content: Content) -> some View {
-        let fill = Color(nsColor: .windowBackgroundColor)
         if #available(macOS 15.0, *) {
-            content
-                .containerBackground(fill, for: .window)
-                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-                .background(fill)
+            view.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         } else {
-            content.background(fill)
+            view
         }
     }
 }
@@ -69,15 +64,15 @@ private struct MenuBarPanelHost: NSViewRepresentable {
         window.titlebarAppearsTransparent = true
         window.isMovable = false
         window.hasShadow = true
-        window.isOpaque = true
-        window.backgroundColor = .windowBackgroundColor
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
         window.styleMask.remove([.titled, .closable, .miniaturizable, .resizable])
 
         if let root = window.contentView?.superview ?? window.contentView {
-            flattenVibrancy(root)
+            restoreFrost(root)
         }
 
         guard size.width > 1, size.height > 1 else { return }
@@ -92,14 +87,16 @@ private struct MenuBarPanelHost: NSViewRepresentable {
         window.invalidateShadow()
     }
 
-    private func flattenVibrancy(_ view: NSView) {
+    private func restoreFrost(_ view: NSView) {
         if let fx = view as? NSVisualEffectView {
-            fx.material = .windowBackground
-            fx.blendingMode = .withinWindow
-            fx.state = .followsWindowActiveState
+            fx.blendingMode = .behindWindow
+            fx.state = .active
+            if fx.material == .windowBackground {
+                fx.material = .popover
+            }
         }
         for child in view.subviews {
-            flattenVibrancy(child)
+            restoreFrost(child)
         }
     }
 }
