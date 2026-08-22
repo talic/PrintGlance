@@ -88,10 +88,57 @@ final class FilamentAlertTests: XCTestCase {
         )
     }
 
+    func testFilamentNameFromSkuAndSubBrand() {
+        let pure = BambuPrint.activeFilament(
+            ams(
+                now: 0,
+                trays: [(0, "PLA", 42)],
+                extra: ["tray_info_idx": "GFA19", "tray_sub_brands": ""]
+            )
+        )
+        XCTAssertEqual(pure.type, "PLA Pure")
+        XCTAssertEqual(pure.remain, 42)
+
+        let matte = BambuPrint.activeFilament(
+            ams(now: 1, trays: [(1, "PLA", 80)], extra: ["tray_info_idx": "GFA01"])
+        )
+        XCTAssertEqual(matte.type, "PLA Matte")
+
+        let named = BambuPrint.activeFilament(
+            ams(
+                now: 0,
+                trays: [(0, "PLA", 10)],
+                extra: ["tray_sub_brands": "PLA Pure", "tray_info_idx": "GFL99"]
+            )
+        )
+        XCTAssertEqual(named.type, "PLA Pure")
+
+        let bambuPrefix = BambuPrint.activeFilament(
+            ams(now: 0, trays: [(0, "PLA", 10)], extra: ["tray_sub_brands": "Bambu PLA Matte"])
+        )
+        XCTAssertEqual(bambuPrefix.type, "PLA Matte")
+
+        let typeOnly = BambuPrint.activeFilament(
+            ams(now: 0, trays: [(0, "PLA Matte", 10)])
+        )
+        XCTAssertEqual(typeOnly.type, "PLA Matte")
+
+        let unknownIdx = BambuPrint.activeFilament(
+            ams(now: 0, trays: [(0, "PLA", 10)], extra: ["tray_info_idx": "GFA99"])
+        )
+        XCTAssertEqual(unknownIdx.type, "PLA")
+
+        var row = Printer(id: "x2d", name: "X2D", state: "RUNNING")
+        row.filament = "PLA Pure"
+        row.filamentRemain = 42
+        XCTAssertEqual(GlanceContent.filamentLine(row), "PLA Pure  42%")
+    }
+
     private func ams(
         now: Int,
         trays: [(Int, String, Int?)],
-        vt: [String: Any]? = nil
+        vt: [String: Any]? = nil,
+        extra: [String: Any] = [:]
     ) -> [String: Any] {
         var obj: [String: Any] = [
             "ams": [
@@ -101,6 +148,7 @@ final class FilamentAlertTests: XCTestCase {
                     "tray": trays.map { id, type, remain -> [String: Any] in
                         var tray: [String: Any] = ["id": String(id), "tray_type": type]
                         if let remain { tray["remain"] = remain }
+                        for (k, v) in extra { tray[k] = v }
                         return tray
                     },
                 ]],

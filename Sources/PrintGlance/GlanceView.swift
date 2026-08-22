@@ -317,7 +317,10 @@ struct GlanceView: View {
                 }
                 Spacer(minLength: 8)
                 if let fil {
-                    Text(fil).monospacedDigit()
+                    Text(fil)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
             .font(.caption)
