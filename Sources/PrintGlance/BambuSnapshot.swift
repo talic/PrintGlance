@@ -257,4 +257,30 @@ final class BambuSnapshot {
         let row = printer()
         return PrintDoc(v: 1, updatedAt: nil, focusId: row.id, printers: [row])
     }
+
+    static func fleetDoc(
+        printers: [PrinterSettings],
+        snapshots: [String: BambuSnapshot],
+        focusId: String?
+    ) -> PrintDoc {
+        let rows: [Printer] = printers.map { p in
+            if let snap = snapshots[p.serial] {
+                return snap.printer()
+            }
+            return Printer(
+                id: p.serial,
+                name: p.displayName,
+                state: "OFFLINE",
+                percent: nil,
+                remainingS: nil,
+                job: nil,
+                layer: nil,
+                layerTotal: nil,
+                eta: nil,
+                filament: nil,
+                filamentRemain: nil
+            )
+        }
+        return PrintDoc(v: 1, updatedAt: nil, focusId: focusId, printers: rows)
+    }
 }

@@ -142,6 +142,93 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent(result: .needsSetup).pollInterval, 60)
     }
 
+    func testMigrateSingularSettings() throws {
+        let name = "PrintGlance.migrate.\(UUID().uuidString)"
+        let d = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { d.removePersistentDomain(forName: name) }
+        d.removePersistentDomain(forName: name)
+        d.set("192.0.2.10", forKey: "printerIP")
+        d.set("01S123", forKey: "printerSerial")
+        d.set("code", forKey: "printerAccessCode")
+        d.set("X2D", forKey: "printerName")
+
+        let first = SavedPrinters.load(from: d)
+        XCTAssertEqual(first.printers.count, 1)
+        XCTAssertEqual(first.printers[0].ip, "192.0.2.10")
+        XCTAssertEqual(first.printers[0].serial, "01S123")
+        XCTAssertEqual(first.printers[0].accessCode, "code")
+        XCTAssertEqual(first.printers[0].name, "X2D")
+        XCTAssertNil(first.focusId)
+        XCTAssertTrue(first.isComplete)
+
+        d.set("203.0.113.9", forKey: "printerIP")
+        let second = SavedPrinters.load(from: d)
+        XCTAssertEqual(second.printers[0].ip, "192.0.2.10")
+    }
+
+    func testFocusPrefersRunningThenPauseThenFirst() {
+        let idle = Printer(id: "a", name: "A", state: "IDLE")
+        let pause = Printer(id: "b", name: "B", state: "PAUSE", percent: 9)
+        let run = Printer(id: "c", name: "C", state: "RUNNING", percent: 16)
+        let prepare = Printer(id: "d", name: "D", state: "PREPARE", percent: 1)
+        XCTAssertEqual(
+            PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [idle, pause, run]).focusRow()?.id,
+            "c"
+        )
+        XCTAssertEqual(
+            PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [idle, prepare, pause]).focusRow()?.id,
+            "d"
+        )
+        XCTAssertEqual(
+            PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [idle, pause]).focusRow()?.id,
+            "b"
+        )
+        XCTAssertEqual(
+            PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [idle]).focusRow()?.id,
+            "a"
+        )
+        XCTAssertEqual(
+            PrintDoc(v: 1, updatedAt: nil, focusId: "a", printers: [idle, run]).focusRow()?.id,
+            "a"
+        )
+    }
+
+    func testEmptyListIsNeedsSetup() throws {
+        XCTAssertFalse(SavedPrinters.empty.isComplete)
+        XCTAssertFalse(SavedPrinters(printers: [PrinterSettings.empty], focusId: nil).isComplete)
+        XCTAssertEqual(GlanceContent(result: .needsSetup).footer, "Add printer")
+
+        let name = "PrintGlance.empty.\(UUID().uuidString)"
+        let d = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { d.removePersistentDomain(forName: name) }
+        d.removePersistentDomain(forName: name)
+        d.set("192.0.2.10", forKey: "printerIP")
+        d.set("01S123", forKey: "printerSerial")
+        d.set("code", forKey: "printerAccessCode")
+        _ = SavedPrinters.load(from: d)
+        SavedPrinters.empty.save(to: d)
+        XCTAssertFalse(SavedPrinters.load(from: d).isComplete)
+    }
+
+    func testTwoPrintersBothInDoc() {
+        let a = PrinterSettings(ip: "192.0.2.10", serial: "aaa", accessCode: "x", name: "Alpha")
+        let b = PrinterSettings(ip: "192.0.2.11", serial: "bbb", accessCode: "y", name: "Beta")
+        let snapA = BambuSnapshot(printerID: "aaa", name: "Alpha")
+        snapA.ingest(["print": ["gcode_state": "RUNNING", "mc_percent": 20]])
+        let snapB = BambuSnapshot(printerID: "bbb", name: "Beta")
+        snapB.ingest(["print": ["gcode_state": "IDLE"]])
+        let doc = BambuSnapshot.fleetDoc(
+            printers: [a, b],
+            snapshots: ["aaa": snapA, "bbb": snapB],
+            focusId: nil
+        )
+        XCTAssertEqual(doc.printers.count, 2)
+        XCTAssertEqual(doc.printers.map(\.id), ["aaa", "bbb"])
+        XCTAssertEqual(doc.printers[0].state, "RUNNING")
+        XCTAssertEqual(doc.printers[1].state, "IDLE")
+        XCTAssertEqual(doc.focusRow()?.id, "aaa")
+    }
+
     func testJobLabelStripsProcessSuffix() {
         XCTAssertEqual(
             BambuPrint.jobLabel(["subtask_name": "Print in Parts 0.16mm layer, 2 walls, 10% infill"]),

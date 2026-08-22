@@ -1,8 +1,10 @@
 import SwiftUI
 
 struct PrinterSettingsView: View {
+    var title: String = "Printer"
     @Binding var settings: PrinterSettings
     var onSave: (PrinterSettings) -> Void
+    var onRemove: (() -> Void)? = nil
     var onClose: () -> Void
 
     @State private var scanning = false
@@ -12,7 +14,7 @@ struct PrinterSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Printer")
+            Text(title)
                 .font(.headline)
             Text("On the printer, open Settings, then LAN or Network. Pick a printer found on this Wi-Fi, or enter the IP address and serial number. You still enter the access code. PrintGlance only reads status on your Wi-Fi. It does not pause, stop, or start a print.")
                 .font(.caption)
@@ -58,6 +60,12 @@ struct PrinterSettingsView: View {
             field("Name (optional)", text: $settings.name)
 
             HStack {
+                if onRemove != nil {
+                    Button("Remove", role: .destructive) {
+                        onRemove?()
+                        onClose()
+                    }
+                }
                 Spacer()
                 Button("Cancel") { onClose() }
                 Button("Save") {

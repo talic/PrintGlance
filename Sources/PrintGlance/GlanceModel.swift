@@ -251,7 +251,7 @@ struct GlanceContent: Equatable, Sendable {
 final class GlanceModel: ObservableObject {
     @Published private(set) var content = GlanceContent(result: .needsSetup)
     @Published private(set) var availableUpdate: String?
-    @Published var settings: PrinterSettings
+    @Published var settings = SavedPrinters.load()
     @Published var notifyPrefs: PrintNotifyPrefs {
         didSet {
             notify.prefs = notifyPrefs
@@ -259,25 +259,43 @@ final class GlanceModel: ObservableObject {
         }
     }
 
-    private let mqtt = MQTT311Client()
+    private final class Link {
+        let mqtt = MQTT311Client()
+        let snapshot: BambuSnapshot
+        var timeout: Task<Void, Never>?
+        var failed = false
+
+        init(printer: PrinterSettings) {
+            snapshot = BambuSnapshot(printerID: printer.serial, name: printer.displayName)
+        }
+
+        func tearDown() {
+            timeout?.cancel()
+            timeout = nil
+            mqtt.onConnect = nil
+            mqtt.onDisconnect = nil
+            mqtt.onMessage = nil
+            mqtt.disconnect()
+        }
+    }
+
+    private var links: [String: Link] = [:]
     private let updates = AppUpdateChecker()
-    private var snapshot: BambuSnapshot?
     private var filament = FilamentAlert()
     private var staleTask: Task<Void, Never>?
-    private var connectTimeout: Task<Void, Never>?
     private var notify: PrintNotify
     private let notifyPresenter = PrintNotifyPresenter()
 
     init() {
-        let settings = PrinterSettings.load()
+        let settings = SavedPrinters.load()
         let prefs = PrintNotifyPrefs.load(.standard)
         self.settings = settings
+        self.notifyPrefs = prefs
         self.notify = PrintNotify(
-            serial: settings.serial,
+            serial: settings.focusId ?? settings.printers.first?.serial ?? "",
             prefs: prefs,
             stamp: PrintNotifyStamp.load(.standard)
         )
-        self.notifyPrefs = prefs
     }
 
     private func log(_ msg: String) {
@@ -297,9 +315,6 @@ final class GlanceModel: ObservableObject {
 
     func start() {
         UNUserNotificationCenter.current().delegate = notifyPresenter
-        mqtt.onConnect = { [weak self] in self?.didConnect() }
-        mqtt.onDisconnect = { [weak self] reason in self?.didDisconnect(reason) }
-        mqtt.onMessage = { [weak self] _, data in self?.didMessage(data) }
         updates.onAvailable = { [weak self] tag in
             guard let self, self.availableUpdate != tag else { return }
             self.availableUpdate = tag
@@ -328,89 +343,134 @@ final class GlanceModel: ObservableObject {
         NSWorkspace.shared.open(AppUpdate.latestReleaseURL)
     }
 
-    func saveSettings(_ next: PrinterSettings) {
+    func addPrinter(_ printer: PrinterSettings) {
+        saveSettings(settings.adding(printer))
+    }
+
+    func updatePrinter(_ printer: PrinterSettings, serial: String) {
+        saveSettings(settings.replacing(printer, serial: serial))
+    }
+
+    func removePrinter(serial: String) {
+        saveSettings(settings.removing(serial: serial))
+    }
+
+    func focusPrinter(_ id: String) {
+        let next = settings.focusing(id)
         next.save()
         settings = next
-        notify.serial = next.serial
+        notify.serial = id
+        publishSnapshot()
+    }
+
+    func saveSettings(_ next: SavedPrinters) {
+        next.save()
+        settings = next
+        notify.serial = next.focusId ?? next.printers.first?.serial ?? ""
         applySettingsAndConnect()
     }
 
     private func applySettingsAndConnect() {
-        mqtt.disconnect()
-        snapshot = nil
-        guard settings.isComplete else {
+        for link in links.values {
+            link.tearDown()
+        }
+        links.removeAll()
+        let complete = settings.printers.filter(\.isComplete)
+        guard !complete.isEmpty else {
             apply(GlanceContent(result: .needsSetup))
             return
         }
         apply(GlanceContent(result: .connecting))
-        let id = settings.serial
-        let name = settings.name.isEmpty ? "Printer" : settings.name
-        snapshot = BambuSnapshot(printerID: id, name: name)
-        let suffix = settings.serial.suffix(6)
-        log("connecting \(settings.ip):8883")
-        mqtt.connect(
-            host: settings.ip,
-            port: 8883,
-            clientID: "printglance-\(suffix)",
-            username: "bblp",
-            password: settings.accessCode
-        )
-        connectTimeout?.cancel()
-        connectTimeout = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 8_000_000_000)
-            guard let self, !Task.isCancelled else { return }
-            if case .connecting = self.content.result {
-                self.log("connect timed out")
-                self.apply(GlanceContent(result: .feedDown))
+        for printer in complete {
+            let id = printer.serial
+            let link = Link(printer: printer)
+            link.mqtt.onConnect = { [weak self] in self?.didConnect(id) }
+            link.mqtt.onDisconnect = { [weak self] reason in self?.didDisconnect(id, reason) }
+            link.mqtt.onMessage = { [weak self] _, data in self?.didMessage(id, data) }
+            links[id] = link
+            log("connecting \(printer.ip):8883")
+            link.mqtt.connect(
+                host: printer.ip,
+                port: 8883,
+                clientID: "printglance-\(id.suffix(6))",
+                username: "bblp",
+                password: printer.accessCode
+            )
+            link.timeout = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                guard let link = self.links[id], !link.snapshot.hasReport else { return }
+                link.failed = true
+                self.log("connect timed out \(id)")
+                self.publishSnapshot()
             }
         }
     }
 
-    private func didConnect() {
-        connectTimeout?.cancel()
-        log("connected")
+    private func didConnect(_ id: String) {
+        guard let link = links[id] else { return }
+        link.timeout?.cancel()
+        link.failed = false
+        log("connected \(id)")
         NSLog("PrintGlance: connected to printer")
-        mqtt.subscribe("device/\(settings.serial)/report")
+        link.mqtt.subscribe("device/\(id)/report")
         let body = Data(#"{"pushing":{"command":"pushall","sequence_id":"0"}}"#.utf8)
-        mqtt.publish(topic: "device/\(settings.serial)/request", payload: body)
-        snapshot?.markConnected(true)
+        link.mqtt.publish(topic: "device/\(id)/request", payload: body)
+        link.snapshot.markConnected(true)
     }
 
-    private func didDisconnect(_ reason: String?) {
-        log("disconnected \(reason ?? "")")
+    private func didDisconnect(_ id: String, _ reason: String?) {
+        guard let link = links[id] else { return }
+        log("disconnected \(id) \(reason ?? "")")
         NSLog("PrintGlance: printer connection dropped")
-        snapshot?.markConnected(false)
-        if settings.isComplete {
-            apply(GlanceContent(result: .feedDown))
-        } else {
-            apply(GlanceContent(result: .needsSetup))
-        }
+        link.snapshot.markConnected(false)
+        link.failed = true
+        publishSnapshot()
     }
 
-    private func didMessage(_ data: Data) {
+    private func didMessage(_ id: String, _ data: Data) {
+        guard let link = links[id] else { return }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
-        snapshot?.ingest(obj)
+        link.snapshot.ingest(obj)
         publishSnapshot()
     }
 
     private func publishSnapshot() {
-        guard settings.isComplete, let snapshot, snapshot.hasReport else { return }
-        let doc = snapshot.doc()
-        apply(GlanceContent(result: .doc(doc)))
-        guard let row = doc.focusRow() else { return }
-        let fil = BambuPrint.activeFilament(snapshot.printObj)
-        if let notice = filament.consider(
-            serial: row.id,
-            name: row.name,
-            state: row.state,
-            filament: fil.type,
-            tray: fil.tray,
-            remain: fil.remain,
-            taskId: BambuPrint.taskId(snapshot.printObj)
-        ) {
-            deliverFilament(notice)
+        let complete = settings.printers.filter(\.isComplete)
+        guard !complete.isEmpty else {
+            apply(GlanceContent(result: .needsSetup))
+            return
+        }
+        let snaps = Dictionary(uniqueKeysWithValues: links.map { ($0.key, $0.value.snapshot) })
+        if snaps.values.contains(where: { $0.hasReport }) {
+            let doc = BambuSnapshot.fleetDoc(
+                printers: complete,
+                snapshots: snaps,
+                focusId: settings.focusId
+            )
+            apply(GlanceContent(result: .doc(doc)))
+            if let row = doc.focusRow(), let snap = snaps[row.id] {
+                let fil = BambuPrint.activeFilament(snap.printObj)
+                if let notice = filament.consider(
+                    serial: row.id,
+                    name: row.name,
+                    state: row.state,
+                    filament: fil.type,
+                    tray: fil.tray,
+                    remain: fil.remain,
+                    taskId: BambuPrint.taskId(snap.printObj)
+                ) {
+                    deliverFilament(notice)
+                }
+            }
+            return
+        }
+        if links.values.contains(where: { !$0.failed }) {
+            apply(GlanceContent(result: .connecting))
+        } else {
+            apply(GlanceContent(result: .feedDown))
         }
     }
 
@@ -445,7 +505,7 @@ final class GlanceModel: ObservableObject {
         content.title = alert.title
         content.body = alert.body
         content.sound = .default
-        let id = settings.serial.isEmpty ? "printer" : settings.serial
+        let id = notify.serial.isEmpty ? "printer" : notify.serial
         let request = UNNotificationRequest(
             identifier: "pg.\(alert.kind.rawValue).\(id)",
             content: content,
