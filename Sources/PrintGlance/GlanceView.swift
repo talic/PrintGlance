@@ -19,6 +19,15 @@ struct GlanceView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     header
                     bodyContent
+                    if model.availableUpdate != nil {
+                        Button("Update available") {
+                            model.openUpdatePage()
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Download PrintGlance update")
+                    }
                 }
                 .padding(14)
                 .frame(width: 248, alignment: .leading)
@@ -104,6 +113,9 @@ struct GlanceView: View {
         Menu {
             Button("Printer") { openPrinter() }
             Toggle("Open at Login", isOn: $openAtLogin)
+            if model.availableUpdate != nil {
+                Button("Download update") { model.openUpdatePage() }
+            }
             Divider()
             Button("Quit") {
                 NSApp.terminate(nil)
