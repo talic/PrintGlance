@@ -93,8 +93,44 @@ final class PrintNotifyTests: XCTestCase {
         )
     }
 
+    func testFleetFinishNotifiesUnfocusedPrinter() {
+        var n = PrintNotify(serial: "aaa", prefs: .default, stamp: nil)
+        let aRun = Printer(id: "aaa", name: "A", state: "RUNNING", percent: 16, job: "Job A", jobId: "t-a")
+        var b = Printer(id: "bbb", name: "B", state: "RUNNING", percent: 40, job: "Job B", jobId: "t-b")
+        XCTAssertNil(n.observe(fleet(focus: "aaa", [aRun, b])).alert)
+        b.state = "FINISH"
+        let done = n.observe(fleet(focus: "aaa", [aRun, b]))
+        XCTAssertEqual(done.alerts.map(\.kind), [.finish])
+        XCTAssertEqual(done.alert?.serial, "bbb")
+        XCTAssertEqual(done.alert?.body, "Job B on B")
+        XCTAssertNil(
+            n.observe(fleet(focus: "bbb", [aRun, b])).alert,
+            "focus switch is not a second finish"
+        )
+    }
+
+    func testFocusOntoAlreadyFinishedIsNotFinish() {
+        var n = PrintNotify(serial: "aaa", prefs: .default, stamp: nil)
+        let aRun = Printer(id: "aaa", name: "A", state: "RUNNING", percent: 16, job: "Job A", jobId: "t-a")
+        let bDone = Printer(id: "bbb", name: "B", state: "FINISH", percent: 100, job: "Job B", jobId: "t-b")
+        XCTAssertNil(n.observe(fleet(focus: "aaa", [aRun])).alert)
+        XCTAssertNil(n.observe(fleet(focus: "bbb", [aRun, bDone])).alert)
+    }
+
+    func testConnectingDoesNotClearOffline() {
+        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        XCTAssertNil(n.observe(row("RUNNING", jobId: "t1")).alert)
+        XCTAssertNil(n.observe(GlanceContent(result: .connecting)).alert)
+        XCTAssertNil(n.observe(GlanceContent(result: .feedDown)).alert)
+        XCTAssertEqual(n.observe(row("OFFLINE", jobId: "t1")).alert?.kind, .offline)
+    }
+
     private func row(_ state: String, jobId: String?, job: String? = "Print in Parts") -> GlanceContent {
         let printer = Printer(id: "x2d", name: "X2D", state: state, percent: 16, job: job, jobId: jobId)
         return GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [printer])))
+    }
+
+    private func fleet(focus: String, _ printers: [Printer]) -> GlanceContent {
+        GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: focus, printers: printers)))
     }
 }
