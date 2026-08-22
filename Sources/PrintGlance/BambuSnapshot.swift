@@ -124,16 +124,7 @@ enum BambuPrint {
     }
 
     static func taskId(_ printObj: [String: Any]) -> String? {
-        for key in ["task_id", "subtask_id"] {
-            if let s = BambuJSON.stringValue(printObj[key]) {
-                let t = s.trimmingCharacters(in: .whitespaces)
-                if !t.isEmpty { return t }
-            }
-            if let n = BambuJSON.intValue(printObj[key]) {
-                return String(n)
-            }
-        }
-        return nil
+        jobIdentity(printObj)
     }
 
     static func activeFilament(_ printObj: [String: Any]) -> (type: String?, remain: Int?, tray: Int?) {

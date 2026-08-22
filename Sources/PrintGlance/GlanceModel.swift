@@ -410,24 +410,21 @@ final class GlanceModel: ObservableObject {
             remain: fil.remain,
             taskId: BambuPrint.taskId(snapshot.printObj)
         ) {
-            Self.deliver(notice)
+            deliverFilament(notice)
         }
     }
 
-    private static func deliver(_ notice: FilamentAlert.Notice) {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            guard granted else { return }
-            let content = UNMutableNotificationContent()
-            content.title = notice.title
-            content.body = notice.body
-            content.sound = .default
-            let req = UNNotificationRequest(
-                identifier: notice.identifier,
-                content: content,
-                trigger: nil
-            )
-            UNUserNotificationCenter.current().add(req)
-        }
+    private func deliverFilament(_ notice: FilamentAlert.Notice) {
+        let content = UNMutableNotificationContent()
+        content.title = notice.title
+        content.body = notice.body
+        content.sound = .default
+        let req = UNNotificationRequest(
+            identifier: notice.identifier,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(req)
     }
 
     private func apply(_ next: GlanceContent) {
