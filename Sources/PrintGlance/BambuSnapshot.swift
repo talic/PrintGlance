@@ -127,19 +127,40 @@ enum BambuPrint {
         jobIdentity(printObj)
     }
 
-    static func activeFilament(_ printObj: [String: Any]) -> (type: String?, remain: Int?, tray: Int?) {
+    static func activeFilament(_ printObj: [String: Any]) -> (type: String?, remain: Int?, tray: Int?, color: String?) {
         let ams = BambuJSON.dict(printObj["ams"]) ?? [:]
         var now = BambuJSON.intValue(ams["tray_now"])
         if now == nil { now = BambuJSON.intValue(ams["tray_tar"]) }
-        guard let now, now != 255 else { return (nil, nil, nil) }
+        guard let now, now != 255 else { return (nil, nil, nil, nil) }
         var tray: [String: Any]?
         if now == 254 {
             tray = BambuJSON.dict(printObj["vt_tray"])
         } else {
             tray = findAMSTray(ams, idx: now)
         }
-        guard let tray else { return (nil, nil, nil) }
-        return (filamentName(tray), remainPercent(tray["remain"]), now)
+        guard let tray else { return (nil, nil, nil, nil) }
+        return (filamentName(tray), remainPercent(tray["remain"]), now, trayColorHex(tray))
+    }
+
+    /// MQTT `tray_color` or first `cols` entry, as RRGGBBAA. Nil if missing or fully transparent.
+    static func trayColorHex(_ tray: [String: Any]) -> String? {
+        if let hex = normalizeFilamentColor(trayString(tray, "tray_color")) { return hex }
+        if let cols = BambuJSON.array(tray["cols"]) {
+            for item in cols {
+                if let hex = normalizeFilamentColor(BambuJSON.stringValue(item)) { return hex }
+            }
+        }
+        return nil
+    }
+
+    static func normalizeFilamentColor(_ raw: String?) -> String? {
+        guard var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
+        if s.hasPrefix("#") { s.removeFirst() }
+        s = s.uppercased()
+        guard s.count == 6 || s.count == 8, s.allSatisfy(\.isHexDigit) else { return nil }
+        if s.count == 6 { s += "FF" }
+        if s.hasSuffix("00") { return nil }
+        return s
     }
 
     /// Product name when the printer sends one; otherwise `tray_type` (`PLA`).
@@ -330,6 +351,7 @@ enum BambuPrint {
             eta: etaHM(state: state, remainingS: remainingS),
             filament: fil.type,
             filamentRemain: fil.remain,
+            filamentColor: fil.color,
             jobId: jobIdentity(printObj)
         )
     }

@@ -134,6 +134,49 @@ final class FilamentAlertTests: XCTestCase {
         XCTAssertEqual(GlanceContent.filamentLine(row), "PLA Pure  42%")
     }
 
+    func testFilamentColorFromTray() {
+        XCTAssertEqual(BambuPrint.normalizeFilamentColor("ffffffff"), "FFFFFFFF")
+        XCTAssertEqual(BambuPrint.normalizeFilamentColor("#00FF00"), "00FF00FF")
+        XCTAssertNil(BambuPrint.normalizeFilamentColor("red"))
+        XCTAssertNil(BambuPrint.normalizeFilamentColor("FFFFFF00"))
+
+        let hex = BambuPrint.activeFilament(
+            ams(now: 0, trays: [(0, "PLA", 42)], extra: ["tray_color": "F5C6A0FF"])
+        )
+        XCTAssertEqual(hex.color, "F5C6A0FF")
+
+        let fromCols = BambuPrint.activeFilament(
+            ams(now: 0, trays: [(0, "PLA", 42)], extra: ["cols": ["000000FF", "FFFFFFFF"]])
+        )
+        XCTAssertEqual(fromCols.color, "000000FF")
+
+        let none = BambuPrint.activeFilament(ams(now: 0, trays: [(0, "PLA", 42)]))
+        XCTAssertNil(none.color)
+
+        let row = BambuPrint.row(
+            id: "x2d",
+            name: "X2D",
+            printObj: [
+                "gcode_state": "IDLE",
+                "ams": [
+                    "tray_now": 0,
+                    "ams": [[
+                        "id": "0",
+                        "tray": [[
+                            "id": "0",
+                            "tray_type": "PLA",
+                            "tray_info_idx": "GFA19",
+                            "tray_color": "F5C6A0FF",
+                        ]],
+                    ]],
+                ],
+            ],
+            online: true
+        )
+        XCTAssertEqual(row.filament, "PLA Pure")
+        XCTAssertEqual(row.filamentColor, "F5C6A0FF")
+    }
+
     private func ams(
         now: Int,
         trays: [(Int, String, Int?)],
