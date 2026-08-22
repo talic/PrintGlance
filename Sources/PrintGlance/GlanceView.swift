@@ -317,12 +317,39 @@ struct GlanceView: View {
                 }
                 Spacer(minLength: 8)
                 if let fil {
-                    Text(fil).monospacedDigit()
+                    HStack(spacing: 4) {
+                        if let hex = row.filamentColor, let c = Color(filamentHex: hex) {
+                            Circle()
+                                .fill(c)
+                                .frame(width: 8, height: 8)
+                                .overlay {
+                                    Circle().stroke(Color.primary.opacity(0.3), lineWidth: 0.5)
+                                }
+                                .accessibilityHidden(true)
+                        }
+                        Text(fil)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
             }
             .font(.caption)
             .foregroundStyle(.tertiary)
         }
+    }
+}
+
+private extension Color {
+    init?(filamentHex: String) {
+        guard filamentHex.count == 8, let v = UInt32(filamentHex, radix: 16) else { return nil }
+        self.init(
+            .sRGB,
+            red: Double((v >> 24) & 0xFF) / 255,
+            green: Double((v >> 16) & 0xFF) / 255,
+            blue: Double((v >> 8) & 0xFF) / 255,
+            opacity: Double(v & 0xFF) / 255
+        )
     }
 }
 

@@ -38,6 +38,8 @@ struct Printer: Codable, Equatable, Sendable {
     var eta: String?
     var filament: String?
     var filamentRemain: Int?
+    /// AMS `tray_color` as RRGGBBAA. Nil when the printer sends none.
+    var filamentColor: String? = nil
     /// MQTT `task_id`, or `subtask_id` when `task_id` is missing. Not the display job label.
     var jobId: String? = nil
 }

@@ -127,25 +127,162 @@ enum BambuPrint {
         jobIdentity(printObj)
     }
 
-    static func activeFilament(_ printObj: [String: Any]) -> (type: String?, remain: Int?, tray: Int?) {
+    static func activeFilament(_ printObj: [String: Any]) -> (type: String?, remain: Int?, tray: Int?, color: String?) {
         let ams = BambuJSON.dict(printObj["ams"]) ?? [:]
         var now = BambuJSON.intValue(ams["tray_now"])
         if now == nil { now = BambuJSON.intValue(ams["tray_tar"]) }
-        guard let now, now != 255 else { return (nil, nil, nil) }
+        guard let now, now != 255 else { return (nil, nil, nil, nil) }
         var tray: [String: Any]?
         if now == 254 {
             tray = BambuJSON.dict(printObj["vt_tray"])
         } else {
             tray = findAMSTray(ams, idx: now)
         }
-        guard let tray else { return (nil, nil, nil) }
-        var fil: String?
-        if let raw = BambuJSON.stringValue(tray["tray_type"]) ?? BambuJSON.stringValue(tray["type"]) {
-            let t = raw.trimmingCharacters(in: .whitespaces)
-            if !t.isEmpty { fil = String(t.prefix(8)) }
-        }
-        return (fil, remainPercent(tray["remain"]), now)
+        guard let tray else { return (nil, nil, nil, nil) }
+        return (filamentName(tray), remainPercent(tray["remain"]), now, trayColorHex(tray))
     }
+
+    /// MQTT `tray_color` or first `cols` entry, as RRGGBBAA. Nil if missing or fully transparent.
+    static func trayColorHex(_ tray: [String: Any]) -> String? {
+        if let hex = normalizeFilamentColor(trayString(tray, "tray_color")) { return hex }
+        if let cols = BambuJSON.array(tray["cols"]) {
+            for item in cols {
+                if let hex = normalizeFilamentColor(BambuJSON.stringValue(item)) { return hex }
+            }
+        }
+        return nil
+    }
+
+    static func normalizeFilamentColor(_ raw: String?) -> String? {
+        guard var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
+        if s.hasPrefix("#") { s.removeFirst() }
+        s = s.uppercased()
+        guard s.count == 6 || s.count == 8, s.allSatisfy(\.isHexDigit) else { return nil }
+        if s.count == 6 { s += "FF" }
+        if s.hasSuffix("00") { return nil }
+        return s
+    }
+
+    /// Product name when the printer sends one; otherwise `tray_type` (`PLA`).
+    /// RFID official spools often leave `tray_sub_brands` empty and put the SKU in `tray_info_idx`.
+    static func filamentName(_ tray: [String: Any]) -> String? {
+        let type = trayString(tray, "tray_type") ?? trayString(tray, "type")
+        let sub = trayString(tray, "tray_sub_brands")
+        if let sub, sub != type { return dropBambuPrefix(sub) }
+        if let idx = trayString(tray, "tray_info_idx"), let name = filamentByIdx[idx] {
+            return name
+        }
+        if let sub { return dropBambuPrefix(sub) }
+        return type
+    }
+
+    private static func trayString(_ tray: [String: Any], _ key: String) -> String? {
+        guard let s = BambuJSON.stringValue(tray[key])?.trimmingCharacters(in: .whitespaces),
+              !s.isEmpty else { return nil }
+        return s
+    }
+
+    private static func dropBambuPrefix(_ name: String) -> String {
+        let prefix = "Bambu "
+        guard name.hasPrefix(prefix) else { return name }
+        let rest = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? name : rest
+    }
+
+    // ponytail: static SKU table; add a row when a new Bambu id shows up as generic PLA.
+    private static let filamentByIdx: [String: String] = [
+        "GFA00": "PLA Basic",
+        "GFA01": "PLA Matte",
+        "GFA02": "PLA Metal",
+        "GFA03": "PLA Impact",
+        "GFA05": "PLA Silk",
+        "GFA06": "PLA Silk+",
+        "GFA07": "PLA Marble",
+        "GFA08": "PLA Sparkle",
+        "GFA09": "PLA Tough",
+        "GFA10": "PLA Tough+",
+        "GFA11": "PLA Aero",
+        "GFA12": "PLA Glow",
+        "GFA13": "PLA Dynamic",
+        "GFA15": "PLA Galaxy",
+        "GFA16": "PLA Wood",
+        "GFA17": "PLA Translucent",
+        "GFA18": "PLA Lite",
+        "GFA19": "PLA Pure",
+        "GFA50": "PLA-CF",
+        "GFB00": "ABS",
+        "GFB01": "ASA",
+        "GFB02": "ASA-Aero",
+        "GFB50": "ABS-GF",
+        "GFB51": "ASA-CF",
+        "GFB60": "PolyLite ABS",
+        "GFB61": "PolyLite ASA",
+        "GFB98": "Generic ASA",
+        "GFB99": "Generic ABS",
+        "GFC00": "PC",
+        "GFC01": "PC FR",
+        "GFC99": "Generic PC",
+        "GFG00": "PETG Basic",
+        "GFG01": "PETG Translucent",
+        "GFG02": "PETG HF",
+        "GFG50": "PETG-CF",
+        "GFG60": "PolyLite PETG",
+        "GFG96": "Generic PETG HF",
+        "GFG97": "Generic PCTG",
+        "GFG98": "Generic PETG-CF",
+        "GFG99": "Generic PETG",
+        "GFL00": "PolyLite PLA",
+        "GFL01": "PolyTerra PLA",
+        "GFL03": "eSUN PLA+",
+        "GFL04": "Overture PLA",
+        "GFL05": "Overture Matte PLA",
+        "GFL06": "Fiberon PETG-ESD",
+        "GFL50": "Fiberon PA6-CF",
+        "GFL51": "Fiberon PA6-GF",
+        "GFL52": "Fiberon PA12-CF",
+        "GFL53": "Fiberon PA612-CF",
+        "GFL54": "Fiberon PET-CF",
+        "GFL55": "Fiberon PETG-rCF",
+        "GFL95": "Generic PLA High Speed",
+        "GFL96": "Generic PLA Silk",
+        "GFL98": "Generic PLA-CF",
+        "GFL99": "Generic PLA",
+        "GFN03": "PA-CF",
+        "GFN04": "PAHT-CF",
+        "GFN05": "PA6-CF",
+        "GFN06": "PPA-CF",
+        "GFN08": "PA6-GF",
+        "GFN96": "Generic PPA-GF",
+        "GFN97": "Generic PPA-CF",
+        "GFN98": "Generic PA-CF",
+        "GFN99": "Generic PA",
+        "GFP95": "Generic PP-GF",
+        "GFP96": "Generic PP-CF",
+        "GFP97": "Generic PP",
+        "GFP98": "Generic PE-CF",
+        "GFP99": "Generic PE",
+        "GFR98": "Generic PHA",
+        "GFR99": "Generic EVA",
+        "GFS00": "Support W",
+        "GFS01": "Support G",
+        "GFS02": "Support for PLA",
+        "GFS03": "Support for PA/PET",
+        "GFS04": "PVA",
+        "GFS05": "Support for PLA/PETG",
+        "GFS06": "Support for ABS",
+        "GFS97": "Generic BVOH",
+        "GFS98": "Generic HIPS",
+        "GFS99": "Generic PVA",
+        "GFT01": "PET-CF",
+        "GFT02": "PPS-CF",
+        "GFT97": "Generic PPS",
+        "GFT98": "Generic PPS-CF",
+        "GFU00": "TPU 95A HF",
+        "GFU01": "TPU 95A",
+        "GFU02": "TPU for AMS",
+        "GFU98": "Generic TPU for AMS",
+        "GFU99": "Generic TPU",
+    ]
 
     private static func findAMSTray(_ ams: [String: Any], idx: Int) -> [String: Any]? {
         guard let units = BambuJSON.array(ams["ams"]) else { return nil }
@@ -214,6 +351,7 @@ enum BambuPrint {
             eta: etaHM(state: state, remainingS: remainingS),
             filament: fil.type,
             filamentRemain: fil.remain,
+            filamentColor: fil.color,
             jobId: jobIdentity(printObj)
         )
     }
