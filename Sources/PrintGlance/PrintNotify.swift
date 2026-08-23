@@ -36,8 +36,17 @@ struct PrintNotifyPrefs: Equatable {
     var fail: Bool
     var pause: Bool
     var offline: Bool
+    var comingOff: Bool
+    var quietHours: Bool
 
-    static let `default` = PrintNotifyPrefs(finish: true, fail: true, pause: false, offline: true)
+    static let `default` = PrintNotifyPrefs(
+        finish: true,
+        fail: true,
+        pause: false,
+        offline: true,
+        comingOff: true,
+        quietHours: false
+    )
 
     static func load(_ d: UserDefaults) -> PrintNotifyPrefs {
         func flag(_ key: String, fallback: Bool) -> Bool {
@@ -48,7 +57,9 @@ struct PrintNotifyPrefs: Equatable {
             finish: flag("pg.notify.finish", fallback: true),
             fail: flag("pg.notify.fail", fallback: true),
             pause: flag("pg.notify.pause", fallback: false),
-            offline: flag("pg.notify.offline", fallback: true)
+            offline: flag("pg.notify.offline", fallback: true),
+            comingOff: flag("pg.notify.comingOff", fallback: true),
+            quietHours: flag("pg.notify.quietHours", fallback: false)
         )
     }
 
@@ -57,6 +68,8 @@ struct PrintNotifyPrefs: Equatable {
         d.set(fail, forKey: "pg.notify.fail")
         d.set(pause, forKey: "pg.notify.pause")
         d.set(offline, forKey: "pg.notify.offline")
+        d.set(comingOff, forKey: "pg.notify.comingOff")
+        d.set(quietHours, forKey: "pg.notify.quietHours")
     }
 }
 

@@ -224,6 +224,8 @@ struct GlanceView: View {
                 Toggle("Print failed", isOn: $model.notifyPrefs.fail)
                 Toggle("Print paused", isOn: $model.notifyPrefs.pause)
                 Toggle("Printer went offline", isOn: $model.notifyPrefs.offline)
+                Toggle("Print finishing soon", isOn: $model.notifyPrefs.comingOff)
+                Toggle("Quiet hours", isOn: $model.notifyPrefs.quietHours)
             }
             Toggle("Open at Login", isOn: $openAtLogin)
             if model.availableUpdate != nil {

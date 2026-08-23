@@ -359,6 +359,7 @@ final class GlanceModel: ObservableObject {
     private var jobLog: JobLog
     private let jobLogURL: URL
     private var occupancyTask: Task<Void, Never>?
+    private var comingOff = ComingOff()
 
     init(jobLogURL: URL = JobLog.fileURL()) {
         let settings = SavedPrinters.load()
@@ -374,6 +375,7 @@ final class GlanceModel: ObservableObject {
         let log = JobLog.load(from: jobLogURL)
         self.jobLog = log
         self.historyRows = log.recent(20)
+        self.comingOff = ComingOff.load(.standard)
     }
 
     private func log(_ msg: String) {
@@ -589,6 +591,12 @@ final class GlanceModel: ObservableObject {
             jobLog.observe(printers: doc.printers)
             jobLog.save(to: jobLogURL)
             historyRows = jobLog.recent(20)
+            for row in doc.printers {
+                if let action = comingOff.consider(printer: row, prefs: notifyPrefs) {
+                    deliverComingOff(action)
+                }
+            }
+            comingOff.save(.standard)
             apply(GlanceContent(result: .doc(doc)))
             syncOccupancyClock()
             for row in doc.printers {
@@ -684,13 +692,52 @@ final class GlanceModel: ObservableObject {
             content.body = alert.body
             content.sound = .default
             let id = alert.serial.isEmpty ? "printer" : alert.serial
+            let trigger = finishTrigger(alert)
             let request = UNNotificationRequest(
                 identifier: "pg.\(alert.kind.rawValue).\(id)",
                 content: content,
-                trigger: nil
+                trigger: trigger
             )
             UNUserNotificationCenter.current().add(request)
         }
+    }
+
+    private func finishTrigger(_ alert: PrintNotifyAlert) -> UNNotificationTrigger? {
+        guard alert.kind == .finish, notifyPrefs.quietHours else { return nil }
+        let now = Date()
+        guard QuietHours.contains(now) else { return nil }
+        let fire = QuietHours.nextMorning(from: now)
+        let comps = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second],
+            from: fire
+        )
+        return UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+    }
+
+    private func deliverComingOff(_ action: ComingOffAction) {
+        let center = UNUserNotificationCenter.current()
+        if !action.cancelIds.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: action.cancelIds)
+        }
+        guard action.immediate || action.interval != nil else { return }
+        let content = UNMutableNotificationContent()
+        content.title = action.title
+        content.body = action.body
+        content.sound = .default
+        let trigger: UNNotificationTrigger?
+        if action.immediate {
+            trigger = nil
+        } else if let interval = action.interval {
+            trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, interval), repeats: false)
+        } else {
+            trigger = nil
+        }
+        let request = UNNotificationRequest(
+            identifier: action.identifier,
+            content: content,
+            trigger: trigger
+        )
+        center.add(request)
     }
 }
 
