@@ -437,9 +437,8 @@ final class GlanceModel: ObservableObject {
         guard let link = links[id] else { return }
         link.timeout?.cancel()
         link.handshake = false
-        if !link.snapshot.hasReport {
-            link.failed = false
-        }
+        // Keep `failed` through retries. Clearing it publishes `.connecting`,
+        // remounts the extra as `printer` on Tahoe, and the icon flashes off.
         let printer = link.printer
         log("connecting \(printer.ip):8883")
         link.mqtt.connect(
@@ -454,7 +453,7 @@ final class GlanceModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             guard let link = self.links[id], !link.handshake else { return }
             link.failed = true
-            self.lastDisconnectReason = "connect timed out"
+            self.noteDisconnect("connect timed out")
             self.log("connect timed out \(id)")
             link.mqtt.disconnect()
             self.publishSnapshot()
@@ -482,7 +481,7 @@ final class GlanceModel: ObservableObject {
         link.failed = false
         link.handshake = true
         link.reconnectAttempt = 0
-        lastDisconnectReason = nil
+        noteDisconnect(nil)
         log("connected \(id)")
         NSLog("PrintGlance: connected to printer")
         link.mqtt.subscribe("device/\(id)/report")
@@ -494,7 +493,7 @@ final class GlanceModel: ObservableObject {
 
     private func didDisconnect(_ id: String, _ reason: String?) {
         guard let link = links[id] else { return }
-        lastDisconnectReason = reason
+        noteDisconnect(reason)
         log("disconnected \(id) \(reason ?? "")")
         NSLog("PrintGlance: printer connection dropped")
         link.handshake = false
@@ -562,6 +561,12 @@ final class GlanceModel: ObservableObject {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(req)
+    }
+
+    private func noteDisconnect(_ reason: String?) {
+        if lastDisconnectReason != reason {
+            lastDisconnectReason = reason
+        }
     }
 
     private func apply(_ next: GlanceContent) {
