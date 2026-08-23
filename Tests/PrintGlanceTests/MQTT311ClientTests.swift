@@ -1,3 +1,4 @@
+import Network
 import XCTest
 @testable import PrintGlance
 
@@ -15,6 +16,26 @@ final class MQTT311ClientTests: XCTestCase {
             MQTT311Client.reconnectDelayNanoseconds(attempt: 1),
             1_000_000_000
         )
+    }
+
+    func testFailReasonWaitingRefused() {
+        XCTAssertEqual(
+            MQTT311Client.failReason(for: .waiting(.posix(.ECONNREFUSED))),
+            "ECONNREFUSED"
+        )
+        XCTAssertEqual(
+            MQTT311Client.failReason(for: .failed(.posix(.ECONNREFUSED))),
+            "ECONNREFUSED"
+        )
+        XCTAssertEqual(MQTT311Client.failToken(.posix(.ECONNREFUSED)), "ECONNREFUSED")
+        XCTAssertTrue(MQTT311Client.isTerminalWaitError(.posix(.ECONNREFUSED)))
+    }
+
+    func testFailReasonWaitingNonRefusedIsNil() {
+        XCTAssertNil(MQTT311Client.failReason(for: .waiting(.posix(.EAGAIN))))
+        XCTAssertNil(MQTT311Client.failReason(for: .waiting(.posix(.ETIMEDOUT))))
+        XCTAssertFalse(MQTT311Client.isTerminalWaitError(.posix(.ETIMEDOUT)))
+        XCTAssertFalse(MQTT311Client.isTerminalWaitError(.posix(.EAGAIN)))
     }
 
     func testRemainingLengthRoundTrip() {

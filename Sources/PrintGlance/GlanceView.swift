@@ -168,6 +168,11 @@ struct GlanceView: View {
             }
 
             metaRow(row)
+        } else if row.state.uppercased() == "OFFLINE" {
+            Text(GlanceCopy.feedDownDetail(reason: model.lastDisconnectReason))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         } else if let caption = printerCaption(row) {
             Text(caption)
                 .font(.caption)
@@ -267,7 +272,7 @@ struct GlanceView: View {
     private var emptyDetail: String {
         switch model.content.result {
         case .feedDown:
-            return "Can't reach the printer. Check Wi-Fi, the IP address, and the access code."
+            return GlanceCopy.feedDownDetail(reason: model.lastDisconnectReason)
         case .unauthorized:
             return "This Mac needs the feed token."
         case let .http(code):

@@ -260,9 +260,23 @@ struct GlanceContent: Equatable, Sendable {
     }
 }
 
+enum GlanceCopy {
+    static func feedDownDetail(reason: String?) -> String {
+        let r = reason ?? ""
+        if r.contains("ECONNREFUSED") {
+            return "The printer is on the Wi-Fi, but it isn't accepting a local connection. On the printer, open Settings, then LAN or Network, and turn on LAN mode."
+        }
+        if r.contains("MQTT CONNACK") {
+            return "The access code was rejected. Check the access code on the printer's LAN or Network page."
+        }
+        return "Can't reach the printer. Check Wi-Fi and the IP address."
+    }
+}
+
 @MainActor
 final class GlanceModel: ObservableObject {
     @Published private(set) var content = GlanceContent(result: .needsSetup)
+    @Published private(set) var lastDisconnectReason: String?
     @Published private(set) var availableUpdate: String?
     @Published var settings = SavedPrinters.load()
     @Published var notifyPrefs: PrintNotifyPrefs {
@@ -440,6 +454,7 @@ final class GlanceModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             guard let link = self.links[id], !link.handshake else { return }
             link.failed = true
+            self.lastDisconnectReason = "connect timed out"
             self.log("connect timed out \(id)")
             link.mqtt.disconnect()
             self.publishSnapshot()
@@ -467,6 +482,7 @@ final class GlanceModel: ObservableObject {
         link.failed = false
         link.handshake = true
         link.reconnectAttempt = 0
+        lastDisconnectReason = nil
         log("connected \(id)")
         NSLog("PrintGlance: connected to printer")
         link.mqtt.subscribe("device/\(id)/report")
@@ -478,6 +494,7 @@ final class GlanceModel: ObservableObject {
 
     private func didDisconnect(_ id: String, _ reason: String?) {
         guard let link = links[id] else { return }
+        lastDisconnectReason = reason
         log("disconnected \(id) \(reason ?? "")")
         NSLog("PrintGlance: printer connection dropped")
         link.handshake = false

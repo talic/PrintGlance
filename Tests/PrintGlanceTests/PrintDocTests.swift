@@ -137,6 +137,25 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "printer.slash")
     }
 
+    func testFeedDownDetailTokens() {
+        XCTAssertEqual(
+            GlanceCopy.feedDownDetail(reason: "ECONNREFUSED"),
+            "The printer is on the Wi-Fi, but it isn't accepting a local connection. On the printer, open Settings, then LAN or Network, and turn on LAN mode."
+        )
+        XCTAssertEqual(
+            GlanceCopy.feedDownDetail(reason: "MQTT CONNACK 5"),
+            "The access code was rejected. Check the access code on the printer's LAN or Network page."
+        )
+        XCTAssertEqual(
+            GlanceCopy.feedDownDetail(reason: "connect timed out"),
+            "Can't reach the printer. Check Wi-Fi and the IP address."
+        )
+        XCTAssertEqual(
+            GlanceCopy.feedDownDetail(reason: nil),
+            "Can't reach the printer. Check Wi-Fi and the IP address."
+        )
+    }
+
     func testNeedsSetupStrip() {
         XCTAssertEqual(GlanceContent.strip(.needsSetup).systemImage, "printer")
         XCTAssertEqual(GlanceContent(result: .needsSetup).pollInterval, 60)

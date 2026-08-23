@@ -28,6 +28,30 @@ final class MQTT311Client: @unchecked Sendable {
         UInt64(reconnectDelaySeconds(attempt: attempt) * 1_000_000_000)
     }
 
+    /// Stable token for glance copy. Do not interpolate `NWError` for refused.
+    static func failToken(_ error: NWError) -> String {
+        if case .posix(.ECONNREFUSED) = error { return "ECONNREFUSED" }
+        return "\(error)"
+    }
+
+    /// True if `.waiting` should fail the attempt instead of retrying in Network.framework.
+    static func isTerminalWaitError(_ error: NWError) -> Bool {
+        if case .posix(.ECONNREFUSED) = error { return true }
+        return false
+    }
+
+    /// Reason to pass to `fail`, or `nil` to keep waiting (including the 8s GlanceModel timeout).
+    static func failReason(for state: NWConnection.State) -> String? {
+        switch state {
+        case let .failed(err):
+            return failToken(err)
+        case let .waiting(err) where isTerminalWaitError(err):
+            return failToken(err)
+        default:
+            return nil
+        }
+    }
+
     func connect(host: String, port: UInt16, clientID: String, username: String, password: String) {
         queue.async { [weak self] in
             guard let self else { return }
@@ -78,10 +102,10 @@ final class MQTT311Client: @unchecked Sendable {
                     ),
                     generation: generation
                 )
-            case let .failed(err):
-                self.fail("\(err)", generation: generation)
             default:
-                break
+                if let reason = Self.failReason(for: state) {
+                    self.fail(reason, generation: generation)
+                }
             }
         }
         conn.start(queue: queue)
