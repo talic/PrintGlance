@@ -50,21 +50,39 @@ PrintGlance has no Dock icon. If it is already running, click the printer icon i
 
 If no printers appear, click **Find printers**. If the list is still empty, enter the IP address, serial number, and access code from the printer.
 
-When a print is starting, the menu bar shows what the printer is doing (**Heating**, **Leveling**, **Loading filament**, and similar) instead of 0% and a finish time. When a print is running, the menu bar shows percent and finish time. If the job finishes after today, the time includes the day. Click the icon for more detail: layer, the filament in use, and remaining filament. On a dual-nozzle printer such as H2D, the card shows **Left** or **Right** next to the filament.
-
-When the printer is idle or the print has finished, the card lists each AMS tray: color, name, and remaining percent, plus humidity when the AMS sends it.
-
-When a print has finished, the menu bar shows how long ago it finished, such as **40m ago**, until you tap **Done** on the printer. If PrintGlance was not running when the print finished, the menu bar shows **Done** with no elapsed time.
-
-To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac. Click **Export CSV** to save them.
+The access code stays on this Mac. PrintGlance does not send it to the internet.
 
 The print card and the printer form show **PrintGlance** and the version you are running.
 
-To add another printer, click **…** and choose **Add printer**. PrintGlance watches up to four printers. Click a printer in the list to focus it. To change or remove the focused printer, click **…** and choose **Printer**. **Remove** is available when more than one printer is saved.
+## Watch a print
 
-The access code stays on this Mac. PrintGlance does not send it to the internet.
+Click the printer icon to open the print card.
 
-To start PrintGlance when you log in, click **…** and turn on **Open at Login**. To quit, click **…** and choose **Quit**.
+| Printer | Menu bar | Print card |
+|---|---|---|
+| Starting | **Heating**, **Leveling**, **Loading filament**, or a similar stage | Remaining time if the printer sends one, plus the stage |
+| Printing | Percent and finish time | Remaining time, percent, layer, filament name, remaining filament, and color. On a dual-nozzle printer such as H2D, **Left** or **Right** next to the filament |
+| Paused | Percent and a pause icon | Remaining time and percent |
+| Finished | How long ago it finished, such as **40m ago**, until you tap **Done** on the printer | Same elapsed time. If PrintGlance was not running when the print finished, **Done** with no elapsed time |
+| Failed | An X | **Failed**. If the printer sent an HMS code, the **Print failed** notice includes it |
+| Idle | A printer icon | Each AMS tray that has filament: color, name, and remaining percent, plus **Humidity n/5** when the AMS sends it |
+| Offline | A printer icon | Why PrintGlance cannot reach the printer, when it knows |
+
+If the job finishes after today, the finish time includes the day.
+
+## Watch more than one printer
+
+PrintGlance watches up to four printers.
+
+- To add a printer, click **…** and choose **Add printer**.
+- Click a printer in the list to focus it. The menu bar follows the focused printer.
+- To change or remove the focused printer, click **…** and choose **Printer**. **Remove** is available when more than one printer is saved.
+
+## See recent prints
+
+To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac. The list shows job name, printer, **Done** or **Failed**, and duration when PrintGlance saw the print start and finish.
+
+To save that list, click **Export CSV**. To return to the print card, click **Back**.
 
 ## Turn on notifications
 
@@ -79,8 +97,6 @@ Click **…** and open **Notifications**. Turn on the events you want:
 
 **Print finished**, **Print failed**, **Printer went offline**, and **Print finishing soon** start turned on. **Print paused** and **Quiet hours** start turned off.
 
-When a print fails and the printer sends an HMS code, the **Print failed** notice includes that code.
-
 **Print finishing soon** tells you about 10 minutes before the print ends, so you can be at the printer. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is cancelled.
 
 **Quiet hours** (10 PM to 7 AM on this Mac) delays **Print finished** until 7 AM. **Print finishing soon** is skipped in that window. **Print failed**, **Print paused**, **Printer went offline**, and **Low filament** still appear.
@@ -88,6 +104,12 @@ When a print fails and the printer sends an HMS code, the **Print failed** notic
 When macOS asks for notification permission, click **Allow**. PrintGlance asks the first time a print starts.
 
 PrintGlance also sends a **Low filament** notice when the spool in use drops below 20% while a print is starting or running. That notice is not in the **Notifications** menu.
+
+Notices stay on this Mac. They do not appear on iPhone.
+
+## Start PrintGlance when you log in
+
+To start PrintGlance when you log in, click **…** and turn on **Open at Login**. To quit, click **…** and choose **Quit**.
 
 ## Update PrintGlance
 
