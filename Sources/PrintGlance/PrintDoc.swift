@@ -26,6 +26,13 @@ struct PrintDoc: Codable, Equatable, Sendable {
     }
 }
 
+struct AMSTray: Codable, Equatable, Sendable, Identifiable {
+    var id: String
+    var name: String?
+    var remain: Int?
+    var color: String?
+}
+
 struct Printer: Codable, Equatable, Sendable {
     var id: String
     var name: String
@@ -44,6 +51,13 @@ struct Printer: Codable, Equatable, Sendable {
     var nozzle: String? = nil
     /// MQTT `task_id`, or `subtask_id` when `task_id` is missing. Not the display job label.
     var jobId: String? = nil
+    /// PREPARE stage word. Nil when not preparing or the printer sent none.
+    var stage: String? = nil
+    var trays: [AMSTray]? = nil
+    /// AMS humidity index 1–5 when the unit sends it.
+    var humidity: Int? = nil
+    /// First HMS code as AAAA-BBBB-CCCC-DDDD.
+    var hmsCode: String? = nil
 }
 
 enum FeedResult: Equatable, Sendable {

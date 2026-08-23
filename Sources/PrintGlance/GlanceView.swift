@@ -198,16 +198,66 @@ struct GlanceView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            amsBlock(row)
         } else if row.state.uppercased() == "OFFLINE" {
             Text(GlanceCopy.feedDownDetail(reason: model.lastDisconnectReason))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-        } else if let caption = printerCaption(row) {
-            Text(caption)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+        } else {
+            if let caption = printerCaption(row) {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            amsBlock(row)
         }
+    }
+
+    @ViewBuilder
+    private func amsBlock(_ row: Printer) -> some View {
+        let idle = ["IDLE", "FINISH"].contains(row.state.uppercased())
+        if idle, let trays = row.trays, !trays.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                if let h = row.humidity {
+                    Text("Humidity \(h)/5")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                ForEach(trays) { tray in
+                    HStack(spacing: 6) {
+                        if let hex = tray.color, let c = Color(filamentHex: hex) {
+                            Circle()
+                                .fill(c)
+                                .frame(width: 8, height: 8)
+                                .overlay {
+                                    Circle().stroke(Color.primary.opacity(0.3), lineWidth: 0.5)
+                                }
+                                .accessibilityHidden(true)
+                        }
+                        Text(amsLine(tray))
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+            }
+        }
+    }
+
+    private func amsLine(_ tray: AMSTray) -> String {
+        let label = tray.id == "ext" ? "External" : tray.name ?? "Slot \(tray.id)"
+        let name: String
+        if tray.id == "ext" {
+            name = [label, tray.name].compactMap { $0 }.joined(separator: " · ")
+        } else {
+            name = tray.name ?? label
+        }
+        if let remain = tray.remain {
+            return "\(name)  \(remain)%"
+        }
+        return name
     }
 
     private var overflowMenu: some View {
@@ -309,6 +359,9 @@ struct GlanceView: View {
 
     private var subtitle: String? {
         if let row = model.content.row, case .doc = model.content.result {
+            if row.state.uppercased() == "PREPARE", let stage = row.stage, !stage.isEmpty {
+                return stage
+            }
             return GlanceContent.humanState(row.state)
         }
         return nil

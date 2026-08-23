@@ -50,7 +50,9 @@ PrintGlance has no Dock icon. If it is already running, click the printer icon i
 
 If no printers appear, click **Find printers**. If the list is still empty, enter the IP address, serial number, and access code from the printer.
 
-When a print is running, the menu bar shows percent and finish time. If the job finishes after today, the time includes the day. Click the icon for more detail: layer, the filament in use, and remaining filament. On a dual-nozzle printer such as H2D, the card shows **Left** or **Right** next to the filament.
+When a print is starting, the menu bar shows what the printer is doing (**Heating**, **Leveling**, **Loading filament**, and similar) instead of 0% and a finish time. When a print is running, the menu bar shows percent and finish time. If the job finishes after today, the time includes the day. Click the icon for more detail: layer, the filament in use, and remaining filament. On a dual-nozzle printer such as H2D, the card shows **Left** or **Right** next to the filament.
+
+When the printer is idle or the print has finished, the card lists each AMS tray: color, name, and remaining percent, plus humidity when the AMS sends it.
 
 When a print has finished, the menu bar shows how long ago it finished, such as **40m ago**, until you tap **Done** on the printer. If PrintGlance was not running when the print finished, the menu bar shows **Done** with no elapsed time.
 
@@ -76,6 +78,8 @@ Click **…** and open **Notifications**. Turn on the events you want:
 - **Quiet hours**
 
 **Print finished**, **Print failed**, **Printer went offline**, and **Print finishing soon** start turned on. **Print paused** and **Quiet hours** start turned off.
+
+When a print fails and the printer sends an HMS code, the **Print failed** notice includes that code.
 
 **Print finishing soon** tells you about 10 minutes before the print ends, so you can be at the printer. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is cancelled.
 
