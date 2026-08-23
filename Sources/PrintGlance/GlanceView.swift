@@ -1,16 +1,24 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct GlanceView: View {
     @ObservedObject var model: GlanceModel
     @State private var openAtLogin = LoginItem.isEnabled
     @State private var showPrinter = false
+    @State private var showHistory = false
     @State private var draft = PrinterSettings.empty
     @State private var editingSerial: String?
 
     var body: some View {
         Group {
-            if showPrinter {
+            if showHistory {
+                HistoryView(
+                    rows: model.historyRows,
+                    onExport: exportHistory,
+                    onClose: { showHistory = false }
+                )
+            } else if showPrinter {
                 PrinterSettingsView(
                     title: editingSerial == nil ? "Add printer" : "Printer",
                     settings: $draft,
@@ -143,7 +151,11 @@ struct GlanceView: View {
 
         if timed {
             VStack(alignment: .leading, spacing: 2) {
-                Text(GlanceContent.hero(row))
+                Text(GlanceContent.hero(
+                    row,
+                    occupancyEndedAt: model.occupancyEndedAt,
+                    now: model.occupancyNow
+                ))
                     .font(.system(size: 28, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(.primary)
@@ -168,6 +180,24 @@ struct GlanceView: View {
             }
 
             metaRow(row)
+        } else if row.state.uppercased() == "FINISH" {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(GlanceContent.hero(
+                    row,
+                    occupancyEndedAt: model.occupancyEndedAt,
+                    now: model.occupancyNow
+                ))
+                .font(.system(size: 28, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                if let caption = printerCaption(row) {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
         } else if row.state.uppercased() == "OFFLINE" {
             Text(GlanceCopy.feedDownDetail(reason: model.lastDisconnectReason))
                 .font(.subheadline)
@@ -188,6 +218,7 @@ struct GlanceView: View {
             if !model.settings.printers.isEmpty {
                 Button("Printer") { openEdit() }
             }
+            Button("History") { showHistory = true }
             Menu("Notifications") {
                 Toggle("Print finished", isOn: $model.notifyPrefs.finish)
                 Toggle("Print failed", isOn: $model.notifyPrefs.fail)
@@ -227,9 +258,20 @@ struct GlanceView: View {
         }
     }
 
+    private func exportHistory() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = "printglance-history.csv"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            model.exportHistory(to: url)
+        }
+    }
+
     private func openAdd() {
         draft = .empty
         editingSerial = nil
+        showHistory = false
         showPrinter = true
     }
 
@@ -243,6 +285,7 @@ struct GlanceView: View {
         }
         draft = focused
         editingSerial = focused.serial
+        showHistory = false
         showPrinter = true
     }
 
@@ -356,6 +399,79 @@ private extension Color {
             blue: Double((v >> 8) & 0xFF) / 255,
             opacity: Double(v & 0xFF) / 255
         )
+    }
+}
+
+private struct HistoryView: View {
+    var rows: [JobLogRow]
+    var onExport: () -> Void
+    var onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("History")
+                    .font(.headline)
+                Spacer()
+                Button("Export CSV", action: onExport)
+                    .disabled(rows.isEmpty)
+            }
+            if rows.isEmpty {
+                Text("No prints on this Mac yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(rows) { row in
+                        historyRow(row)
+                    }
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Back", action: onClose)
+            }
+            VersionLine()
+        }
+        .padding(14)
+        .frame(width: 248, alignment: .leading)
+    }
+
+    private func historyRow(_ row: JobLogRow) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(historyTitle(row))
+                .font(.subheadline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(historyCaption(row))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func historyTitle(_ row: JobLogRow) -> String {
+        if let job = row.job, !job.isEmpty { return job }
+        return row.name
+    }
+
+    private func historyCaption(_ row: JobLogRow) -> String {
+        var parts = [row.name]
+        if let outcome = row.outcome {
+            parts.append(outcome == JobLog.outcomeFail ? "Failed" : "Done")
+        } else {
+            parts.append("Printing")
+        }
+        if let end = row.endedAt {
+            let minutes = max(0, Int(end.timeIntervalSince(row.startAt) / 60))
+            parts.append("\(minutes) min")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

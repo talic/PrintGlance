@@ -112,7 +112,31 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    static func strip(
+        _ result: FeedResult,
+        occupancyEndedAt: Date?,
+        now: Date
+    ) -> StripPresentation {
+        switch result {
+        case let .doc(doc):
+            guard let row = doc.focusRow() else {
+                return StripPresentation(
+                    systemImage: "printer.slash",
+                    title: "",
+                    accessibilityLabel: "No printer"
+                )
+            }
+            return strip(row: row, occupancyEndedAt: occupancyEndedAt, now: now)
+        default:
+            return strip(result)
+        }
+    }
+
     static func strip(row: Printer) -> StripPresentation {
+        strip(row: row, occupancyEndedAt: nil, now: Date())
+    }
+
+    static func strip(row: Printer, occupancyEndedAt: Date?, now: Date) -> StripPresentation {
         let st = row.state.uppercased()
         switch st {
         case "RUNNING", "PREPARE":
@@ -137,10 +161,11 @@ struct GlanceContent: Equatable, Sendable {
                 accessibilityLabel: a11y(row)
             )
         case "FINISH":
+            let title = occupancyEndedAt.map { agoTitle(from: $0, now: now) } ?? ""
             return StripPresentation(
                 systemImage: "checkmark",
-                title: "",
-                accessibilityLabel: a11y(row)
+                title: title,
+                accessibilityLabel: a11y(row, occupancyTitle: title)
             )
         case "FAILED":
             return StripPresentation(
@@ -192,7 +217,12 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
-    static func hero(_ row: Printer) -> String {
+    static func agoTitle(from ended: Date, now: Date) -> String {
+        let s = max(0, Int(now.timeIntervalSince(ended)))
+        return "\(formatRemain(s)) ago"
+    }
+
+    static func hero(_ row: Printer, occupancyEndedAt: Date? = nil, now: Date = Date()) -> String {
         let timed = isTimed(row.state)
         if timed, let eta = row.eta, !eta.isEmpty {
             return eta
@@ -201,7 +231,11 @@ struct GlanceContent: Equatable, Sendable {
             return formatRemain(s)
         }
         switch row.state.uppercased() {
-        case "FINISH": return "Done"
+        case "FINISH":
+            if let occupancyEndedAt {
+                return agoTitle(from: occupancyEndedAt, now: now)
+            }
+            return "Done"
         case "FAILED": return "Failed"
         case "IDLE": return "Idle"
         case "OFFLINE": return "Offline"
@@ -242,8 +276,11 @@ struct GlanceContent: Equatable, Sendable {
         return text
     }
 
-    private static func a11y(_ row: Printer) -> String {
+    private static func a11y(_ row: Printer, occupancyTitle: String = "") -> String {
         var parts = [row.name, humanState(row.state).lowercased()]
+        if !occupancyTitle.isEmpty {
+            parts.append(occupancyTitle)
+        }
         if let p = row.percent {
             parts.append("\(p) percent")
         }
@@ -285,6 +322,8 @@ final class GlanceModel: ObservableObject {
             notifyPrefs.save(.standard)
         }
     }
+    @Published private(set) var occupancyNow = Date()
+    @Published private(set) var historyRows: [JobLogRow] = []
 
     private final class Link {
         let mqtt = MQTT311Client()
@@ -317,8 +356,11 @@ final class GlanceModel: ObservableObject {
     private var staleTask: Task<Void, Never>?
     private var notify: PrintNotify
     private let notifyPresenter = PrintNotifyPresenter()
+    private var jobLog: JobLog
+    private let jobLogURL: URL
+    private var occupancyTask: Task<Void, Never>?
 
-    init() {
+    init(jobLogURL: URL = JobLog.fileURL()) {
         let settings = SavedPrinters.load()
         let prefs = PrintNotifyPrefs.load(.standard)
         self.settings = settings
@@ -328,6 +370,10 @@ final class GlanceModel: ObservableObject {
             prefs: prefs,
             stamps: PrintNotifyStamp.loadAll(.standard)
         )
+        self.jobLogURL = jobLogURL
+        let log = JobLog.load(from: jobLogURL)
+        self.jobLog = log
+        self.historyRows = log.recent(20)
     }
 
     private func log(_ msg: String) {
@@ -343,7 +389,22 @@ final class GlanceModel: ObservableObject {
         }
     }
 
-    var strip: StripPresentation { content.strip }
+    var strip: StripPresentation {
+        GlanceContent.strip(
+            content.result,
+            occupancyEndedAt: occupancyEndedAt,
+            now: occupancyNow
+        )
+    }
+
+    var occupancyEndedAt: Date? {
+        guard let row = content.row else { return nil }
+        return jobLog.occupancyEndedAt(serial: row.id, state: row.state, jobId: row.jobId)
+    }
+
+    func exportHistory(to url: URL) {
+        try? jobLog.csv().write(to: url, atomically: true, encoding: .utf8)
+    }
 
     func start() {
         UNUserNotificationCenter.current().delegate = notifyPresenter
@@ -525,7 +586,11 @@ final class GlanceModel: ObservableObject {
                 snapshots: snaps,
                 focusId: settings.focusId
             )
+            jobLog.observe(printers: doc.printers)
+            jobLog.save(to: jobLogURL)
+            historyRows = jobLog.recent(20)
             apply(GlanceContent(result: .doc(doc)))
+            syncOccupancyClock()
             for row in doc.printers {
                 guard let snap = snaps[row.id] else { continue }
                 let fil = BambuPrint.activeFilament(snap.printObj)
@@ -575,6 +640,32 @@ final class GlanceModel: ObservableObject {
             notify.persistStamp(.standard)
             deliver(outcome)
             content = next
+        }
+        if case .doc = next.result {
+            return
+        }
+        occupancyTask?.cancel()
+        occupancyTask = nil
+    }
+
+    private func syncOccupancyClock() {
+        occupancyNow = Date()
+        guard occupancyEndedAt != nil else {
+            occupancyTask?.cancel()
+            occupancyTask = nil
+            return
+        }
+        guard occupancyTask == nil else { return }
+        occupancyTask = Task { @MainActor [weak self] in
+            while let self, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                guard !Task.isCancelled else { return }
+                guard self.occupancyEndedAt != nil else {
+                    self.occupancyTask = nil
+                    return
+                }
+                self.occupancyNow = Date()
+            }
         }
     }
 
