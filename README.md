@@ -37,6 +37,8 @@ The Mac and the printer must be on the same Wi-Fi network. Guest Wi-Fi that isol
 5. Open **System Settings > Privacy & Security**. In **Security**, click **Open Anyway**, then click **Open**. Enter your password if macOS asks.
 6. If you do not see a printer icon in the menu bar, turn PrintGlance on in **System Settings > Menu Bar**.
 
+PrintGlance has no Dock icon. If it is already running, click the printer icon in the menu bar.
+
 ## Connect to your printer
 
 1. Click the printer icon in the menu bar.
@@ -88,6 +90,7 @@ Your printer IP, serial, and access code stay on this Mac.
 ## If it cannot connect
 
 - Mac and printer are on the same Wi-Fi
+- LAN mode is on. On the printer, open **Settings**, then **LAN** or **Network**, and turn on LAN mode
 - Access code matches the printer's LAN or Network page
 - The printer is switched on
 - PrintGlance is turned on for the local network in **System Settings > Privacy & Security > Local Network**
