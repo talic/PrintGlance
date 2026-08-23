@@ -52,6 +52,10 @@ If no printers appear, click **Find printers**. If the list is still empty, ente
 
 When a print is running, the menu bar shows percent and finish time. If the job finishes after today, the time includes the day. Click the icon for more detail: layer, the filament in use, and remaining filament. On a dual-nozzle printer such as H2D, the card shows **Left** or **Right** next to the filament.
 
+When a print has finished, the menu bar shows how long ago it finished, such as **40m ago**, until you tap **Done** on the printer. If PrintGlance was not running when the print finished, the menu bar shows **Done** with no elapsed time.
+
+To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac. Click **Export CSV** to save them.
+
 The print card and the printer form show **PrintGlance** and the version you are running.
 
 To add another printer, click **…** and choose **Add printer**. PrintGlance watches up to four printers. Click a printer in the list to focus it. To change or remove the focused printer, click **…** and choose **Printer**. **Remove** is available when more than one printer is saved.
