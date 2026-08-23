@@ -72,8 +72,14 @@ Click **…** and open **Notifications**. Turn on the events you want:
 - **Print failed**
 - **Print paused**
 - **Printer went offline**
+- **Print finishing soon**
+- **Quiet hours**
 
-**Print finished**, **Print failed**, and **Printer went offline** start turned on. **Print paused** starts turned off.
+**Print finished**, **Print failed**, **Printer went offline**, and **Print finishing soon** start turned on. **Print paused** and **Quiet hours** start turned off.
+
+**Print finishing soon** tells you about 10 minutes before the print ends, so you can be at the printer. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is cancelled.
+
+**Quiet hours** (10 PM to 7 AM on this Mac) delays **Print finished** until 7 AM. **Print finishing soon** is skipped in that window. **Print failed**, **Print paused**, **Printer went offline**, and **Low filament** still appear.
 
 When macOS asks for notification permission, click **Allow**. PrintGlance asks the first time a print starts.
 
