@@ -401,8 +401,96 @@ enum BambuPrint {
             filamentRemain: fil.remain,
             filamentColor: fil.color,
             nozzle: activeNozzle(printObj),
-            jobId: jobIdentity(printObj)
+            jobId: jobIdentity(printObj),
+            stage: stageLabel(state: state, printObj: printObj),
+            trays: trays(printObj),
+            humidity: amsHumidity(printObj),
+            hmsCode: firstHMSCode(printObj)
         )
+    }
+
+    static func stageLabel(state: String, printObj: [String: Any]) -> String? {
+        guard state.uppercased() == "PREPARE" else { return nil }
+        guard let stg = BambuJSON.intValue(printObj["stg_cur"]) else { return "Starting" }
+        switch stg {
+        case 2, 7, 15, 49, 54, 63: return "Heating"
+        case 1, 9, 40, 47, 48, 57: return "Leveling"
+        case 4, 24, 77: return "Loading filament"
+        case 22: return "Unloading filament"
+        case 3, 8, 12, 18, 19, 25, 37, 39, 51: return "Calibrating"
+        case 14: return "Cleaning nozzle"
+        case 13: return "Homing"
+        default: return "Starting"
+        }
+    }
+
+    static func trays(_ printObj: [String: Any]) -> [AMSTray] {
+        var out: [AMSTray] = []
+        let ams = BambuJSON.dict(printObj["ams"]) ?? [:]
+        if let units = BambuJSON.array(ams["ams"]) {
+            for (ui, unitAny) in units.enumerated() {
+                guard let unit = BambuJSON.dict(unitAny),
+                      let trays = BambuJSON.array(unit["tray"]) else { continue }
+                let uid = BambuJSON.intValue(unit["id"]) ?? ui
+                for trayAny in trays {
+                    guard let tray = BambuJSON.dict(trayAny) else { continue }
+                    let tid = BambuJSON.intValue(tray["id"]) ?? 0
+                    let name = filamentName(tray)
+                    let remain = remainPercent(tray["remain"])
+                    let color = trayColorHex(tray)
+                    if name == nil, remain == nil, color == nil { continue }
+                    out.append(
+                        AMSTray(
+                            id: "\(uid * 4 + tid)",
+                            name: name,
+                            remain: remain,
+                            color: color
+                        )
+                    )
+                }
+            }
+        }
+        if let vt = BambuJSON.dict(printObj["vt_tray"]) {
+            let name = filamentName(vt)
+            let remain = remainPercent(vt["remain"])
+            let color = trayColorHex(vt)
+            if name != nil || remain != nil || color != nil {
+                out.append(AMSTray(id: "ext", name: name, remain: remain, color: color))
+            }
+        }
+        return out
+    }
+
+    static func amsHumidity(_ printObj: [String: Any]) -> Int? {
+        let ams = BambuJSON.dict(printObj["ams"]) ?? [:]
+        guard let units = BambuJSON.array(ams["ams"]) else { return nil }
+        for unitAny in units {
+            guard let unit = BambuJSON.dict(unitAny),
+                  let h = BambuJSON.intValue(unit["humidity"]),
+                  (1...5).contains(h) else { continue }
+            return h
+        }
+        return nil
+    }
+
+    static func firstHMSCode(_ printObj: [String: Any]) -> String? {
+        guard let items = BambuJSON.array(printObj["hms"]) else { return nil }
+        for item in items {
+            guard let d = BambuJSON.dict(item) else { continue }
+            let attrN = BambuJSON.intValue(d["attr"]) ?? 0
+            let codeN = BambuJSON.intValue(d["code"]) ?? 0
+            if attrN == 0, codeN == 0 { continue }
+            let attr = UInt32(truncatingIfNeeded: attrN)
+            let code = UInt32(truncatingIfNeeded: codeN)
+            return String(
+                format: "%04X-%04X-%04X-%04X",
+                attr >> 16,
+                attr & 0xFFFF,
+                code >> 16,
+                code & 0xFFFF
+            )
+        }
+        return nil
     }
 }
 

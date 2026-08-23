@@ -266,11 +266,14 @@ struct PrintNotify {
     private static func alert(_ kind: PrintNotifyKind, _ row: Printer?, serial: String) -> PrintNotifyAlert? {
         guard let row else { return nil }
         let name = row.name.isEmpty ? "Printer" : row.name
-        let body: String
+        var body: String
         if let job = row.job, !job.isEmpty {
             body = "\(job) on \(name)"
         } else {
             body = name
+        }
+        if kind == .fail, let hms = row.hmsCode, !hms.isEmpty {
+            body += " · HMS \(hms)"
         }
         let title: String
         switch kind {
