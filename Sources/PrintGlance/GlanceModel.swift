@@ -139,7 +139,14 @@ struct GlanceContent: Equatable, Sendable {
     static func strip(row: Printer, occupancyEndedAt: Date?, now: Date) -> StripPresentation {
         let st = row.state.uppercased()
         switch st {
-        case "RUNNING", "PREPARE":
+        case "PREPARE":
+            let title = row.stage ?? "Starting"
+            return StripPresentation(
+                systemImage: "printer.fill",
+                title: title,
+                accessibilityLabel: a11y(row)
+            )
+        case "RUNNING":
             let pct = paddedPercent(row.percent)
             let title: String
             if let eta = row.eta, !eta.isEmpty, let pct {
