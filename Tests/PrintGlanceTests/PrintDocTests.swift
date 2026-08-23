@@ -137,6 +137,14 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "printer.slash")
     }
 
+    func testConnectingStripIsNotFeedDown() {
+        XCTAssertEqual(GlanceContent.strip(.connecting).systemImage, "printer")
+        XCTAssertNotEqual(
+            GlanceContent.strip(.connecting).systemImage,
+            GlanceContent.strip(.feedDown).systemImage
+        )
+    }
+
     func testFeedDownDetailTokens() {
         XCTAssertEqual(
             GlanceCopy.feedDownDetail(reason: "ECONNREFUSED"),
