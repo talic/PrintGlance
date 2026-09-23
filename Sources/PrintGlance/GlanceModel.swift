@@ -335,12 +335,16 @@ final class GlanceModel: ObservableObject {
     private final class Link {
         let mqtt = MQTT311Client()
         let snapshot: BambuSnapshot
-        let printer: PrinterSettings
+        var printer: PrinterSettings
         var timeout: Task<Void, Never>?
         var failed = false
         /// CONNACK for this attempt. A prior session can still have `hasReport`.
         var handshake = false
         var reconnectAttempt = 0
+        /// Dial this address. Preferences keep the saved IP until connect succeeds.
+        var candidateIP: String?
+        /// The saved IP answered and rejected the access code.
+        var authRejected = false
 
         init(printer: PrinterSettings) {
             self.printer = printer
@@ -358,6 +362,12 @@ final class GlanceModel: ObservableObject {
     }
 
     private var links: [String: Link] = [:]
+    private var adoptScan: Task<Void, Never>?
+    private var adoptGeneration: UInt64 = 0
+    private var lastAdoptScanAt: Date?
+    private var waitingOnScan: Set<String> = []
+    private var rediscoverPausedSerial: String?
+    private static let adoptGap: TimeInterval = 60
     private let updates = AppUpdateChecker()
     private var filament = FilamentAlert()
     private var staleTask: Task<Void, Never>?
@@ -464,6 +474,10 @@ final class GlanceModel: ObservableObject {
         publishSnapshot()
     }
 
+    func setRediscoverPausedSerial(_ serial: String?) {
+        rediscoverPausedSerial = serial
+    }
+
     func saveSettings(_ next: SavedPrinters) {
         next.save()
         settings = next
@@ -471,6 +485,7 @@ final class GlanceModel: ObservableObject {
     }
 
     private func applySettingsAndConnect() {
+        cancelAdoptScan()
         for link in links.values {
             link.tearDown()
         }
@@ -498,8 +513,13 @@ final class GlanceModel: ObservableObject {
             return
         }
         for id in links.keys {
-            links[id]?.reconnectAttempt = 0
-            beginConnect(id)
+            guard let link = links[id] else { continue }
+            link.reconnectAttempt = 0
+            if link.failed, !link.authRejected {
+                requestRediscover(id) { self.beginConnect(id) }
+            } else {
+                beginConnect(id)
+            }
         }
     }
 
@@ -523,11 +543,13 @@ final class GlanceModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             guard let link = self.links[id], !link.handshake else { return }
             link.failed = true
+            link.authRejected = false
             self.noteDisconnect("connect timed out")
             self.log("connect timed out \(id)")
             link.mqtt.disconnect()
             self.publishSnapshot()
-            self.scheduleReconnect(id)
+            self.revertCandidate(id)
+            self.requestRediscover(id) { self.scheduleReconnect(id) }
         }
     }
 
@@ -545,12 +567,112 @@ final class GlanceModel: ObservableObject {
         }
     }
 
+    private func isAccessRejected(_ reason: String?) -> Bool {
+        reason?.hasPrefix("MQTT CONNACK") == true
+    }
+
+    private func requestRediscover(_ id: String, ifSkipped: () -> Void) {
+        guard links[id] != nil else { return }
+        if adoptScan != nil {
+            waitingOnScan.insert(id)
+            return
+        }
+        if let lastAdoptScanAt, Date().timeIntervalSince(lastAdoptScanAt) < Self.adoptGap {
+            ifSkipped()
+            return
+        }
+        waitingOnScan.insert(id)
+        startAdoptScan()
+    }
+
+    private func startAdoptScan() {
+        adoptGeneration &+= 1
+        let generation = adoptGeneration
+        lastAdoptScanAt = Date()
+        adoptScan = Task { @MainActor [weak self] in
+            let hits = await PrinterDiscovery.scan()
+            guard let self, !Task.isCancelled, generation == self.adoptGeneration else { return }
+            self.adoptScan = nil
+            self.finishAdoptScan(hits: hits)
+        }
+    }
+
+    private func finishAdoptScan(hits: [PrinterDiscovery.Hit]) {
+        let waiting = waitingOnScan
+        waitingOnScan = []
+        let pairs = PrinterDiscovery.ipChanges(saved: settings.printers, hits: hits)
+        var adopted = Set<String>()
+        for (serial, ip) in pairs {
+            guard let link = links[serial], link.failed, !link.authRejected, link.candidateIP == nil else {
+                continue
+            }
+            if formBlocksRediscover(serial) { continue }
+            link.candidateIP = ip
+            var printer = link.printer
+            printer.ip = ip
+            link.printer = printer
+            link.reconnectAttempt = 0
+            beginConnect(serial)
+            adopted.insert(serial)
+        }
+        for id in waiting where !adopted.contains(id) {
+            guard links[id] != nil else { continue }
+            scheduleReconnect(id)
+        }
+    }
+
+    private func cancelAdoptScan() {
+        adoptGeneration &+= 1
+        adoptScan?.cancel()
+        adoptScan = nil
+        waitingOnScan = []
+    }
+
+    private func formBlocksRediscover(_ serial: String) -> Bool {
+        guard let paused = rediscoverPausedSerial?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !paused.isEmpty
+        else { return false }
+        return paused.caseInsensitiveCompare(
+            serial.trimmingCharacters(in: .whitespacesAndNewlines)
+        ) == .orderedSame
+    }
+
+    private func savedPrinter(serial: String) -> PrinterSettings? {
+        let key = serial.trimmingCharacters(in: .whitespacesAndNewlines)
+        return settings.printers.first {
+            $0.serial.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(key) == .orderedSame
+        }
+    }
+
+    private func revertCandidate(_ id: String) {
+        guard let link = links[id], link.candidateIP != nil else { return }
+        link.candidateIP = nil
+        if let saved = savedPrinter(serial: id) {
+            link.printer = saved
+        }
+    }
+
+    private func commitCandidate(_ id: String) {
+        guard let link = links[id], let candidate = link.candidateIP else { return }
+        link.candidateIP = nil
+        guard let old = savedPrinter(serial: id)?.ip,
+              let next = settings.changingIP(serial: id, to: candidate)
+        else { return }
+        next.save()
+        settings = next
+        log("ip \(id) \(old) -> \(candidate)")
+    }
+
     private func didConnect(_ id: String) {
         guard let link = links[id] else { return }
         link.timeout?.cancel()
         link.failed = false
         link.handshake = true
         link.reconnectAttempt = 0
+        link.authRejected = false
+        commitCandidate(id)
         noteDisconnect(nil)
         log("connected \(id)")
         NSLog("PrintGlance: connected to printer")
@@ -570,7 +692,15 @@ final class GlanceModel: ObservableObject {
         link.snapshot.markConnected(false)
         link.failed = true
         publishSnapshot()
-        scheduleReconnect(id)
+        if isAccessRejected(reason) {
+            link.authRejected = true
+            revertCandidate(id)
+            scheduleReconnect(id)
+        } else {
+            link.authRejected = false
+            revertCandidate(id)
+            requestRediscover(id) { self.scheduleReconnect(id) }
+        }
     }
 
     private func didMessage(_ id: String, _ data: Data) {

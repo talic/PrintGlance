@@ -45,6 +45,28 @@ enum PrinterDiscovery {
         return Hit(ip: ip, serial: serial(fromUSN: usn), name: name, model: model)
     }
 
+    /// Returns saved serials whose reply has a different IP. The first reply wins when two serials differ only by case.
+    static func ipChanges(saved: [PrinterSettings], hits: [Hit]) -> [(serial: String, ip: String)] {
+        var ipBySerial: [String: String] = [:]
+        for hit in hits {
+            let serial = hit.serial.trimmingCharacters(in: .whitespacesAndNewlines)
+            let ip = hit.ip.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !serial.isEmpty, !ip.isEmpty else { continue }
+            let key = serial.lowercased()
+            if ipBySerial[key] == nil {
+                ipBySerial[key] = ip
+            }
+        }
+        var out: [(serial: String, ip: String)] = []
+        for printer in saved {
+            let key = printer.serial.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !key.isEmpty, let ip = ipBySerial[key] else { continue }
+            if ip == printer.ip.trimmingCharacters(in: .whitespacesAndNewlines) { continue }
+            out.append((printer.serial, ip))
+        }
+        return out
+    }
+
     static func scan(timeout: TimeInterval = timeout) async -> [Hit] {
         await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {

@@ -30,7 +30,7 @@ struct GlanceView: View {
                         }
                     },
                     onRemove: removeAction,
-                    onClose: { showPrinter = false }
+                    onClose: { setPrinterForm(false) }
                 )
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -56,7 +56,7 @@ struct GlanceView: View {
                 if let partial = model.settings.printers.first {
                     draft = partial
                     editingSerial = partial.serial.isEmpty ? nil : partial.serial
-                    showPrinter = true
+                    setPrinterForm(true)
                 } else {
                     openAdd()
                 }
@@ -320,11 +320,16 @@ struct GlanceView: View {
         }
     }
 
+    private func setPrinterForm(_ open: Bool) {
+        showPrinter = open
+        model.setRediscoverPausedSerial(open ? editingSerial : nil)
+    }
+
     private func openAdd() {
         draft = .empty
         editingSerial = nil
         showHistory = false
-        showPrinter = true
+        setPrinterForm(true)
     }
 
     private func openEdit() {
@@ -338,7 +343,7 @@ struct GlanceView: View {
         draft = focused
         editingSerial = focused.serial
         showHistory = false
-        showPrinter = true
+        setPrinterForm(true)
     }
 
     private var headline: String {
