@@ -75,16 +75,64 @@ private struct MenuBarPanelHost: NSViewRepresentable {
             restoreFrost(root)
         }
 
-        guard size.width > 1, size.height > 1 else { return }
-        let frameSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
-        guard abs(window.frame.width - frameSize.width) > 0.5
-            || abs(window.frame.height - frameSize.height) > 0.5
-        else { return }
+        if size.width > 1, size.height > 1 {
+            let frameSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
+            if abs(window.frame.width - frameSize.width) > 0.5
+                || abs(window.frame.height - frameSize.height) > 0.5 {
+                var frame = window.frame
+                frame.origin.y += frame.height - frameSize.height
+                frame.size = frameSize
+                window.setFrame(frame, display: true)
+                window.invalidateShadow()
+            }
+        }
+        // Geometry can report the stretched panel, which locks the extra band in.
+        hugDrawnContent(window)
+    }
+
+    /// The card stays centered in a taller clear panel. Trim that band.
+    private func hugDrawnContent(_ window: NSWindow) {
+        guard let content = window.contentView, let host = findHosting(content) else { return }
+        guard let target = drawnContentSize(in: host) else { return }
+        let frameSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: target)).size
+        guard window.frame.height - frameSize.height > 8 else { return }
         var frame = window.frame
-        frame.origin.y += frame.height - frameSize.height
-        frame.size = frameSize
+        frame.origin.y += (frame.height - frameSize.height) / 2
+        frame.size.height = frameSize.height
         window.setFrame(frame, display: true)
         window.invalidateShadow()
+    }
+
+    /// Text and controls, plus the card padding. Clear space around them does not count.
+    private func drawnContentSize(in host: NSView) -> CGSize? {
+        var box: CGRect?
+        func walk(_ view: NSView) {
+            let name = String(describing: type(of: view))
+            let drawn = name.contains("CGDrawing") || name.contains("Button") || name.contains("Image")
+            if drawn, !view.isHidden {
+                let rect = view.convert(view.bounds, to: host)
+                if rect.width > 2, rect.height > 2 {
+                    box = box.map { $0.union(rect) } ?? rect
+                }
+            }
+            for child in view.subviews { walk(child) }
+        }
+        walk(host)
+        guard let box, box.height > 20, box.minY.isFinite else { return nil }
+        let pad: CGFloat = box.minY > 20 ? 16 : min(box.minY, 16)
+        let height = box.minY > 20 ? box.height + pad * 2 : box.maxY + pad
+        let windowHeight = host.window?.frame.height ?? height
+        guard height + 8 < host.frame.height || height + 8 < windowHeight else { return nil }
+        let width = host.frame.width > 40 ? host.frame.width : box.width + pad * 2
+        return CGSize(width: width, height: ceil(height))
+    }
+
+    private func findHosting(_ view: NSView) -> NSView? {
+        if String(describing: type(of: view)).contains("HostingView") { return view }
+        for child in view.subviews {
+            if let found = findHosting(child) { return found }
+        }
+        return nil
     }
 
     private func restoreFrost(_ view: NSView) {
