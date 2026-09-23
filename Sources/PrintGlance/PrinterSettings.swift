@@ -164,6 +164,20 @@ struct SavedPrinters: Equatable {
         SavedPrinters(printers: printers, focusId: id)
     }
 
+    /// Returns a copy with only this serial's IP replaced, or nil if that serial is absent or the IP is unchanged.
+    func changingIP(serial: String, to ip: String) -> SavedPrinters? {
+        let ip = ip.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = serial.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty, !ip.isEmpty else { return nil }
+        guard let i = printers.firstIndex(where: {
+            $0.serial.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(key) == .orderedSame
+        }) else { return nil }
+        guard printers[i].ip != ip else { return nil }
+        var copy = printers
+        copy[i].ip = ip
+        return SavedPrinters(printers: copy, focusId: focusId)
+    }
+
     private static func decode(from d: UserDefaults) -> SavedPrinters {
         let raw = d.array(forKey: printersKey) ?? []
         let printers: [PrinterSettings] = raw.compactMap { item in

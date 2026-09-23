@@ -45,4 +45,44 @@ final class PrinterDiscoveryTests: XCTestCase {
         XCTAssertNil(PrinterDiscovery.parse("garbage"))
         XCTAssertNil(PrinterDiscovery.parse(""))
     }
+
+    func testIpChangesMatchesSerialAndSkipsSameAddress() {
+        let saved = [
+            PrinterSettings(ip: "192.0.2.10", serial: "01P00A123456789", accessCode: "c", name: "A"),
+        ]
+        let moved = PrinterDiscovery.ipChanges(
+            saved: saved,
+            hits: [hit("192.0.2.20", "01p00a123456789")]
+        )
+        XCTAssertEqual(moved.map(\.serial), ["01P00A123456789"])
+        XCTAssertEqual(moved.map(\.ip), ["192.0.2.20"])
+
+        let same = PrinterDiscovery.ipChanges(
+            saved: saved,
+            hits: [hit("192.0.2.10", "01P00A123456789")]
+        )
+        XCTAssertTrue(same.isEmpty)
+
+        let other = PrinterDiscovery.ipChanges(
+            saved: saved,
+            hits: [hit("192.0.2.30", "OTHER")]
+        )
+        XCTAssertTrue(other.isEmpty)
+
+        let blank = PrinterDiscovery.ipChanges(
+            saved: saved,
+            hits: [hit("192.0.2.40", "")]
+        )
+        XCTAssertTrue(blank.isEmpty)
+
+        let firstCase = PrinterDiscovery.ipChanges(
+            saved: saved,
+            hits: [hit("192.0.2.20", "01p00a123456789"), hit("192.0.2.30", "01P00A123456789")]
+        )
+        XCTAssertEqual(firstCase.map(\.ip), ["192.0.2.20"])
+    }
+
+    private func hit(_ ip: String, _ serial: String) -> PrinterDiscovery.Hit {
+        PrinterDiscovery.Hit(ip: ip, serial: serial, name: "", model: "")
+    }
 }
