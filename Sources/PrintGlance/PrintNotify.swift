@@ -42,13 +42,21 @@ struct PrintNotifyPrefs: Equatable {
     static let `default` = PrintNotifyPrefs(
         finish: true,
         fail: true,
-        pause: false,
+        pause: true,
         offline: true,
         comingOff: true,
         quietHours: false
     )
 
+    /// Pause alerts became default-on. Prefs save as a block, so an old explicit "off"
+    /// looks the same as the old default; this turns pause on once for everyone.
+    static let pauseOnKey = "pg.notify.pauseOn.v1"
+
     static func load(_ d: UserDefaults) -> PrintNotifyPrefs {
+        if !d.bool(forKey: pauseOnKey) {
+            d.set(true, forKey: "pg.notify.pause")
+            d.set(true, forKey: pauseOnKey)
+        }
         func flag(_ key: String, fallback: Bool) -> Bool {
             guard d.object(forKey: key) != nil else { return fallback }
             return d.bool(forKey: key)
@@ -56,7 +64,7 @@ struct PrintNotifyPrefs: Equatable {
         return PrintNotifyPrefs(
             finish: flag("pg.notify.finish", fallback: true),
             fail: flag("pg.notify.fail", fallback: true),
-            pause: flag("pg.notify.pause", fallback: false),
+            pause: flag("pg.notify.pause", fallback: true),
             offline: flag("pg.notify.offline", fallback: true),
             comingOff: flag("pg.notify.comingOff", fallback: true),
             quietHours: flag("pg.notify.quietHours", fallback: false)
@@ -266,8 +274,8 @@ struct PrintNotify {
         } else {
             body = name
         }
-        if kind == .fail, let hms = row.hmsCode, !hms.isEmpty {
-            body += " · HMS \(hms)"
+        if kind == .fail || kind == .pause, let code = GlanceContent.errorCodes(row).first {
+            body += " · Error \(code)"
         }
         let title: String
         switch kind {

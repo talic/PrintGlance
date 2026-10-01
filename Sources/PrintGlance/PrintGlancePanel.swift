@@ -22,6 +22,45 @@ private struct HugMenuBarPanel: ViewModifier {
     }
 }
 
+/// Calls `action` each time the menu bar panel becomes key, which is each time it opens.
+struct PanelOpened: NSViewRepresentable {
+    var action: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = KeyWatchView()
+        view.action = action
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? KeyWatchView)?.action = action
+    }
+
+    private final class KeyWatchView: NSView {
+        var action: (() -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(self)
+            guard let window else { return }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(becameKey),
+                name: NSWindow.didBecomeKeyNotification,
+                object: window
+            )
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @objc private func becameKey() {
+            action?()
+        }
+    }
+}
+
 /// Window frame that matches the card, keeping the top and trailing edges.
 enum MenuBarHug {
     static func frame(current: CGRect, fitting: CGSize) -> CGRect? {

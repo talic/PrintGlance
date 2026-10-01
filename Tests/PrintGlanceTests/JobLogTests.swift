@@ -157,8 +157,34 @@ final class JobLogTests: XCTestCase {
             GlanceContent.hero(printer, occupancyEndedAt: ended, now: later),
             "40m ago"
         )
-        XCTAssertEqual(GlanceContent.hero(printer), "Done")
+        XCTAssertNil(GlanceContent.hero(printer))
         XCTAssertEqual(GlanceContent.strip(row: printer).title, "")
+    }
+
+    func testHistoryCaption() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let gb = Locale(identifier: "en_GB")
+        // Saturday 2026-08-22 10:00 GMT; the print started 14:02 the day before.
+        let now = Date(timeIntervalSince1970: 1_787_392_800)
+        let start = Date(timeIntervalSince1970: 1_787_320_920)
+        var row = JobLogRow(
+            serial: "x2d", name: "X2D", jobId: "t1", job: "Benchy", filament: nil,
+            startAt: start, endedAt: start + 283 * 60, outcome: JobLog.outcomeOK
+        )
+        func caption(_ many: Bool = false) -> String {
+            GlanceContent.historyCaption(row, showPrinter: many, now: now, calendar: cal, locale: gb)
+        }
+        XCTAssertEqual(caption(), "14:02 yesterday · 4h 43m · Finished")
+        XCTAssertEqual(caption(true), "X2D · 14:02 yesterday · 4h 43m · Finished")
+        row.outcome = JobLog.outcomeFail
+        XCTAssertEqual(caption(), "14:02 yesterday · 4h 43m · Failed")
+        row.endedAt = nil
+        XCTAssertEqual(caption(), "14:02 yesterday · Failed", "no duration when the end wasn't seen")
+        row.outcome = nil
+        XCTAssertEqual(caption(), "14:02 yesterday · Printing")
+        row.startAt = now - 10 * 86_400
+        XCTAssertEqual(caption(), "12 Aug · Printing")
     }
 
     func testRoundTripFile() throws {

@@ -81,7 +81,7 @@ final class GlanceModel: ObservableObject {
         self.jobLogURL = jobLogURL
         let log = JobLog.load(from: jobLogURL)
         self.jobLog = log
-        self.historyRows = log.recent(20)
+        self.historyRows = log.recent(JobLog.cap)
         self.comingOff = ComingOff.load(.standard)
     }
 
@@ -109,8 +109,11 @@ final class GlanceModel: ObservableObject {
     }
 
     var occupancyEndedAt: Date? {
-        guard let row = content.row else { return nil }
-        return jobLog.occupancyEndedAt(serial: row.id, state: row.state, jobId: row.jobId)
+        content.row.flatMap(occupancyEndedAt(for:))
+    }
+
+    func occupancyEndedAt(for row: Printer) -> Date? {
+        jobLog.occupancyEndedAt(serial: row.id, state: row.state, jobId: row.jobId)
     }
 
     func exportHistory(to url: URL) {
@@ -441,7 +444,7 @@ final class GlanceModel: ObservableObject {
             jobLog.observe(printers: doc.printers)
             if jobLog.rows != rowsBefore {
                 jobLog.save(to: jobLogURL)
-                historyRows = jobLog.recent(20)
+                historyRows = jobLog.recent(JobLog.cap)
             }
             let comingOffBefore = comingOff
             for row in doc.printers {
@@ -520,8 +523,14 @@ final class GlanceModel: ObservableObject {
         occupancyTask = nil
     }
 
+    /// The minute clock runs while any printer shows elapsed time or an offline printer's last update.
+    private var clockNeeded: Bool {
+        guard case let .doc(doc) = content.result else { return false }
+        return doc.printers.contains { $0.lastSeen != nil || occupancyEndedAt(for: $0) != nil }
+    }
+
     private func syncOccupancyClock() {
-        guard occupancyEndedAt != nil else {
+        guard clockNeeded else {
             occupancyTask?.cancel()
             occupancyTask = nil
             return
@@ -532,7 +541,7 @@ final class GlanceModel: ObservableObject {
             while let self, !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 60_000_000_000)
                 guard !Task.isCancelled else { return }
-                guard self.occupancyEndedAt != nil else {
+                guard self.clockNeeded else {
                     self.occupancyTask = nil
                     return
                 }

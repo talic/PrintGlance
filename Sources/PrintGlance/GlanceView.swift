@@ -9,12 +9,15 @@ struct GlanceView: View {
     @State private var showHistory = false
     @State private var draft = PrinterSettings.empty
     @State private var editingSerial: String?
+    /// The printer clicked in the list, for this visit only. Each open starts on the menu bar's printer.
+    @State private var selectedId: String?
 
     var body: some View {
         Group {
             if showHistory {
                 HistoryView(
                     rows: model.historyRows,
+                    now: Date(),
                     onExport: exportHistory,
                     onClose: { showHistory = false }
                 )
@@ -45,12 +48,16 @@ struct GlanceView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Download PrintGlance update")
                     }
-                    VersionLine()
                 }
                 .padding(14)
                 .frame(width: 248, alignment: .leading)
             }
         }
+        .background(PanelOpened {
+            guard !showPrinter else { return }
+            selectedId = nil
+            showHistory = false
+        })
         .onAppear {
             if case .needsSetup = model.content.result {
                 if let partial = model.settings.printers.first {
@@ -66,20 +73,7 @@ struct GlanceView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(headline)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if let sub = subtitle {
-                    Text(sub)
-                        .font(.subheadline)
-                        .foregroundStyle(stateColor(model.content.row?.state, otherwise: .secondary))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
+            CardHeader(headline: headline, subtitle: subtitle, state: cardRow?.state)
             overflowMenu
         }
     }
@@ -88,10 +82,18 @@ struct GlanceView: View {
     private var bodyContent: some View {
         if case let .doc(doc) = model.content.result {
             if doc.printers.count > 1 {
-                fleetList(doc)
+                PrinterList(printers: doc.printers, shownId: cardRow?.id) { id in
+                    selectedId = id
+                    model.focusPrinter(id)
+                }
             }
-            if let row = doc.focusRow() {
-                printerBody(row)
+            if let row = cardRow {
+                PrinterDetail(
+                    row: row,
+                    endedAt: model.occupancyEndedAt(for: row),
+                    now: model.occupancyNow,
+                    disconnectReason: model.disconnectReason(for: row.id)
+                )
             } else {
                 emptyText
             }
@@ -107,167 +109,43 @@ struct GlanceView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func fleetList(_ doc: PrintDoc) -> some View {
-        let focused = doc.focusRow()?.id
-        return VStack(alignment: .leading, spacing: 4) {
-            ForEach(doc.printers, id: \.id) { p in
-                Button {
-                    model.focusPrinter(p.id)
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(p.name)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 4)
-                        if let pct = p.percent, GlanceContent.isTimed(p.state) {
-                            Text("\(pct)%")
-                                .monospacedDigit()
-                        }
-                        Text(GlanceContent.humanState(p.state))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(p.id == focused ? .primary : .secondary)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(listA11y(p, focused: p.id == focused))
-            }
-        }
-    }
-
-    private func listA11y(_ row: Printer, focused: Bool) -> String {
-        var parts = [row.name, GlanceContent.humanState(row.state)]
-        if let pct = row.percent, GlanceContent.isTimed(row.state) {
-            parts.append("\(pct) percent")
-        }
-        if focused {
-            parts.append("focused")
-        }
-        return parts.joined(separator: ", ")
-    }
-
-    @ViewBuilder
-    private func printerBody(_ row: Printer) -> some View {
-        let timed = GlanceContent.isTimed(row.state)
-
-        if timed {
-            VStack(alignment: .leading, spacing: 2) {
-                heroText(row)
-                if let left = GlanceContent.remainingLine(row) {
-                    Text(left)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            }
-
-            if let percent = row.percent {
-                HStack(spacing: 8) {
-                    CapsuleBar(percent: percent, tint: stateColor(row.state, otherwise: .primary))
-                    Text("\(percent)%")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 36, alignment: .trailing)
-                }
-            }
-
-            metaRow(row)
-        } else if row.state.uppercased() == "FINISH" {
-            VStack(alignment: .leading, spacing: 2) {
-                heroText(row)
-                if let caption = printerCaption(row) {
-                    Text(caption)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            amsBlock(row)
-        } else if row.state.uppercased() == "OFFLINE" {
-            Text(GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: row.id)))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        } else {
-            if let caption = printerCaption(row) {
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            amsBlock(row)
-        }
-    }
-
-    private func heroText(_ row: Printer) -> some View {
-        Text(GlanceContent.hero(
-            row,
-            occupancyEndedAt: model.occupancyEndedAt,
-            now: model.occupancyNow
-        ))
-        .font(.system(size: 28, weight: .semibold))
-        .monospacedDigit()
-        .foregroundStyle(.primary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-    }
-
-    @ViewBuilder
-    private func amsBlock(_ row: Printer) -> some View {
-        let idle = ["IDLE", "FINISH"].contains(row.state.uppercased())
-        if idle, let trays = row.trays, !trays.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                if let h = row.humidity {
-                    Text("Humidity \(h)/5")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                ForEach(trays) { tray in
-                    HStack(spacing: 6) {
-                        if let hex = tray.color {
-                            FilamentDot(hex: hex)
-                        }
-                        Text(amsLine(tray))
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-            }
-        }
-    }
-
-    private func amsLine(_ tray: AMSTray) -> String {
-        let name = tray.id == "ext"
-            ? tray.name.map { "External · \($0)" } ?? "External"
-            : tray.name ?? "Slot \(tray.id)"
-        return tray.remain.map { "\(name)  \($0)%" } ?? name
+    /// The menu bar's printer, unless one was clicked in the list during this visit.
+    private var cardRow: Printer? {
+        guard case let .doc(doc) = model.content.result else { return nil }
+        return doc.printers.first { $0.id == selectedId } ?? doc.displayRow()
     }
 
     private var overflowMenu: some View {
         Menu {
             if model.settings.canAdd {
-                Button("Add printer") { openAdd() }
+                Button("Add Printer…") { openAdd() }
             }
-            if !model.settings.printers.isEmpty {
-                Button("Printer") { openEdit() }
-            }
-            Button("History") { showHistory = true }
-            Menu("Notifications") {
-                Toggle("Print finished", isOn: $model.notifyPrefs.finish)
-                Toggle("Print failed", isOn: $model.notifyPrefs.fail)
-                Toggle("Print paused", isOn: $model.notifyPrefs.pause)
-                Toggle("Printer went offline", isOn: $model.notifyPrefs.offline)
-                Toggle("Print finishing soon", isOn: $model.notifyPrefs.comingOff)
-                Toggle("Quiet hours", isOn: $model.notifyPrefs.quietHours)
-            }
-            Toggle("Open at Login", isOn: $openAtLogin)
-            if model.availableUpdate != nil {
-                Button("Download update") { model.openUpdatePage() }
+            if let target = editTarget {
+                Button("Edit \(target.displayName)…") { openEdit() }
             }
             Divider()
-            Button("Quit") {
+            Button("History") { showHistory = true }
+            Menu("Notifications") {
+                Toggle("Print Paused", isOn: $model.notifyPrefs.pause)
+                Toggle("Print Failed", isOn: $model.notifyPrefs.fail)
+                Toggle("Print Finished", isOn: $model.notifyPrefs.finish)
+                Toggle("Print Finishing Soon", isOn: $model.notifyPrefs.comingOff)
+                Toggle("Printer Went Offline", isOn: $model.notifyPrefs.offline)
+                Divider()
+                Toggle("Quiet Hours", isOn: $model.notifyPrefs.quietHours)
+            }
+            Toggle("Open at Login", isOn: $openAtLogin)
+            Divider()
+            Button("PrintGlance \(AppUpdate.bundledVersion)") {}
+                .disabled(true)
+            if let tag = model.availableUpdate {
+                Button(GlanceContent.downloadTitle(tag: tag)) { model.openUpdatePage() }
+            }
+            Divider()
+            Button("Quit PrintGlance") {
                 NSApp.terminate(nil)
             }
+            .keyboardShortcut("q")
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.body)
@@ -315,27 +193,29 @@ struct GlanceView: View {
         setPrinterForm(true)
     }
 
-    private func openEdit() {
-        let focused = model.settings.printers.first { $0.serial == model.settings.focusId }
-            ?? model.content.row.flatMap { row in model.settings.printers.first { $0.serial == row.id } }
+    /// The card's printer, or the first saved one before any printer has reported.
+    private var editTarget: PrinterSettings? {
+        cardRow.flatMap { row in model.settings.printers.first { $0.serial == row.id } }
             ?? model.settings.printers.first
-        guard let focused else {
+    }
+
+    private func openEdit() {
+        guard let target = editTarget else {
             openAdd()
             return
         }
-        draft = focused
-        editingSerial = focused.serial
+        draft = target
+        editingSerial = target.serial
         showHistory = false
         setPrinterForm(true)
     }
 
     private var headline: String {
-        if let row = model.content.row {
-            if let job = row.job, !job.isEmpty { return job }
-            return row.name
+        if let row = cardRow {
+            return GlanceContent.headline(row)
         }
         switch model.content.result {
-        case .feedDown: return "Can't update"
+        case .feedDown: return "Can't reach printer"
         case .needsSetup: return "Add your printer"
         case .connecting: return "Connecting"
         case .doc: return "No printer"
@@ -343,13 +223,7 @@ struct GlanceView: View {
     }
 
     private var subtitle: String? {
-        if let row = model.content.row {
-            if row.state.uppercased() == "PREPARE", let stage = row.stage, !stage.isEmpty {
-                return stage
-            }
-            return GlanceContent.humanState(row.state)
-        }
-        return nil
+        cardRow.map(GlanceContent.subtitle)
     }
 
     private var emptyDetail: String {
@@ -357,25 +231,223 @@ struct GlanceView: View {
         case .feedDown:
             return GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: model.settings.focusId))
         case .needsSetup:
-            return "Click … and choose Add printer. Enter the IP address, serial number, and access code from the printer's LAN or Network page."
+            return "Click … and choose Add Printer. Enter the IP address, serial number, and access code from the printer's LAN or Network page."
         case .connecting:
             return "Connecting to the printer."
         case .doc:
-            return "The feed has no printer."
+            return "No printer"
+        }
+    }
+}
+
+struct CardHeader: View {
+    var headline: String
+    var subtitle: String?
+    var state: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(headline)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(stateColor(state, otherwise: .secondary))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct PrinterList: View {
+    var printers: [Printer]
+    var shownId: String?
+    var onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(printers, id: \.id) { p in
+                Button {
+                    onSelect(p.id)
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(p.name)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 4)
+                        if let pct = p.percent, GlanceContent.isTimed(p.state) {
+                            Text("\(pct)%")
+                                .monospacedDigit()
+                        }
+                        Text(GlanceContent.humanState(p.state))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(p.id == shownId ? .primary : .secondary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(a11y(p, shown: p.id == shownId))
+            }
         }
     }
 
-    private func stateColor(_ state: String?, otherwise: Color) -> Color {
-        switch state?.uppercased() {
-        case "PAUSE": return .orange
-        case "FAILED": return .red
-        default: return otherwise
+    private func a11y(_ row: Printer, shown: Bool) -> String {
+        var parts = [row.name, GlanceContent.humanState(row.state)]
+        if let pct = row.percent, GlanceContent.isTimed(row.state) {
+            parts.append("\(pct) percent")
+        }
+        if shown {
+            parts.append("shown")
+        }
+        return parts.joined(separator: ", ")
+    }
+}
+
+/// One printer's card body. Plain values in, so every state renders without a printer.
+struct PrinterDetail: View {
+    var row: Printer
+    var endedAt: Date?
+    var now: Date
+    var disconnectReason: String?
+
+    var body: some View {
+        let timed = GlanceContent.isTimed(row.state)
+        let hero = GlanceContent.hero(row, occupancyEndedAt: endedAt, now: now)
+        let left = GlanceContent.remainingLine(row)
+        let caption = GlanceContent.caption(row)
+
+        if hero != nil || caption != nil {
+            VStack(alignment: .leading, spacing: 2) {
+                if let hero {
+                    Text(hero)
+                        .font(.system(size: 28, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                if let left {
+                    Text(left)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                if let caption {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+
+        if timed, let percent = row.percent {
+            HStack(spacing: 8) {
+                CapsuleBar(percent: percent, tint: stateColor(row.state, otherwise: .primary))
+                Text("\(percent)%")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 36, alignment: .trailing)
+            }
+        }
+
+        if timed {
+            metaRow(row)
+        }
+
+        if row.state.uppercased() == "OFFLINE" {
+            let lines = GlanceContent.offlineLines(row, now: now)
+            if !lines.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(lines, id: \.self) { line in
+                        Text(line)
+                            .monospacedDigit()
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            }
+            Text(GlanceCopy.feedDownDetail(reason: disconnectReason))
+                .font(lines.isEmpty ? .subheadline : .caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if ["PAUSE", "FAILED"].contains(row.state.uppercased()) {
+            errorBlock
+        }
+
+        if GlanceContent.showsAMS(row) {
+            amsBlock(row)
         }
     }
 
-    private func printerCaption(_ row: Printer) -> String? {
-        if let job = row.job, !job.isEmpty { return row.name }
-        return nil
+    @ViewBuilder
+    private var errorBlock: some View {
+        let codes = GlanceContent.errorCodes(row)
+        if codes.isEmpty {
+            Text("No error reported.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(codes, id: \.self) { code in
+                    HStack(spacing: 6) {
+                        Text("Error \(code)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Button("Look up") { lookUp(code) }
+                            .buttonStyle(.link)
+                            .accessibilityLabel("Look up error \(code)")
+                    }
+                }
+            }
+            .font(.caption)
+        }
+    }
+
+    private func lookUp(_ code: String) {
+        let lookup = GlanceContent.errorLookup(code: code, serial: row.id)
+        if lookup.copiesCode {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(code, forType: .string)
+        }
+        NSWorkspace.shared.open(lookup.url)
+    }
+
+    @ViewBuilder
+    private func amsBlock(_ row: Printer) -> some View {
+        let groups = GlanceContent.amsGroups(row)
+        if !groups.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(groups.indices, id: \.self) { i in
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let header = groups[i].header {
+                            Text(header)
+                                .fontWeight(.medium)
+                                .monospacedDigit()
+                        }
+                        ForEach(groups[i].trays) { tray in
+                            HStack(spacing: 6) {
+                                if let hex = tray.color {
+                                    FilamentDot(hex: hex)
+                                }
+                                Text(GlanceContent.trayLine(tray))
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                        }
+                    }
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder
@@ -401,8 +473,16 @@ struct GlanceView: View {
                 }
             }
             .font(.caption)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(.secondary)
         }
+    }
+}
+
+private func stateColor(_ state: String?, otherwise: Color) -> Color {
+    switch state?.uppercased() {
+    case "PAUSE": return .orange
+    case "FAILED": return .red
+    default: return otherwise
     }
 }
 
@@ -435,14 +515,22 @@ private struct FilamentDot: View {
     }
 }
 
-private struct HistoryView: View {
+struct HistoryView: View {
     var rows: [JobLogRow]
+    var now: Date
     var onExport: () -> Void
     var onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 4) {
+                Button(action: onClose) {
+                    Image(systemName: "chevron.left")
+                        .frame(width: 16, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
                 Text("History")
                     .font(.headline)
                 Spacer()
@@ -455,31 +543,31 @@ private struct HistoryView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(rows) { row in
-                        historyRow(row)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(rows) { row in
+                            historyRow(row)
+                        }
                     }
                 }
+                .frame(maxHeight: 360)
             }
-            HStack {
-                Spacer()
-                Button("Back", action: onClose)
-            }
-            VersionLine()
         }
         .padding(14)
         .frame(width: 248, alignment: .leading)
+        .onExitCommand(perform: onClose)
     }
 
     private func historyRow(_ row: JobLogRow) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
+        let manyPrinters = Set(rows.map(\.serial)).count > 1
+        return VStack(alignment: .leading, spacing: 1) {
             Text(historyTitle(row))
                 .font(.subheadline)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(historyCaption(row))
+            Text(GlanceContent.historyCaption(row, showPrinter: manyPrinters, now: now))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(row.outcome == JobLog.outcomeFail ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 .monospacedDigit()
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -491,29 +579,6 @@ private struct HistoryView: View {
     private func historyTitle(_ row: JobLogRow) -> String {
         if let job = row.job, !job.isEmpty { return job }
         return row.name
-    }
-
-    private func historyCaption(_ row: JobLogRow) -> String {
-        var parts = [row.name]
-        if let outcome = row.outcome {
-            parts.append(outcome == JobLog.outcomeFail ? "Failed" : "Done")
-        } else {
-            parts.append("Printing")
-        }
-        if let end = row.endedAt {
-            let minutes = max(0, Int(end.timeIntervalSince(row.startAt) / 60))
-            parts.append("\(minutes) min")
-        }
-        return parts.joined(separator: " · ")
-    }
-}
-
-struct VersionLine: View {
-    var body: some View {
-        Text("PrintGlance \(AppUpdate.bundledVersion)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("PrintGlance version \(AppUpdate.bundledVersion)")
     }
 }
 
