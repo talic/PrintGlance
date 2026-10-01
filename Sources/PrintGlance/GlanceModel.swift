@@ -70,6 +70,7 @@ final class GlanceModel: ObservableObject {
     private static let instanceTag = String(UInt16.random(in: .min ... .max), radix: 16)
     private let updates = AppUpdateChecker()
     private var filament = FilamentAlert()
+    private var runout = RunoutTracker.load(.standard)
     private var staleTask: Task<Void, Never>?
     private var notify: PrintNotify
     private let notifyPresenter = PrintNotifyPresenter()
@@ -478,11 +479,15 @@ final class GlanceModel: ObservableObject {
         }
         let snaps = Dictionary(uniqueKeysWithValues: links.map { ($0.key, $0.value.snapshot) })
         if snaps.values.contains(where: { $0.hasReport }) {
-            let doc = BambuSnapshot.fleetDoc(
+            var doc = BambuSnapshot.fleetDoc(
                 printers: complete,
                 snapshots: snaps,
                 focusId: settings.focusId
             )
+            let runoutBefore = runout
+            for i in doc.printers.indices {
+                doc.printers[i].runout = runout.observe(doc.printers[i])
+            }
             let rowsBefore = jobLog.rows
             jobLog.observe(printers: doc.printers)
             if jobLog.rows != rowsBefore {
@@ -515,6 +520,17 @@ final class GlanceModel: ObservableObject {
                 ) {
                     post(id: notice.identifier, title: notice.title, body: notice.body, serial: row.id)
                 }
+                if let r = row.runout, notifyPrefs.lowFilament, runout.shouldNotify(serial: row.id, runout: r) {
+                    post(
+                        id: "runout.\(row.id).\(row.jobId ?? "").\(r.tray ?? "")",
+                        title: "Filament may run out",
+                        body: "\(row.name): \(GlanceContent.runoutLine(r))",
+                        serial: row.id
+                    )
+                }
+            }
+            if runout != runoutBefore {
+                runout.save(.standard)
             }
             return
         }

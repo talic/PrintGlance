@@ -67,7 +67,7 @@ Click the printer icon to open the print card.
 | Printer | Menu bar | Print card |
 |---|---|---|
 | Starting | The stage: **Heating**, **Leveling**, **Loading**, **Unloading**, **Calibrating**, **Cleaning**, **Homing**, or **Starting** | The full stage, such as **Loading filament**, plus the finish time and time left when the printer sends them. How far the heaters have got, such as **Nozzle 186 / 220° · Bed 48 / 60°**, and the chamber while it heats. On a dual-nozzle printer, the nozzle shown is the one in use |
-| Printing | Percent and finish time | Finish time, time left, percent, layer, filament name, remaining filament, and color. On a dual-nozzle printer such as H2D, **Left** or **Right** next to the filament |
+| Printing | Percent and finish time | Finish time, time left, percent, layer, filament name, remaining filament, and color. On a dual-nozzle printer such as H2D, **Left** or **Right** next to the filament. If a spool looks set to run out first, an orange mark on the progress bar where it should run out and a line such as **PLA Matte in A2 runs out around 15:45.** |
 | Paused | A pause icon and percent | Time left (not a finish time, because it moves while paused), percent, layer, and the AMS trays. For common problems, a short reason, such as **Filament ran out in AMS A, slot 2.** Then the error code, such as **Error 0700-2100-0002-0001**, with **Look up** to open Bambu's page for it in your browser, or **No error reported.** |
 | Finished | A checkmark and how long ago it finished, such as **40m ago**. After 2 hours, only the checkmark | How long ago it finished, the printer name, and the AMS trays. If PrintGlance was not running when the print finished, no elapsed time |
 | Failed | An X | **Failed**, a short reason for common problems, the error code with **Look up**, and the AMS trays. The **Print Failed** notice starts with the reason and ends with the error code |
@@ -118,7 +118,9 @@ Click **…** and open **Notifications**. Turn on the events you want:
 
 **Lost Connection** tells you when PrintGlance stops hearing from a printer during a print, such as **Lost connection to X2D** with **Benchy was at 52%. PrintGlance keeps trying.** It is not sent while this Mac has no network, or for 2 minutes after this Mac's network changes, because then the Mac lost the connection, not the printer.
 
-**Low Filament** tells you when the spool in use drops below 20% while a print is starting or running.
+**Low Filament** tells you when the spool in use drops below 20% while a print is starting or running. It also tells you once per print when a spool looks set to run out before the print ends, and about when.
+
+PrintGlance estimates the runout from how fast the spool's remaining percent has dropped as the print progressed. It needs a Bambu spool with an RFID tag, **Update Remaining Capacity** turned on for the AMS, and a few percent of that spool used during this print. The estimate errs early. If another AMS slot holds the same filament and color, the line adds that the AMS may switch to it, which depends on the AMS backup setting on your printer.
 
 **Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM. **Print Finishing Soon** is skipped in that window. **Print Failed**, **Print Paused**, **Lost Connection**, and **Low Filament** still appear.
 

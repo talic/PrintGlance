@@ -91,6 +91,8 @@ struct Printer: Codable, Equatable, Sendable {
     var nozzleTemp: Temp? = nil
     var bedTemp: Temp? = nil
     var chamberTemp: Temp? = nil
+    /// Printing or paused: where a spool should run out before the end.
+    var runout: Runout? = nil
 }
 
 enum FeedResult: Equatable, Sendable {
