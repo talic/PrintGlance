@@ -143,12 +143,51 @@ struct GlanceContent: Equatable, Sendable {
 
     static func formatRemain(_ seconds: Int) -> String {
         if seconds < 0 { return "--" }
-        let h = seconds / 3600
+        let d = seconds / 86_400
+        let h = (seconds % 86_400) / 3600
         let m = (seconds % 3600) / 60
+        if d > 0 {
+            return "\(d)d \(h)h"
+        }
         if h > 0 {
             return String(format: "%dh %02dm", h, m)
         }
         return "\(m)m"
+    }
+
+    /// "16:25", "16:25 tomorrow", "16:25 yesterday", "16:25 Mon" within 6 days, else "Sep 12".
+    /// The hour cycle follows `locale`; day and month words stay English like the rest of the app.
+    static func dayTime(
+        _ date: Date,
+        now: Date,
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: now),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
+        if abs(days) > 6 {
+            return english(date, DateFormatter.dateFormat(fromTemplate: "MMMd", options: 0, locale: locale), calendar)
+        }
+        let time = english(date, DateFormatter.dateFormat(fromTemplate: "jmm", options: 0, locale: locale), calendar)
+        switch days {
+        case 0: return time
+        case 1: return "\(time) tomorrow"
+        case -1: return "\(time) yesterday"
+        default: return "\(time) \(english(date, "EEE", calendar))"
+        }
+    }
+
+    /// Formats with the locale's pattern but English words (AM/PM, Mon, Sep).
+    private static func english(_ date: Date, _ pattern: String?, _ calendar: Calendar) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.dateFormat = pattern ?? "HH:mm"
+        return f.string(from: date)
     }
 
     static func isTimed(_ state: String) -> Bool {

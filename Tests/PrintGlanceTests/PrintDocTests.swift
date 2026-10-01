@@ -243,28 +243,62 @@ final class PrintDocTests: XCTestCase {
     }
 
     func testEtaQualifiesFinishDay() {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let cal = gmt
+        let gb = Locale(identifier: "en_GB")
         // Saturday 2026-08-22 10:00 GMT
         let morning = Date(timeIntervalSince1970: 1_787_392_800)
-        XCTAssertEqual(
-            BambuPrint.etaHM(state: "RUNNING", remainingS: 30_600, now: morning, calendar: cal),
-            "18:30"
-        )
-        XCTAssertEqual(
-            BambuPrint.etaHM(state: "RUNNING", remainingS: 26 * 3600, now: morning, calendar: cal),
-            "12:00 tomorrow"
-        )
-        XCTAssertEqual(
-            BambuPrint.etaHM(state: "RUNNING", remainingS: 203_400, now: morning, calendar: cal),
-            "18:30 Mon"
-        )
+        func eta(_ s: Int, _ now: Date, _ locale: Locale = gb) -> String? {
+            BambuPrint.etaHM(state: "RUNNING", remainingS: s, now: now, calendar: cal, locale: locale)
+        }
+        XCTAssertEqual(eta(30_600, morning), "18:30")
+        XCTAssertEqual(eta(26 * 3600, morning), "12:00 tomorrow")
+        XCTAssertEqual(eta(203_400, morning), "18:30 Mon")
         // Saturday 2026-08-22 22:00 GMT, 3h overnight
         let evening = Date(timeIntervalSince1970: 1_787_436_000)
-        XCTAssertEqual(
-            BambuPrint.etaHM(state: "RUNNING", remainingS: 3 * 3600, now: evening, calendar: cal),
-            "01:00 tomorrow"
-        )
+        XCTAssertEqual(eta(3 * 3600, evening), "01:00 tomorrow")
+
+        let us = Locale(identifier: "en_US")
+        XCTAssertEqual(spaced(eta(30_600, morning, us)), "6:30 PM")
+        XCTAssertEqual(spaced(eta(3 * 3600, evening, us)), "1:00 AM tomorrow")
+        XCTAssertNil(BambuPrint.etaHM(state: "IDLE", remainingS: 600, now: morning, calendar: cal, locale: gb))
+    }
+
+    func testDayTimeEitherSide() {
+        let gb = Locale(identifier: "en_GB")
+        let us = Locale(identifier: "en_US")
+        // Saturday 2026-08-22 10:00 GMT
+        let now = Date(timeIntervalSince1970: 1_787_392_800)
+        func at(_ hours: Double, _ locale: Locale = gb) -> String {
+            GlanceContent.dayTime(now + hours * 3600, now: now, calendar: gmt, locale: locale)
+        }
+        XCTAssertEqual(at(4), "14:00")
+        XCTAssertEqual(at(-4), "06:00")
+        XCTAssertEqual(at(-12), "22:00 yesterday")
+        XCTAssertEqual(at(-48), "10:00 Thu")
+        XCTAssertEqual(at(6 * 24), "10:00 Fri")
+        XCTAssertEqual(at(7 * 24, us), "Aug 29")
+        XCTAssertEqual(at(-7 * 24, gb), "15 Aug")
+        XCTAssertEqual(spaced(at(-12, us)), "10:00 PM yesterday")
+    }
+
+    func testFormatRemainUsesDaysPastADay() {
+        XCTAssertEqual(GlanceContent.formatRemain(0), "0m")
+        XCTAssertEqual(GlanceContent.formatRemain(5 * 60), "5m")
+        XCTAssertEqual(GlanceContent.formatRemain(84 * 60), "1h 24m")
+        XCTAssertEqual(GlanceContent.formatRemain(23 * 3600 + 59 * 60), "23h 59m")
+        XCTAssertEqual(GlanceContent.formatRemain(26 * 3600 + 5 * 60), "1d 2h")
+        XCTAssertEqual(GlanceContent.agoTitle(from: Date(timeIntervalSince1970: 0), now: Date(timeIntervalSince1970: 51 * 3600)), "2d 3h ago")
+    }
+
+    private var gmt: Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        return cal
+    }
+
+    /// ICU puts U+202F before AM/PM; compare with a plain space.
+    private func spaced(_ s: String?) -> String? {
+        s?.replacingOccurrences(of: "\u{202F}", with: " ")
     }
 
     func testActiveNozzleLeftRight() {

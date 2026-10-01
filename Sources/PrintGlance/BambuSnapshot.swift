@@ -324,7 +324,8 @@ enum BambuPrint {
         state: String,
         remainingS: Int?,
         now: Date = Date(),
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
     ) -> String? {
         switch state {
         case "RUNNING", "PREPARE", "PAUSE": break
@@ -332,25 +333,7 @@ enum BambuPrint {
         }
         guard let remainingS, remainingS > 0 else { return nil }
         let t = now.addingTimeInterval(TimeInterval(remainingS))
-        let time = format(t, "HH:mm", calendar: calendar)
-        if calendar.isDate(t, inSameDayAs: now) {
-            return time
-        }
-        if let next = calendar.date(byAdding: .day, value: 1, to: now),
-           calendar.isDate(t, inSameDayAs: next)
-        {
-            return "\(time) tomorrow"
-        }
-        return "\(time) \(format(t, "EEE", calendar: calendar))"
-    }
-
-    private static func format(_ date: Date, _ dateFormat: String, calendar: Calendar) -> String {
-        let f = DateFormatter()
-        f.dateFormat = dateFormat
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = calendar.timeZone
-        f.calendar = calendar
-        return f.string(from: date)
+        return GlanceContent.dayTime(t, now: now, calendar: calendar, locale: locale)
     }
 
     static func row(
