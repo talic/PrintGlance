@@ -60,15 +60,15 @@ Click the printer icon to open the print card.
 
 | Printer | Menu bar | Print card |
 |---|---|---|
-| Starting | **Heating**, **Leveling**, **Loading filament**, or a similar stage | Remaining time if the printer sends one, plus the stage |
-| Printing | Percent and finish time | Remaining time, percent, layer, filament name, remaining filament, and color. On a dual-nozzle printer such as H2D, **Left** or **Right** next to the filament |
-| Paused | Percent and a pause icon | Time left, percent, and the AMS trays. The error code, such as **Error 0700-2000-0002-0001**, with **Look up** to open Bambu's page for it, or **No error reported.** |
-| Finished | How long ago it finished, such as **40m ago**, until you tap **Done** on the printer | Same elapsed time. If PrintGlance was not running when the print finished, **Finished** with no elapsed time |
+| Starting | The stage: **Heating**, **Leveling**, **Loading**, **Unloading**, **Calibrating**, **Cleaning**, **Homing**, or **Starting** | The full stage, such as **Loading filament**, plus the finish time and time left when the printer sends them |
+| Printing | Percent and finish time | Finish time, time left, percent, layer, filament name, remaining filament, and color. On a dual-nozzle printer such as H2D, **Left** or **Right** next to the filament |
+| Paused | A pause icon and percent | Time left (not a finish time, because it moves while paused), percent, layer, and the AMS trays. The error code, such as **Error 0700-2000-0002-0001**, with **Look up** to open Bambu's page for it in your browser, or **No error reported.** |
+| Finished | A checkmark and how long ago it finished, such as **40m ago**. After 2 hours, only the checkmark | How long ago it finished, the printer name, and the AMS trays. If PrintGlance was not running when the print finished, no elapsed time |
 | Failed | An X | **Failed**, the error code with **Look up**, and the AMS trays. The **Print Failed** notice ends with the error code |
 | Idle | A printer icon | The printer name and each loaded slot, named like the printer screen (**A1**…**D4**, **HT-A**, **External**): color, filament, and remaining percent. Slots sit under a header such as **AMS A · Dry** or **AMS B · 23%** when there is more than one AMS or the AMS reports humidity |
-| Offline | A printer icon | Why PrintGlance cannot reach the printer, when it knows |
+| Offline | A Wi-Fi icon with a slash | When PrintGlance last heard from the printer, such as **Last update 14:02**, and what it was doing: **Was printing · 52% · Layer 18 / 29** with **Expected to finish 16:25**, or **Was paused at 52%**. Then why PrintGlance cannot reach the printer, when it knows |
 
-If the job finishes after today, the finish time includes the day.
+Times follow your Mac's 12- or 24-hour setting. If the job finishes after today, the finish time includes the day, such as **4:25 PM tomorrow**.
 
 ## Watch more than one printer
 
@@ -134,11 +134,12 @@ Your printer IP, serial, and access code stay on this Mac.
 ## If it cannot connect
 
 - Mac and printer are on the same Wi-Fi
-- LAN mode is on. On the printer, open **Settings**, then **LAN** or **Network**, and turn on LAN mode
+- The printer is switched on and has finished starting up
 - Access code matches the printer's LAN or Network page
-- The printer is switched on
 - PrintGlance is turned on for the local network in **System Settings > Privacy & Security > Local Network**
 - If you entered the IP address, it matches the printer's LAN or Network page
+
+You do not need **LAN Only Mode** or **Developer Mode**. PrintGlance only reads status, which Bambu allows while the printer is connected to Bambu's cloud. LAN Only Mode turns off Bambu Handy and printing from outside your network.
 
 ## License
 

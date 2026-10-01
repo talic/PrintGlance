@@ -440,8 +440,10 @@ struct GlanceContent: Equatable, Sendable {
 enum GlanceCopy {
     static func feedDownDetail(reason: String?) -> String {
         let r = reason ?? ""
+        // Status reads need no LAN Only or Developer Mode (Bambu's third-party integration page),
+        // so a refusal means the wrong host or a printer that is still booting.
         if r.contains("ECONNREFUSED") {
-            return "The printer is on the Wi-Fi, but it isn't accepting a local connection. On the printer, open Settings, then LAN or Network, and turn on LAN mode."
+            return "The printer refused the connection. It may still be starting up, or another device may have its IP address now. Check the IP address on the printer's LAN or Network page."
         }
         if r.contains("MQTT CONNACK") {
             return "The access code was rejected. Check the access code on the printer's LAN or Network page."

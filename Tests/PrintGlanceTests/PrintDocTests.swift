@@ -238,7 +238,7 @@ final class PrintDocTests: XCTestCase {
     func testFeedDownDetailTokens() {
         XCTAssertEqual(
             GlanceCopy.feedDownDetail(reason: "ECONNREFUSED"),
-            "The printer is on the Wi-Fi, but it isn't accepting a local connection. On the printer, open Settings, then LAN or Network, and turn on LAN mode."
+            "The printer refused the connection. It may still be starting up, or another device may have its IP address now. Check the IP address on the printer's LAN or Network page."
         )
         XCTAssertEqual(
             GlanceCopy.feedDownDetail(reason: "MQTT CONNACK 5"),
