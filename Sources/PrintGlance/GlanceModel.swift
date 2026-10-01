@@ -203,7 +203,7 @@ final class GlanceModel: ObservableObject {
     }
 
     func openUpdatePage() {
-        NSWorkspace.shared.open(AppUpdate.latestReleaseURL)
+        NSWorkspace.shared.open(updates.downloadURL)
     }
 
     func removePrinter(serial: String) {

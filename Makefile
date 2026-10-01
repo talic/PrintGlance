@@ -1,5 +1,9 @@
 # Builds PrintGlance.app. `make install` copies it to ~/Applications.
 # `swift test` does not exercise Gatekeeper or the menu bar extra.
+#
+# `make app` signs ad-hoc. A release signs with a Developer ID and notarizes:
+#   make notarize SIGN_ID="Developer ID Application: …" NOTARY_PROFILE=<notarytool store-credentials profile>
+# CI passes NOTARY_KEY (a .p8 path), NOTARY_KEY_ID and NOTARY_ISSUER instead of NOTARY_PROFILE.
 
 export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 
@@ -9,8 +13,13 @@ BUILD    := .build/release/$(APP_NAME)
 APP      := dist/$(APP_NAME).app
 ZIP      := dist/$(APP_NAME).zip
 ICNS     := dist/AppIcon.icns
+SIGN_ID  ?= -
 
-.PHONY: test release app zip install clean icon
+# Notarization needs the hardened runtime and a secure timestamp; ad-hoc builds get neither.
+SIGN_FLAGS  := $(if $(filter-out -,$(SIGN_ID)),--options runtime --timestamp)
+NOTARY_AUTH := $(if $(NOTARY_PROFILE),--keychain-profile "$(NOTARY_PROFILE)",--key "$(NOTARY_KEY)" --key-id "$(NOTARY_KEY_ID)" --issuer "$(NOTARY_ISSUER)")
+
+.PHONY: test release app zip notarize install clean icon
 
 test:
 	swift test
@@ -33,11 +42,18 @@ app: release $(ICNS)
 	printf 'APPL????' > $(APP)/Contents/PkgInfo
 	cp $(ICNS) $(APP)/Contents/Resources/AppIcon.icns
 	test -f $(APP)/Contents/Resources/AppIcon.icns
-	codesign -s - --force $(APP)
+	codesign --force -s "$(SIGN_ID)" $(SIGN_FLAGS) $(APP)
 
 zip: app
 	rm -f $(ZIP)
-	cd dist && zip -ry $(APP_NAME).zip $(APP_NAME).app
+	ditto -c -k --keepParent $(APP) $(ZIP)
+
+# Staple the ticket to the app, then zip again so the download carries it.
+notarize: zip
+	xcrun notarytool submit $(ZIP) --wait --timeout 30m $(NOTARY_AUTH)
+	xcrun stapler staple $(APP)
+	rm -f $(ZIP)
+	ditto -c -k --keepParent $(APP) $(ZIP)
 
 install: app
 	-pkill -x $(APP_NAME)
