@@ -289,10 +289,6 @@ final class GlanceModel: ObservableObject {
         }
     }
 
-    private func isAccessRejected(_ reason: String?) -> Bool {
-        reason?.hasPrefix("MQTT CONNACK") == true
-    }
-
     private func requestRediscover(_ id: String, ifSkipped: () -> Void) {
         guard links[id] != nil else { return }
         if adoptScan != nil {
@@ -416,7 +412,7 @@ final class GlanceModel: ObservableObject {
         }
         link.connectedAt = nil
         publishSnapshot()
-        if isAccessRejected(reason) {
+        if GlanceCopy.codeRejected(reason) {
             link.authRejected = true
             revertCandidate(id)
             scheduleReconnect(id)

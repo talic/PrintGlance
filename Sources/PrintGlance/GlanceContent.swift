@@ -445,9 +445,14 @@ enum GlanceCopy {
         if r.contains("ECONNREFUSED") {
             return "The printer refused the connection. It may still be starting up, or another device may have its IP address now. Check the IP address on the printer's LAN or Network page."
         }
-        if r.contains("MQTT CONNACK") {
+        if codeRejected(reason) {
             return "The access code was rejected. Check the access code on the printer's LAN or Network page."
         }
         return "Can't reach the printer. Check Wi-Fi and the IP address."
+    }
+
+    /// The printer answered and refused the access code.
+    static func codeRejected(_ reason: String?) -> Bool {
+        reason?.hasPrefix("MQTT CONNACK") == true
     }
 }

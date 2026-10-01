@@ -5,10 +5,7 @@ import UniformTypeIdentifiers
 struct GlanceView: View {
     @ObservedObject var model: GlanceModel
     @State private var openAtLogin = LoginItem.isEnabled
-    @State private var showPrinter = false
     @State private var showHistory = false
-    @State private var draft = PrinterSettings.empty
-    @State private var editingSerial: String?
     /// The printer clicked in the list, for this visit only. Each open starts on the menu bar's printer.
     @State private var selectedId: String?
 
@@ -20,20 +17,6 @@ struct GlanceView: View {
                     now: Date(),
                     onExport: exportHistory,
                     onClose: { showHistory = false }
-                )
-            } else if showPrinter {
-                PrinterSettingsView(
-                    title: editingSerial == nil ? "Add printer" : "Printer",
-                    settings: $draft,
-                    onSave: { saved in
-                        if let serial = editingSerial {
-                            model.updatePrinter(saved, serial: serial)
-                        } else {
-                            model.addPrinter(saved)
-                        }
-                    },
-                    onRemove: removeAction,
-                    onClose: { setPrinterForm(false) }
                 )
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -54,21 +37,9 @@ struct GlanceView: View {
             }
         }
         .background(PanelOpened {
-            guard !showPrinter else { return }
             selectedId = nil
             showHistory = false
         })
-        .onAppear {
-            if case .needsSetup = model.content.result {
-                if let partial = model.settings.printers.first {
-                    draft = partial
-                    editingSerial = partial.serial.isEmpty ? nil : partial.serial
-                    setPrinterForm(true)
-                } else {
-                    openAdd()
-                }
-            }
-        }
     }
 
     private var header: some View {
@@ -92,13 +63,20 @@ struct GlanceView: View {
                     row: row,
                     endedAt: model.occupancyEndedAt(for: row),
                     now: model.occupancyNow,
-                    disconnectReason: model.disconnectReason(for: row.id)
+                    disconnectReason: model.disconnectReason(for: row.id),
+                    onUpdateCode: codeRejected(row.id) ? { openEdit(serial: row.id) } : nil
                 )
             } else {
                 emptyText
             }
+        } else if case .needsSetup = model.content.result {
+            Button("Add Printer") { SetupWindow.showIfNeeded(model: model) }
         } else {
             emptyText
+            if case .feedDown = model.content.result,
+               let serial = model.settings.printers.map(\.serial).first(where: codeRejected) {
+                Button("Update Access Code…") { openEdit(serial: serial) }
+            }
         }
     }
 
@@ -107,6 +85,11 @@ struct GlanceView: View {
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func codeRejected(_ serial: String) -> Bool {
+        guard case let .failed(reason) = model.linkStatus[serial] else { return false }
+        return GlanceCopy.codeRejected(reason)
     }
 
     /// The menu bar's printer, unless one was clicked in the list during this visit.
@@ -118,10 +101,10 @@ struct GlanceView: View {
     private var overflowMenu: some View {
         Menu {
             if model.settings.canAdd {
-                Button("Add Printer…") { openAdd() }
+                Button("Add Printer…") { SetupWindow.show(model: model, mode: .add) }
             }
             if let target = editTarget {
-                Button("Edit \(target.displayName)…") { openEdit() }
+                Button("Edit \(target.displayName)…") { openEdit(serial: target.serial) }
             }
             Divider()
             Button("History") { showHistory = true }
@@ -162,15 +145,6 @@ struct GlanceView: View {
         }
     }
 
-    private var removeAction: (() -> Void)? {
-        guard editingSerial != nil, model.settings.printers.count > 1 else { return nil }
-        return {
-            if let serial = editingSerial {
-                model.removePrinter(serial: serial)
-            }
-        }
-    }
-
     private func exportHistory() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
@@ -181,33 +155,14 @@ struct GlanceView: View {
         }
     }
 
-    private func setPrinterForm(_ open: Bool) {
-        showPrinter = open
-        model.setRediscoverPausedSerial(open ? editingSerial : nil)
-    }
-
-    private func openAdd() {
-        draft = .empty
-        editingSerial = nil
-        showHistory = false
-        setPrinterForm(true)
-    }
-
     /// The card's printer, or the first saved one before any printer has reported.
     private var editTarget: PrinterSettings? {
         cardRow.flatMap { row in model.settings.printers.first { $0.serial == row.id } }
             ?? model.settings.printers.first
     }
 
-    private func openEdit() {
-        guard let target = editTarget else {
-            openAdd()
-            return
-        }
-        draft = target
-        editingSerial = target.serial
-        showHistory = false
-        setPrinterForm(true)
+    private func openEdit(serial: String) {
+        SetupWindow.show(model: model, mode: .edit(serial: serial))
     }
 
     private var headline: String {
@@ -231,7 +186,7 @@ struct GlanceView: View {
         case .feedDown:
             return GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: model.settings.focusId))
         case .needsSetup:
-            return "Click … and choose Add Printer. Enter the IP address, serial number, and access code from the printer's LAN or Network page."
+            return ""
         case .connecting:
             return "Connecting to the printer."
         case .doc:
@@ -312,6 +267,8 @@ struct PrinterDetail: View {
     var endedAt: Date?
     var now: Date
     var disconnectReason: String?
+    /// Shown under an offline printer whose access code was rejected.
+    var onUpdateCode: (() -> Void)? = nil
 
     var body: some View {
         let timed = GlanceContent.isTimed(row.state)
@@ -373,6 +330,9 @@ struct PrinterDetail: View {
                 .font(lines.isEmpty ? .subheadline : .caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let onUpdateCode {
+                Button("Update Access Code…", action: onUpdateCode)
+            }
         }
 
         if ["PAUSE", "FAILED"].contains(row.state.uppercased()) {
