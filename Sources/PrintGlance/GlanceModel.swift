@@ -3,259 +3,6 @@ import Combine
 import Foundation
 import UserNotifications
 
-struct StripPresentation: Equatable, Hashable, Sendable {
-    var systemImage: String
-    var title: String
-    var accessibilityLabel: String
-}
-
-struct GlanceContent: Equatable, Sendable {
-    var result: FeedResult
-
-    var row: Printer? {
-        if case let .doc(doc) = result {
-            return doc.focusRow()
-        }
-        return nil
-    }
-
-    static func strip(_ result: FeedResult) -> StripPresentation {
-        switch result {
-        case .feedDown:
-            return StripPresentation(
-                systemImage: "printer.slash",
-                title: "",
-                accessibilityLabel: "Print feed off"
-            )
-        case .needsSetup:
-            return StripPresentation(
-                systemImage: "printer",
-                title: "",
-                accessibilityLabel: "Add your Bambu printer"
-            )
-        case .connecting:
-            return StripPresentation(
-                systemImage: "printer",
-                title: "",
-                accessibilityLabel: "Connecting to printer"
-            )
-        case let .doc(doc):
-            guard let row = doc.focusRow() else {
-                return StripPresentation(
-                    systemImage: "printer.slash",
-                    title: "",
-                    accessibilityLabel: "No printer"
-                )
-            }
-            return strip(row: row)
-        }
-    }
-
-    static func strip(
-        _ result: FeedResult,
-        occupancyEndedAt: Date?,
-        now: Date
-    ) -> StripPresentation {
-        switch result {
-        case let .doc(doc):
-            guard let row = doc.focusRow() else {
-                return StripPresentation(
-                    systemImage: "printer.slash",
-                    title: "",
-                    accessibilityLabel: "No printer"
-                )
-            }
-            return strip(row: row, occupancyEndedAt: occupancyEndedAt, now: now)
-        default:
-            return strip(result)
-        }
-    }
-
-    static func strip(row: Printer) -> StripPresentation {
-        strip(row: row, occupancyEndedAt: nil, now: Date())
-    }
-
-    static func strip(row: Printer, occupancyEndedAt: Date?, now: Date) -> StripPresentation {
-        let st = row.state.uppercased()
-        switch st {
-        case "PREPARE":
-            let title = row.stage ?? "Starting"
-            return StripPresentation(
-                systemImage: "printer.fill",
-                title: title,
-                accessibilityLabel: a11y(row)
-            )
-        case "RUNNING":
-            let pct = paddedPercent(row.percent)
-            let title: String
-            if let eta = row.eta, !eta.isEmpty, let pct {
-                title = "\(pct)  \(eta)"
-            } else if let pct {
-                title = pct
-            } else {
-                title = ""
-            }
-            return StripPresentation(
-                systemImage: "printer.fill",
-                title: title,
-                accessibilityLabel: a11y(row)
-            )
-        case "PAUSE":
-            return StripPresentation(
-                systemImage: "pause.fill",
-                title: paddedPercent(row.percent) ?? "",
-                accessibilityLabel: a11y(row)
-            )
-        case "FINISH":
-            let title = occupancyEndedAt.map { agoTitle(from: $0, now: now) } ?? ""
-            return StripPresentation(
-                systemImage: "checkmark",
-                title: title,
-                accessibilityLabel: a11y(row, occupancyTitle: title)
-            )
-        case "FAILED":
-            return StripPresentation(
-                systemImage: "xmark",
-                title: "",
-                accessibilityLabel: a11y(row)
-            )
-        default:
-            return StripPresentation(
-                systemImage: "printer",
-                title: "",
-                accessibilityLabel: a11y(row)
-            )
-        }
-    }
-
-    static func paddedPercent(_ percent: Int?) -> String? {
-        guard let percent else { return nil }
-        return String(format: "%3d%%", percent)
-    }
-
-    static func humanState(_ state: String) -> String {
-        switch state.uppercased() {
-        case "RUNNING": return "Printing"
-        case "PREPARE": return "Starting"
-        case "PAUSE": return "Paused"
-        case "FINISH": return "Done"
-        case "FAILED": return "Failed"
-        case "IDLE": return "Idle"
-        case "OFFLINE": return "Offline"
-        default: return state
-        }
-    }
-
-    static func formatRemain(_ seconds: Int) -> String {
-        if seconds < 0 { return "--" }
-        let h = seconds / 3600
-        let m = (seconds % 3600) / 60
-        if h > 0 {
-            return String(format: "%dh %02dm", h, m)
-        }
-        return "\(m)m"
-    }
-
-    static func isTimed(_ state: String) -> Bool {
-        switch state.uppercased() {
-        case "RUNNING", "PREPARE", "PAUSE": return true
-        default: return false
-        }
-    }
-
-    static func agoTitle(from ended: Date, now: Date) -> String {
-        let s = max(0, Int(now.timeIntervalSince(ended)))
-        return "\(formatRemain(s)) ago"
-    }
-
-    static func hero(_ row: Printer, occupancyEndedAt: Date? = nil, now: Date = Date()) -> String {
-        let timed = isTimed(row.state)
-        if timed, let eta = row.eta, !eta.isEmpty {
-            return eta
-        }
-        if timed, let s = row.remainingS, s > 0 {
-            return formatRemain(s)
-        }
-        switch row.state.uppercased() {
-        case "FINISH":
-            if let occupancyEndedAt {
-                return agoTitle(from: occupancyEndedAt, now: now)
-            }
-            return "Done"
-        case "FAILED": return "Failed"
-        case "IDLE": return "Idle"
-        case "OFFLINE": return "Offline"
-        default: return humanState(row.state)
-        }
-    }
-
-    static func remainingLine(_ row: Printer) -> String? {
-        guard isTimed(row.state), let s = row.remainingS, s > 0, let eta = row.eta, !eta.isEmpty else {
-            return nil
-        }
-        return "\(formatRemain(s)) left"
-    }
-
-    static func layerLine(_ row: Printer) -> String? {
-        guard let layer = row.layer else { return nil }
-        if let total = row.layerTotal, total > 0 {
-            return "Layer \(layer) / \(total)"
-        }
-        return "Layer \(layer)"
-    }
-
-    static func filamentLine(_ row: Printer) -> String? {
-        var text: String?
-        if let fil = row.filament, !fil.isEmpty {
-            if let remain = row.filamentRemain {
-                text = "\(fil)  \(remain)%"
-            } else {
-                text = fil
-            }
-        }
-        if let nozzle = row.nozzle, !nozzle.isEmpty {
-            if let text {
-                return "\(text) · \(nozzle)"
-            }
-            return nozzle
-        }
-        return text
-    }
-
-    private static func a11y(_ row: Printer, occupancyTitle: String = "") -> String {
-        var parts = [row.name, humanState(row.state).lowercased()]
-        if !occupancyTitle.isEmpty {
-            parts.append(occupancyTitle)
-        }
-        if let p = row.percent {
-            parts.append("\(p) percent")
-        }
-        if isTimed(row.state), let eta = row.eta, !eta.isEmpty {
-            parts.append("finish \(eta)")
-        }
-        if let layer = layerLine(row) {
-            parts.append(layer.lowercased())
-        }
-        if let nozzle = row.nozzle, !nozzle.isEmpty {
-            parts.append("\(nozzle.lowercased()) nozzle")
-        }
-        return parts.joined(separator: ", ")
-    }
-}
-
-enum GlanceCopy {
-    static func feedDownDetail(reason: String?) -> String {
-        let r = reason ?? ""
-        if r.contains("ECONNREFUSED") {
-            return "The printer is on the Wi-Fi, but it isn't accepting a local connection. On the printer, open Settings, then LAN or Network, and turn on LAN mode."
-        }
-        if r.contains("MQTT CONNACK") {
-            return "The access code was rejected. Check the access code on the printer's LAN or Network page."
-        }
-        return "Can't reach the printer. Check Wi-Fi and the IP address."
-    }
-}
-
 @MainActor
 final class GlanceModel: ObservableObject {
     @Published private(set) var content = GlanceContent(result: .needsSetup)
@@ -728,16 +475,17 @@ final class GlanceModel: ObservableObject {
     }
 
     private func deliverFilament(_ notice: FilamentAlert.Notice) {
+        post(id: notice.identifier, title: notice.title, body: notice.body)
+    }
+
+    private func post(id: String, title: String, body: String, trigger: UNNotificationTrigger? = nil) {
         let content = UNMutableNotificationContent()
-        content.title = notice.title
-        content.body = notice.body
+        content.title = title
+        content.body = body
         content.sound = .default
-        let req = UNNotificationRequest(
-            identifier: notice.identifier,
-            content: content,
-            trigger: nil
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: id, content: content, trigger: trigger)
         )
-        UNUserNotificationCenter.current().add(req)
     }
 
     private func noteDisconnect(_ id: String, _ reason: String?) {
@@ -799,18 +547,13 @@ final class GlanceModel: ObservableObject {
             }
         }
         for alert in outcome.alerts {
-            let content = UNMutableNotificationContent()
-            content.title = alert.title
-            content.body = alert.body
-            content.sound = .default
             let id = alert.serial.isEmpty ? "printer" : alert.serial
-            let trigger = finishTrigger(alert)
-            let request = UNNotificationRequest(
-                identifier: "pg.\(alert.kind.rawValue).\(id)",
-                content: content,
-                trigger: trigger
+            post(
+                id: "pg.\(alert.kind.rawValue).\(id)",
+                title: alert.title,
+                body: alert.body,
+                trigger: finishTrigger(alert)
             )
-            UNUserNotificationCenter.current().add(request)
         }
     }
 
@@ -832,10 +575,6 @@ final class GlanceModel: ObservableObject {
             center.removePendingNotificationRequests(withIdentifiers: action.cancelIds)
         }
         guard action.immediate || action.interval != nil else { return }
-        let content = UNMutableNotificationContent()
-        content.title = action.title
-        content.body = action.body
-        content.sound = .default
         let trigger: UNNotificationTrigger?
         if action.immediate {
             trigger = nil
@@ -844,12 +583,7 @@ final class GlanceModel: ObservableObject {
         } else {
             trigger = nil
         }
-        let request = UNNotificationRequest(
-            identifier: action.identifier,
-            content: content,
-            trigger: trigger
-        )
-        center.add(request)
+        post(id: action.identifier, title: action.title, body: action.body, trigger: trigger)
     }
 }
 

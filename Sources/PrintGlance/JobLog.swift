@@ -22,6 +22,9 @@ struct JobLog {
     static let outcomeOK = "ok"
     static let outcomeFail = "fail"
 
+    /// On-disk shape of jobs.json.
+    private struct Envelope: Codable { var rows: [JobLogRow] }
+
     var rows: [JobLogRow] = []
     /// Process-local. Not written to disk.
     var hadTimed: [String: Bool] = [:]
@@ -38,13 +41,11 @@ struct JobLog {
         guard let data = try? Data(contentsOf: url) else { return JobLog() }
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
-        struct Envelope: Codable { var rows: [JobLogRow] }
         guard let env = try? dec.decode(Envelope.self, from: data) else { return JobLog() }
         return JobLog(rows: env.rows)
     }
 
     func save(to url: URL) {
-        struct Envelope: Codable { var rows: [JobLogRow] }
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         guard let data = try? enc.encode(Envelope(rows: rows)) else { return }
