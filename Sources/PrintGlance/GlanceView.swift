@@ -353,9 +353,48 @@ struct PrinterDetail: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
 
+        if ["PAUSE", "FAILED"].contains(row.state.uppercased()) {
+            errorBlock
+        }
+
         if GlanceContent.showsAMS(row) {
             amsBlock(row)
         }
+    }
+
+    @ViewBuilder
+    private var errorBlock: some View {
+        let codes = GlanceContent.errorCodes(row)
+        if codes.isEmpty {
+            Text("No error reported.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(codes, id: \.self) { code in
+                    HStack(spacing: 6) {
+                        Text("Error \(code)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Button("Look up") { lookUp(code) }
+                            .buttonStyle(.link)
+                            .accessibilityLabel("Look up error \(code)")
+                    }
+                }
+            }
+            .font(.caption)
+        }
+    }
+
+    private func lookUp(_ code: String) {
+        let lookup = GlanceContent.errorLookup(code: code, serial: row.id)
+        if lookup.copiesCode {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(code, forType: .string)
+        }
+        NSWorkspace.shared.open(lookup.url)
     }
 
     @ViewBuilder

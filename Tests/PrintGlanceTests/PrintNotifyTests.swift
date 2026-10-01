@@ -52,12 +52,12 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertEqual(offline.alert?.title, "Printer went offline")
         XCTAssertNil(n.observe(row("OFFLINE", jobId: "task-3")).alert, "feedDown then OFFLINE is one alert")
 
+        var pauseOff = n
+        pauseOff.prefs.pause = false
+        _ = pauseOff.observe(row("RUNNING", jobId: "task-4"))
+        XCTAssertNil(pauseOff.observe(row("PAUSE", jobId: "task-4")).alert, "pause off")
         _ = n.observe(row("RUNNING", jobId: "task-4"))
-        XCTAssertNil(n.observe(row("PAUSE", jobId: "task-4")).alert, "pause default off")
-        var pauseOn = n
-        pauseOn.prefs.pause = true
-        _ = pauseOn.observe(row("RUNNING", jobId: "task-4"))
-        XCTAssertEqual(pauseOn.observe(row("PAUSE", jobId: "task-4")).alert?.kind, .pause)
+        XCTAssertEqual(n.observe(row("PAUSE", jobId: "task-4")).alert?.kind, .pause, "pause default on")
 
         _ = n.observe(row("RUNNING", jobId: "task-5"))
         let failed = n.observe(row("FAILED", jobId: "task-5"))
@@ -123,6 +123,34 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertNil(n.observe(GlanceContent(result: .connecting)).alert)
         XCTAssertNil(n.observe(GlanceContent(result: .feedDown)).alert)
         XCTAssertEqual(n.observe(row("OFFLINE", jobId: "t1")).alert?.kind, .offline)
+    }
+
+    func testPauseDefaultsOnAndMigratesOnce() throws {
+        XCTAssertTrue(PrintNotifyPrefs.default.pause)
+        let name = "PrintGlance.pause.\(UUID().uuidString)"
+        let d = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { d.removePersistentDomain(forName: name) }
+
+        XCTAssertTrue(PrintNotifyPrefs.load(d).pause, "fresh install")
+
+        d.removePersistentDomain(forName: name)
+        PrintNotifyPrefs(finish: true, fail: true, pause: false, offline: true, comingOff: true, quietHours: false).save(d)
+        XCTAssertTrue(PrintNotifyPrefs.load(d).pause, "existing install gets pause on once")
+
+        var prefs = PrintNotifyPrefs.load(d)
+        prefs.pause = false
+        prefs.save(d)
+        XCTAssertFalse(PrintNotifyPrefs.load(d).pause, "turning it off after the migration sticks")
+    }
+
+    func testPauseAndFailBodiesEndWithErrorCode() {
+        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        _ = n.observe(row("RUNNING", jobId: "t1"))
+        var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 16, job: "Print in Parts", jobId: "t1")
+        paused.printError = "0700-8002"
+        let out = n.observe(GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [paused]))))
+        XCTAssertEqual(out.alert?.kind, .pause)
+        XCTAssertEqual(out.alert?.body, "Print in Parts on X2D · Error 0700-8002")
     }
 
     private func row(_ state: String, jobId: String?, job: String? = "Print in Parts") -> GlanceContent {

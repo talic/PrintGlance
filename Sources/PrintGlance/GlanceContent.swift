@@ -192,6 +192,36 @@ struct GlanceContent: Equatable, Sendable {
         return row.name
     }
 
+    /// Paused and failed only: `print_error` can stay set after the problem is gone.
+    static func errorCodes(_ row: Printer) -> [String] {
+        guard ["PAUSE", "FAILED"].contains(row.state.uppercased()) else { return [] }
+        var codes: [String] = []
+        for code in [row.hmsCode, row.printError] {
+            if let code, !code.isEmpty, !codes.contains(code) { codes.append(code) }
+        }
+        return codes
+    }
+
+    /// Bambu's page for a code. HMS codes have one (Bambu Studio's get_hms_wiki_url);
+    /// `print_error` codes only appear in a table, so the caller also copies the code.
+    static func errorLookup(code: String, serial: String) -> (url: URL, copiesCode: Bool) {
+        let hex = code.replacingOccurrences(of: "-", with: "")
+        if hex.count == 16 {
+            // `d` routes to the right model's page; the serial's first three characters name the model.
+            var c = URLComponents(string: "https://e.bambulab.com/index.php")!
+            c.queryItems = [
+                URLQueryItem(name: "e", value: hex),
+                URLQueryItem(name: "d", value: String(serial.prefix(3))),
+                URLQueryItem(name: "s", value: "device_hms"),
+                URLQueryItem(name: "lang", value: "en"),
+            ]
+            return (c.url!, false)
+        }
+        // A text fragment scrolls to the row in browsers that support it; "-" must be escaped there.
+        let fragment = code.replacingOccurrences(of: "-", with: "%2D")
+        return (URL(string: "https://wiki.bambulab.com/en/hms/error-code#:~:text=\(fragment)")!, true)
+    }
+
     /// Trays matter when you are at the printer: before a print, after one, or on a paused runout.
     static func showsAMS(_ row: Printer) -> Bool {
         ["IDLE", "FINISH", "FAILED", "PAUSE"].contains(row.state.uppercased())

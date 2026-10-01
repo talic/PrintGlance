@@ -118,7 +118,49 @@ final class PrepareAmsHmsTests: XCTestCase {
             printers: [failed]
         ))))
         XCTAssertEqual(out.alert?.kind, .fail)
-        XCTAssertEqual(out.alert?.body, "Print in Parts on X2D · HMS 0300-0000-0100-0001")
+        XCTAssertEqual(out.alert?.body, "Print in Parts on X2D · Error 0300-0000-0100-0001")
+    }
+
+    func testPrintErrorFormatsLikeBambuStudio() {
+        XCTAssertEqual(BambuPrint.printErrorCode(117_473_282), "0700-8002")
+        XCTAssertEqual(BambuPrint.printErrorCode("50348044"), "0300-400C")
+        XCTAssertNil(BambuPrint.printErrorCode(0))
+        XCTAssertNil(BambuPrint.printErrorCode(-1))
+        XCTAssertNil(BambuPrint.printErrorCode(nil))
+        let row = BambuPrint.row(
+            id: "x2d",
+            name: "X2D",
+            printObj: ["gcode_state": "PAUSE", "print_error": 117_473_282],
+            online: true
+        )
+        XCTAssertEqual(row.printError, "0700-8002")
+    }
+
+    func testErrorCodesOnlyWhenPausedOrFailed() {
+        var row = Printer(id: "01P00A000000001", name: "P1S", state: "PAUSE", percent: 40)
+        row.hmsCode = "0700-2000-0002-0001"
+        row.printError = "0700-8002"
+        XCTAssertEqual(GlanceContent.errorCodes(row), ["0700-2000-0002-0001", "0700-8002"])
+        row.state = "FAILED"
+        XCTAssertEqual(GlanceContent.errorCodes(row).count, 2)
+        row.state = "RUNNING"
+        XCTAssertEqual(GlanceContent.errorCodes(row), [], "print_error can linger after the problem is gone")
+        row.state = "PAUSE"
+        row.hmsCode = nil
+        row.printError = nil
+        XCTAssertEqual(GlanceContent.errorCodes(row), [])
+    }
+
+    func testErrorLookupURLs() {
+        let hms = GlanceContent.errorLookup(code: "0700-2000-0002-0001", serial: "01P00A000000001")
+        XCTAssertEqual(
+            hms.url.absoluteString,
+            "https://e.bambulab.com/index.php?e=0700200000020001&d=01P&s=device_hms&lang=en"
+        )
+        XCTAssertFalse(hms.copiesCode)
+        let pe = GlanceContent.errorLookup(code: "0700-8002", serial: "01P00A000000001")
+        XCTAssertEqual(pe.url.absoluteString, "https://wiki.bambulab.com/en/hms/error-code#:~:text=0700%2D8002")
+        XCTAssertTrue(pe.copiesCode)
     }
 
     func testFailWithoutHMSUnchanged() {

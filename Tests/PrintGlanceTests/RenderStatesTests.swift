@@ -62,6 +62,7 @@ final class RenderStatesTests: XCTestCase {
 
         var paused = running("PAUSE")
         paused.hmsCode = "0700-2000-0002-0001"
+        paused.printError = "0700-8002"
         var pausedBare = running("PAUSE")
         pausedBare.hmsCode = nil
 

@@ -383,7 +383,8 @@ enum BambuPrint {
             stage: stageLabel(state: state, printObj: printObj),
             trays: trays(printObj),
             humidity: amsHumidity(printObj),
-            hmsCode: firstHMSCode(printObj)
+            hmsCode: firstHMSCode(printObj),
+            printError: printErrorCode(printObj["print_error"])
         )
         if !online, let lastReportAt {
             row.lastSeen = lastReportAt
@@ -454,6 +455,14 @@ enum BambuPrint {
             return h
         }
         return nil
+    }
+
+    /// Bambu Studio formats `print_error` as `%08X` with a dash after four digits (DeviceManager.cpp, get_error_code_str).
+    static func printErrorCode(_ raw: Any?) -> String? {
+        guard let n = BambuJSON.intValue(raw), n > 0 else { return nil }
+        var hex = String(format: "%08X", UInt32(truncatingIfNeeded: n))
+        hex.insert("-", at: hex.index(hex.startIndex, offsetBy: 4))
+        return hex
     }
 
     static func firstHMSCode(_ printObj: [String: Any]) -> String? {

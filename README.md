@@ -62,9 +62,9 @@ Click the printer icon to open the print card.
 |---|---|---|
 | Starting | **Heating**, **Leveling**, **Loading filament**, or a similar stage | Remaining time if the printer sends one, plus the stage |
 | Printing | Percent and finish time | Remaining time, percent, layer, filament name, remaining filament, and color. On a dual-nozzle printer such as H2D, **Left** or **Right** next to the filament |
-| Paused | Percent and a pause icon | Remaining time and percent |
+| Paused | Percent and a pause icon | Time left, percent, and the AMS trays. The error code, such as **Error 0700-2000-0002-0001**, with **Look up** to open Bambu's page for it, or **No error reported.** |
 | Finished | How long ago it finished, such as **40m ago**, until you tap **Done** on the printer | Same elapsed time. If PrintGlance was not running when the print finished, **Finished** with no elapsed time |
-| Failed | An X | **Failed**. If the printer sent an HMS code, the **Print failed** notice includes it |
+| Failed | An X | **Failed**, the error code with **Look up**, and the AMS trays. The **Print Failed** notice ends with the error code |
 | Idle | A printer icon | Each AMS tray that has filament: color, name, and remaining percent, plus **Humidity n/5** when the AMS sends it |
 | Offline | A printer icon | Why PrintGlance cannot reach the printer, when it knows |
 
@@ -95,7 +95,7 @@ Click **…** and open **Notifications**. Turn on the events you want:
 - **Printer Went Offline**
 - **Quiet Hours**
 
-**Print Failed**, **Print Finished**, **Print Finishing Soon**, and **Printer Went Offline** start turned on. **Print Paused** and **Quiet Hours** start turned off.
+**Quiet Hours** starts turned off. The others start turned on. **Print Paused** and **Print Failed** end with the error code when the printer sends one.
 
 **Print Finishing Soon** tells you about 10 minutes before the print ends, so you can be at the printer. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is cancelled.
 
