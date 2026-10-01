@@ -104,6 +104,8 @@ final class RenderStatesTests: XCTestCase {
             ("finished-2d", finished, now - 51 * 3600, nil),
             ("idle-one-ams", idle(oneAMS), nil, nil),
             ("idle-two-ams-ext", idle(twoAMSExternal), nil, nil),
+            ("idle-ht-dual-ext", idle(htDualExternal), nil, nil),
+            ("idle-ams-no-humidity", idle(["ams": ["ams": [["id": "0", "tray": fourTrays]]]]), nil, nil),
             ("offline-was-printing", offlinePrinting, nil, "connect timed out"),
             ("offline-was-due", offlineDue, nil, "connect timed out"),
             ("offline-was-paused", offlinePaused, nil, "connect timed out"),
@@ -122,14 +124,14 @@ final class RenderStatesTests: XCTestCase {
         p.filamentRemain = 80
         p.filamentColor = "F5C6A0FF"
         p.trays = BambuPrint.trays(oneAMS)
-        p.humidity = BambuPrint.amsHumidity(oneAMS)
+        p.amsUnits = BambuPrint.amsUnits(oneAMS)
         return p
     }
 
     private static func idle(_ printObj: [String: Any]) -> Printer {
         var p = Printer(id: "x2d", name: "X2D", state: "IDLE")
         p.trays = BambuPrint.trays(printObj)
-        p.humidity = BambuPrint.amsHumidity(printObj)
+        p.amsUnits = BambuPrint.amsUnits(printObj)
         return p
     }
 
@@ -157,6 +159,19 @@ final class RenderStatesTests: XCTestCase {
             ]),
         ]],
         "vt_tray": ["id": "254", "tray_type": "TPU", "tray_info_idx": "GFU01", "remain": -1, "tray_color": "FF6600FF"],
+    ]
+
+    private static let htDualExternal: [String: Any] = [
+        "ams": ["ams": [
+            ["id": "0", "info": "1003", "humidity": "4", "humidity_raw": "31", "tray": fourTrays],
+            ["id": "128", "info": "4", "humidity": "3", "humidity_raw": "45", "tray": [
+                ["id": "0", "tray_type": "PA-CF", "tray_info_idx": "GFN03", "remain": 70, "tray_color": "333333FF"],
+            ]],
+        ]],
+        "vir_slot": [
+            ["id": "255", "tray_type": "TPU", "tray_info_idx": "GFU01", "remain": 30, "tray_color": "FF6600FF"],
+            ["id": "254", "tray_type": "PLA", "tray_info_idx": "GFA00", "remain": 95, "tray_color": "FFFFFFFF"],
+        ],
     ]
 
     // MARK: - Rendering

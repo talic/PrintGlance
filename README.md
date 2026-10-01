@@ -65,7 +65,7 @@ Click the printer icon to open the print card.
 | Paused | Percent and a pause icon | Time left, percent, and the AMS trays. The error code, such as **Error 0700-2000-0002-0001**, with **Look up** to open Bambu's page for it, or **No error reported.** |
 | Finished | How long ago it finished, such as **40m ago**, until you tap **Done** on the printer | Same elapsed time. If PrintGlance was not running when the print finished, **Finished** with no elapsed time |
 | Failed | An X | **Failed**, the error code with **Look up**, and the AMS trays. The **Print Failed** notice ends with the error code |
-| Idle | A printer icon | Each AMS tray that has filament: color, name, and remaining percent, plus **Humidity n/5** when the AMS sends it |
+| Idle | A printer icon | The printer name and each loaded slot, named like the printer screen (**A1**…**D4**, **HT-A**, **External**): color, filament, and remaining percent. Slots sit under a header such as **AMS A · Dry** or **AMS B · 23%** when there is more than one AMS or the AMS reports humidity |
 | Offline | A printer icon | Why PrintGlance cannot reach the printer, when it knows |
 
 If the job finishes after today, the finish time includes the day.

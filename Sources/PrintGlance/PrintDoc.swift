@@ -31,6 +31,19 @@ struct AMSTray: Codable, Equatable, Sendable, Identifiable {
     var name: String?
     var remain: Int?
     var color: String?
+    /// The printer's name for the slot: A1…D4, HT-A, External, External L/R.
+    var label: String? = nil
+    /// `AMSUnit.id` of the unit holding this tray. Nil for an external spool.
+    var unit: String? = nil
+}
+
+struct AMSUnit: Codable, Equatable, Sendable {
+    /// A, B, … or HT-A for an AMS HT.
+    var id: String
+    /// 1 (wet) to 5 (dry).
+    var humidityLevel: Int? = nil
+    /// Percent, from AMS 2 Pro and AMS HT.
+    var humidityPercent: Int? = nil
 }
 
 struct Printer: Codable, Equatable, Sendable {
@@ -54,8 +67,9 @@ struct Printer: Codable, Equatable, Sendable {
     /// PREPARE stage word. Nil when not preparing or the printer sent none.
     var stage: String? = nil
     var trays: [AMSTray]? = nil
-    /// AMS humidity index 1–5 when the unit sends it.
+    /// First AMS unit's humidity index 1–5. Kept for the feed format; the card reads `amsUnits`.
     var humidity: Int? = nil
+    var amsUnits: [AMSUnit]? = nil
     /// First HMS code as AAAA-BBBB-CCCC-DDDD.
     var hmsCode: String? = nil
     /// Non-zero `print_error` as AAAA-BBBB, the form Bambu Studio shows.

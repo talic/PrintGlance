@@ -6,6 +6,11 @@ struct StripPresentation: Equatable, Hashable, Sendable {
     var accessibilityLabel: String
 }
 
+struct AMSGroup: Equatable {
+    var header: String?
+    var trays: [AMSTray]
+}
+
 struct GlanceContent: Equatable, Sendable {
     var result: FeedResult
 
@@ -220,6 +225,48 @@ struct GlanceContent: Equatable, Sendable {
         // A text fragment scrolls to the row in browsers that support it; "-" must be escaped there.
         let fragment = code.replacingOccurrences(of: "-", with: "%2D")
         return (URL(string: "https://wiki.bambulab.com/en/hms/error-code#:~:text=\(fragment)")!, true)
+    }
+
+    /// AMS humidity index runs 1 (wet) to 5 (dry): Bambu Studio's legend (AmsMappingPopup.cpp) and
+    /// its percent mapping (AMSItem.cpp: under 20% is 5, under 40% is 4, under 60% is 3).
+    static func humidityText(_ unit: AMSUnit) -> String? {
+        if let p = unit.humidityPercent { return "\(p)%" }
+        switch unit.humidityLevel {
+        case 4, 5: return "Dry"
+        case 3: return "OK"
+        case 1, 2: return "Humid"
+        default: return nil
+        }
+    }
+
+    /// Trays under "AMS A · Dry" headers when there is more than one unit or a humidity to show.
+    /// External spools come last, without a header.
+    static func amsGroups(_ row: Printer) -> [AMSGroup] {
+        let trays = row.trays ?? []
+        let units = row.amsUnits ?? []
+        var ids: [String] = []
+        for case let id? in trays.map(\.unit) where !ids.contains(id) {
+            ids.append(id)
+        }
+        let headed = ids.count > 1 || units.contains { humidityText($0) != nil }
+        var groups = ids.map { id in
+            let humidity = units.first { $0.id == id }.flatMap(humidityText)
+            return AMSGroup(
+                header: headed ? ["AMS \(id)", humidity].compactMap { $0 }.joined(separator: " · ") : nil,
+                trays: trays.filter { $0.unit == id }
+            )
+        }
+        let loose = trays.filter { $0.unit == nil }
+        if !loose.isEmpty {
+            groups.append(AMSGroup(header: nil, trays: loose))
+        }
+        return groups
+    }
+
+    static func trayLine(_ tray: AMSTray) -> String {
+        let label = tray.label ?? tray.id
+        let name = tray.name.map { "\(label) · \($0)" } ?? label
+        return tray.remain.map { "\(name)  \($0)%" } ?? name
     }
 
     /// Trays matter when you are at the printer: before a print, after one, or on a paused runout.

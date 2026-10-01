@@ -383,6 +383,7 @@ enum BambuPrint {
             stage: stageLabel(state: state, printObj: printObj),
             trays: trays(printObj),
             humidity: amsHumidity(printObj),
+            amsUnits: { let u = amsUnits(printObj); return u.isEmpty ? nil : u }(),
             hmsCode: firstHMSCode(printObj),
             printError: printErrorCode(printObj["print_error"])
         )
@@ -408,41 +409,80 @@ enum BambuPrint {
         }
     }
 
+    /// Bambu Studio's names (GUI_App.cpp, transition_tridid): unit 0 is A, unit 1 is B;
+    /// AMS HT units start at id 128 and are HT-A, HT-B.
+    static func unitLabel(_ uid: Int) -> String {
+        uid >= 128 ? "HT-\(letter(uid - 128))" : letter(uid)
+    }
+
+    private static func letter(_ i: Int) -> String {
+        guard (0..<26).contains(i), let u = UnicodeScalar(65 + i) else { return "\(i)" }
+        return String(Character(u))
+    }
+
     static func trays(_ printObj: [String: Any]) -> [AMSTray] {
         var out: [AMSTray] = []
         let ams = BambuJSON.dict(printObj["ams"]) ?? [:]
-        if let units = BambuJSON.array(ams["ams"]) {
-            for (ui, unitAny) in units.enumerated() {
-                guard let unit = BambuJSON.dict(unitAny),
-                      let trays = BambuJSON.array(unit["tray"]) else { continue }
-                let uid = BambuJSON.intValue(unit["id"]) ?? ui
-                for trayAny in trays {
-                    guard let tray = BambuJSON.dict(trayAny) else { continue }
-                    let tid = BambuJSON.intValue(tray["id"]) ?? 0
-                    let name = filamentName(tray)
-                    let remain = remainPercent(tray["remain"])
-                    let color = trayColorHex(tray)
-                    if name == nil, remain == nil, color == nil { continue }
-                    out.append(
-                        AMSTray(
-                            id: "\(uid &* 4 &+ tid)",
-                            name: name,
-                            remain: remain,
-                            color: color
-                        )
-                    )
-                }
+        for (ui, unitAny) in (BambuJSON.array(ams["ams"]) ?? []).enumerated() {
+            guard let unit = BambuJSON.dict(unitAny),
+                  let trays = BambuJSON.array(unit["tray"]) else { continue }
+            let uid = BambuJSON.intValue(unit["id"]) ?? ui
+            let unitName = unitLabel(uid)
+            for trayAny in trays {
+                guard let tray = BambuJSON.dict(trayAny), var t = loadedTray(tray) else { continue }
+                let tid = BambuJSON.intValue(tray["id"]) ?? 0
+                // An HT unit has one slot and goes by the unit's name.
+                let ht = uid >= 128
+                t.id = ht ? "\(uid)" : "\(uid &* 4 &+ tid)"
+                t.label = ht ? unitName : "\(unitName)\(tid &+ 1)"
+                t.unit = unitName
+                out.append(t)
             }
         }
-        if let vt = BambuJSON.dict(printObj["vt_tray"]) {
-            let name = filamentName(vt)
-            let remain = remainPercent(vt["remain"])
-            let color = trayColorHex(vt)
-            if name != nil || remain != nil || color != nil {
-                out.append(AMSTray(id: "ext", name: name, remain: remain, color: color))
+        // Dual-nozzle printers send `vir_slot` (255 right, 254 left); others send `vt_tray` (DeviceManager.cpp).
+        var externals = (BambuJSON.array(printObj["vir_slot"]) ?? []).compactMap(BambuJSON.dict)
+        if externals.isEmpty, let vt = BambuJSON.dict(printObj["vt_tray"]) {
+            externals = [vt]
+        }
+        for tray in externals {
+            guard var t = loadedTray(tray) else { continue }
+            let id = BambuJSON.intValue(tray["id"]) ?? 254
+            t.id = "\(id)"
+            switch (externals.count, id) {
+            case (2..., 254): t.label = "External L"
+            case (2..., 255): t.label = "External R"
+            default: t.label = "External"
             }
+            out.append(t)
         }
         return out
+    }
+
+    /// Nil for an empty slot.
+    private static func loadedTray(_ tray: [String: Any]) -> AMSTray? {
+        let name = filamentName(tray)
+        let remain = remainPercent(tray["remain"])
+        let color = trayColorHex(tray)
+        if name == nil, remain == nil, color == nil { return nil }
+        return AMSTray(id: "", name: name, remain: remain, color: color)
+    }
+
+    /// Bambu Studio shows a percent only for AMS 2 Pro and AMS HT (`info` type 3 and 4, DevFilaSystem.h).
+    static func amsUnits(_ printObj: [String: Any]) -> [AMSUnit] {
+        let ams = BambuJSON.dict(printObj["ams"]) ?? [:]
+        return (BambuJSON.array(ams["ams"]) ?? []).enumerated().compactMap { ui, unitAny in
+            guard let unit = BambuJSON.dict(unitAny) else { return nil }
+            let uid = BambuJSON.intValue(unit["id"]) ?? ui
+            let type = BambuJSON.stringValue(unit["info"]).flatMap { Int($0, radix: 16) }.map { $0 & 0xF }
+                ?? (uid >= 128 ? 4 : 1)
+            let level = BambuJSON.intValue(unit["humidity"]).flatMap { (1...5).contains($0) ? $0 : nil }
+            let raw = BambuJSON.intValue(unit["humidity_raw"]).flatMap { (1...100).contains($0) ? $0 : nil }
+            return AMSUnit(
+                id: unitLabel(uid),
+                humidityLevel: level,
+                humidityPercent: [3, 4].contains(type) ? raw : nil
+            )
+        }
     }
 
     static func amsHumidity(_ printObj: [String: Any]) -> Int? {

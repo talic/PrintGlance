@@ -399,34 +399,33 @@ struct PrinterDetail: View {
 
     @ViewBuilder
     private func amsBlock(_ row: Printer) -> some View {
-        if let trays = row.trays, !trays.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                if let h = row.humidity {
-                    Text("Humidity \(h)/5")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(trays) { tray in
-                    HStack(spacing: 6) {
-                        if let hex = tray.color {
-                            FilamentDot(hex: hex)
+        let groups = GlanceContent.amsGroups(row)
+        if !groups.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(groups.indices, id: \.self) { i in
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let header = groups[i].header {
+                            Text(header)
+                                .fontWeight(.medium)
+                                .monospacedDigit()
                         }
-                        Text(amsLine(tray))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        ForEach(groups[i].trays) { tray in
+                            HStack(spacing: 6) {
+                                if let hex = tray.color {
+                                    FilamentDot(hex: hex)
+                                }
+                                Text(GlanceContent.trayLine(tray))
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                        }
                     }
                 }
             }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-    }
-
-    private func amsLine(_ tray: AMSTray) -> String {
-        let name = tray.id == "ext"
-            ? tray.name.map { "External · \($0)" } ?? "External"
-            : tray.name ?? "Slot \(tray.id)"
-        return tray.remain.map { "\(name)  \($0)%" } ?? name
     }
 
     @ViewBuilder
