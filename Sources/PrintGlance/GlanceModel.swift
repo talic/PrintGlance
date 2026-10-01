@@ -109,8 +109,11 @@ final class GlanceModel: ObservableObject {
     }
 
     var occupancyEndedAt: Date? {
-        guard let row = content.row else { return nil }
-        return jobLog.occupancyEndedAt(serial: row.id, state: row.state, jobId: row.jobId)
+        content.row.flatMap(occupancyEndedAt(for:))
+    }
+
+    func occupancyEndedAt(for row: Printer) -> Date? {
+        jobLog.occupancyEndedAt(serial: row.id, state: row.state, jobId: row.jobId)
     }
 
     func exportHistory(to url: URL) {
@@ -520,11 +523,10 @@ final class GlanceModel: ObservableObject {
         occupancyTask = nil
     }
 
-    /// The minute clock runs while a card shows elapsed time or an offline printer's last update.
+    /// The minute clock runs while any printer shows elapsed time or an offline printer's last update.
     private var clockNeeded: Bool {
-        if occupancyEndedAt != nil { return true }
         guard case let .doc(doc) = content.result else { return false }
-        return doc.printers.contains { $0.lastSeen != nil }
+        return doc.printers.contains { $0.lastSeen != nil || occupancyEndedAt(for: $0) != nil }
     }
 
     private func syncOccupancyClock() {

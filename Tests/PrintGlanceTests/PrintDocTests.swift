@@ -6,7 +6,7 @@ final class PrintDocTests: XCTestCase {
     func testRunningFixtureDecodesAndStrip() throws {
         let doc = try load("print-running")
         XCTAssertEqual(doc.v, 1)
-        let row = try XCTUnwrap(doc.focusRow())
+        let row = try XCTUnwrap(doc.displayRow())
         XCTAssertEqual(row.state, "RUNNING")
         XCTAssertEqual(row.percent, 16)
         XCTAssertEqual(row.remainingS, 16980)
@@ -30,7 +30,7 @@ final class PrintDocTests: XCTestCase {
 
     func testIdleNullsDecode() throws {
         let doc = try load("print-idle")
-        let row = try XCTUnwrap(doc.focusRow())
+        let row = try XCTUnwrap(doc.displayRow())
         XCTAssertEqual(row.state, "IDLE")
         XCTAssertNil(row.percent)
         XCTAssertNil(row.remainingS)
@@ -46,7 +46,7 @@ final class PrintDocTests: XCTestCase {
 
     func testEmptyPrintersIsPlainIconNotSubscript() throws {
         let doc = PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [])
-        XCTAssertNil(doc.focusRow())
+        XCTAssertNil(doc.displayRow())
         let strip = GlanceContent.strip(.doc(doc))
         XCTAssertEqual(strip.systemImage, "printer")
         XCTAssertEqual(strip.title, "")
@@ -282,31 +282,45 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(second.printers[0].ip, "192.0.2.10")
     }
 
-    func testFocusPrefersRunningThenPauseThenFirst() {
-        let idle = Printer(id: "a", name: "A", state: "IDLE")
-        let pause = Printer(id: "b", name: "B", state: "PAUSE", percent: 9)
-        let run = Printer(id: "c", name: "C", state: "RUNNING", percent: 16)
-        let prepare = Printer(id: "d", name: "D", state: "PREPARE", percent: 1)
-        XCTAssertEqual(
-            PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [idle, pause, run]).focusRow()?.id,
-            "c"
-        )
-        XCTAssertEqual(
-            PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [idle, prepare, pause]).focusRow()?.id,
-            "d"
-        )
-        XCTAssertEqual(
-            PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [idle, pause]).focusRow()?.id,
-            "b"
-        )
-        XCTAssertEqual(
-            PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [idle]).focusRow()?.id,
-            "a"
-        )
-        XCTAssertEqual(
-            PrintDoc(v: 1, updatedAt: nil, focusId: "a", printers: [idle, run]).focusRow()?.id,
-            "a"
-        )
+    func testDisplayRowRanksWhoNeedsYou() {
+        func p(_ id: String, _ state: String, left: Int? = nil) -> Printer {
+            var row = Printer(id: id, name: id.uppercased(), state: state)
+            row.remainingS = left
+            return row
+        }
+        let idle = p("idle", "IDLE")
+        let offline = p("off", "OFFLINE")
+        let done = p("done", "FINISH")
+        let failed = p("fail", "FAILED")
+        let paused = p("pause", "PAUSE", left: 600)
+        let paused2 = p("pause2", "PAUSE", left: 60)
+        let long = p("long", "RUNNING", left: 7200)
+        let soon = p("soon", "RUNNING", left: 600)
+        let starting = p("start", "PREPARE", left: 300)
+        let unknown = p("unknown", "RUNNING")
+        let same = p("same", "RUNNING", left: 600)
+
+        let cases: [(String, [Printer], String?, String?)] = [
+            ("paused beats printing", [long, paused], nil, "pause"),
+            ("paused beats the focused printer", [long, paused], "long", "pause"),
+            ("two paused: saved order", [paused, paused2], nil, "pause"),
+            ("two paused: focus breaks the tie", [paused, paused2], "pause2", "pause2"),
+            ("printing: finishing soonest", [long, soon], nil, "soon"),
+            ("printing: starting counts", [long, starting], nil, "start"),
+            ("printing: focused beats finishing soonest", [long, soon], "long", "long"),
+            ("printing: unknown time sorts last", [unknown, long], nil, "long"),
+            ("printing: equal time goes to saved order", [soon, same], nil, "soon"),
+            ("failed does not beat printing", [failed, long], nil, "long"),
+            ("failed beats finished", [done, failed], nil, "fail"),
+            ("finished beats idle and offline", [idle, offline, done], nil, "done"),
+            ("focused idle beats the first", [idle, offline], "off", "off"),
+            ("nothing going on: the first", [idle, offline], nil, "idle"),
+            ("focus on a missing printer", [idle], "gone", "idle"),
+            ("no printers", [], nil, nil),
+        ]
+        for (name, printers, focus, want) in cases {
+            XCTAssertEqual(PrintDoc(v: 1, updatedAt: nil, focusId: focus, printers: printers).displayRow()?.id, want, name)
+        }
     }
 
     func testEmptyListIsNeedsSetup() throws {
@@ -352,7 +366,7 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(doc.printers.map(\.id), ["aaa", "bbb"])
         XCTAssertEqual(doc.printers[0].state, "RUNNING")
         XCTAssertEqual(doc.printers[1].state, "IDLE")
-        XCTAssertEqual(doc.focusRow()?.id, "aaa")
+        XCTAssertEqual(doc.displayRow()?.id, "aaa")
     }
 
     func testJobLabelStripsProcessSuffix() {

@@ -10,19 +10,22 @@ struct PrintDoc: Codable, Equatable, Sendable {
         lhs.v == rhs.v && lhs.focusId == rhs.focusId && lhs.printers == rhs.printers
     }
 
-    func focusRow() -> Printer? {
-        if let id = focusId, let row = printers.first(where: { $0.id == id }) {
-            return row
-        }
-        let active = printers.first {
-            switch $0.state.uppercased() {
-            case "RUNNING", "PREPARE": return true
-            default: return false
+    /// The printer that needs you: Paused, then Printing or Starting (finishing soonest),
+    /// then Failed, then Finished, then the rest. Focus breaks ties, then saved order.
+    func displayRow() -> Printer? {
+        func key(_ i: Int, _ p: Printer) -> (Int, Int, Int, Int) {
+            let tier: Int
+            switch p.state.uppercased() {
+            case "PAUSE": tier = 0
+            case "RUNNING", "PREPARE": tier = 1
+            case "FAILED": tier = 2
+            case "FINISH": tier = 3
+            default: tier = 4
             }
+            let soonest = tier == 1 ? p.remainingS ?? .max : 0
+            return (tier, p.id == focusId ? 0 : 1, soonest, i)
         }
-        return active
-            ?? printers.first { $0.state.uppercased() == "PAUSE" }
-            ?? printers.first
+        return printers.enumerated().min { key($0.offset, $0.element) < key($1.offset, $1.element) }?.element
     }
 }
 

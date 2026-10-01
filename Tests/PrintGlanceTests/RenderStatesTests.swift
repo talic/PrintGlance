@@ -35,6 +35,29 @@ final class RenderStatesTests: XCTestCase {
         }
     }
 
+    func testRenderPrinterList() throws {
+        let dir = try renderDir()
+        var paused = Self.running("PAUSE")
+        paused.id = "p1s"
+        paused.name = "P1S"
+        var idle = Self.idle(Self.oneAMS)
+        idle.id = "a1"
+        idle.name = "A1 mini"
+        var offline = Printer(id: "h2d", name: "H2D", state: "OFFLINE")
+        offline.lastState = "IDLE"
+        let printers = [Self.running("RUNNING"), paused, idle, offline]
+        let doc = PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: printers)
+        let row = try XCTUnwrap(doc.displayRow())
+        let view = VStack(alignment: .leading, spacing: 12) {
+            CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row), state: row.state)
+            PrinterList(printers: printers, shownId: row.id) { _ in }
+            PrinterDetail(row: row, endedAt: nil, now: Self.now, disconnectReason: nil)
+        }
+        .padding(14)
+        .frame(width: 248, alignment: .leading)
+        try write("list-four-printers", view, to: dir)
+    }
+
     private func card(row: Printer, endedAt: Date?, reason: String?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             CardHeader(

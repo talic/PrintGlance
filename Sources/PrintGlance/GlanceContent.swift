@@ -16,7 +16,7 @@ struct GlanceContent: Equatable, Sendable {
 
     var row: Printer? {
         if case let .doc(doc) = result {
-            return doc.focusRow()
+            return doc.displayRow()
         }
         return nil
     }
@@ -46,7 +46,7 @@ struct GlanceContent: Equatable, Sendable {
                 accessibilityLabel: "Connecting to printer"
             )
         case let .doc(doc):
-            guard let row = doc.focusRow() else {
+            guard let row = doc.displayRow() else {
                 return StripPresentation(
                     systemImage: "printer",
                     title: "",

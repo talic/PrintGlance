@@ -72,11 +72,19 @@ If the job finishes after today, the finish time includes the day.
 
 ## Watch more than one printer
 
-PrintGlance watches up to four printers.
+PrintGlance watches up to four printers. To add one, click **…** and choose **Add Printer…**.
 
-- To add a printer, click **…** and choose **Add Printer…**.
-- Click a printer in the list to focus it. The menu bar follows the focused printer.
-- To change or remove the focused printer, click **…** and choose **Edit** followed by the printer's name. **Remove** is available when more than one printer is saved.
+The menu bar shows the printer that needs you most:
+
+1. A paused printer
+2. A printing or starting printer. If several are printing, the one you last clicked, otherwise the one finishing soonest
+3. A failed printer
+4. A finished printer
+5. The printer you last clicked, otherwise the first one
+
+The print card opens on the same printer. Click another printer in the list to see it. The next time you open the card, it shows the menu bar's printer again.
+
+To change or remove the printer on the card, click **…** and choose **Edit** followed by the printer's name. **Remove** is available when more than one printer is saved.
 
 ## See recent prints
 

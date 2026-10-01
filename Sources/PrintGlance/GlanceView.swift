@@ -9,6 +9,8 @@ struct GlanceView: View {
     @State private var showHistory = false
     @State private var draft = PrinterSettings.empty
     @State private var editingSerial: String?
+    /// The printer clicked in the list, for this visit only. Each open starts on the menu bar's printer.
+    @State private var selectedId: String?
 
     var body: some View {
         Group {
@@ -50,6 +52,11 @@ struct GlanceView: View {
                 .frame(width: 248, alignment: .leading)
             }
         }
+        .background(PanelOpened {
+            guard !showPrinter else { return }
+            selectedId = nil
+            showHistory = false
+        })
         .onAppear {
             if case .needsSetup = model.content.result {
                 if let partial = model.settings.printers.first {
@@ -65,7 +72,7 @@ struct GlanceView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 8) {
-            CardHeader(headline: headline, subtitle: subtitle, state: model.content.row?.state)
+            CardHeader(headline: headline, subtitle: subtitle, state: cardRow?.state)
             overflowMenu
         }
     }
@@ -74,12 +81,15 @@ struct GlanceView: View {
     private var bodyContent: some View {
         if case let .doc(doc) = model.content.result {
             if doc.printers.count > 1 {
-                fleetList(doc)
+                PrinterList(printers: doc.printers, shownId: cardRow?.id) { id in
+                    selectedId = id
+                    model.focusPrinter(id)
+                }
             }
-            if let row = doc.focusRow() {
+            if let row = cardRow {
                 PrinterDetail(
                     row: row,
-                    endedAt: model.occupancyEndedAt,
+                    endedAt: model.occupancyEndedAt(for: row),
                     now: model.occupancyNow,
                     disconnectReason: model.disconnectReason(for: row.id)
                 )
@@ -98,43 +108,10 @@ struct GlanceView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func fleetList(_ doc: PrintDoc) -> some View {
-        let focused = doc.focusRow()?.id
-        return VStack(alignment: .leading, spacing: 4) {
-            ForEach(doc.printers, id: \.id) { p in
-                Button {
-                    model.focusPrinter(p.id)
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(p.name)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 4)
-                        if let pct = p.percent, GlanceContent.isTimed(p.state) {
-                            Text("\(pct)%")
-                                .monospacedDigit()
-                        }
-                        Text(GlanceContent.humanState(p.state))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(p.id == focused ? .primary : .secondary)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(listA11y(p, focused: p.id == focused))
-            }
-        }
-    }
-
-    private func listA11y(_ row: Printer, focused: Bool) -> String {
-        var parts = [row.name, GlanceContent.humanState(row.state)]
-        if let pct = row.percent, GlanceContent.isTimed(row.state) {
-            parts.append("\(pct) percent")
-        }
-        if focused {
-            parts.append("focused")
-        }
-        return parts.joined(separator: ", ")
+    /// The menu bar's printer, unless one was clicked in the list during this visit.
+    private var cardRow: Printer? {
+        guard case let .doc(doc) = model.content.result else { return nil }
+        return doc.printers.first { $0.id == selectedId } ?? doc.displayRow()
     }
 
     private var overflowMenu: some View {
@@ -215,9 +192,9 @@ struct GlanceView: View {
         setPrinterForm(true)
     }
 
+    /// The card's printer, or the first saved one before any printer has reported.
     private var editTarget: PrinterSettings? {
-        model.settings.printers.first { $0.serial == model.settings.focusId }
-            ?? model.content.row.flatMap { row in model.settings.printers.first { $0.serial == row.id } }
+        cardRow.flatMap { row in model.settings.printers.first { $0.serial == row.id } }
             ?? model.settings.printers.first
     }
 
@@ -233,7 +210,7 @@ struct GlanceView: View {
     }
 
     private var headline: String {
-        if let row = model.content.row {
+        if let row = cardRow {
             return GlanceContent.headline(row)
         }
         switch model.content.result {
@@ -245,7 +222,7 @@ struct GlanceView: View {
     }
 
     private var subtitle: String? {
-        model.content.row.map(GlanceContent.subtitle)
+        cardRow.map(GlanceContent.subtitle)
     }
 
     private var emptyDetail: String {
@@ -281,6 +258,50 @@ struct CardHeader: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct PrinterList: View {
+    var printers: [Printer]
+    var shownId: String?
+    var onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(printers, id: \.id) { p in
+                Button {
+                    onSelect(p.id)
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(p.name)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 4)
+                        if let pct = p.percent, GlanceContent.isTimed(p.state) {
+                            Text("\(pct)%")
+                                .monospacedDigit()
+                        }
+                        Text(GlanceContent.humanState(p.state))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(p.id == shownId ? .primary : .secondary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(a11y(p, shown: p.id == shownId))
+            }
+        }
+    }
+
+    private func a11y(_ row: Printer, shown: Bool) -> String {
+        var parts = [row.name, GlanceContent.humanState(row.state)]
+        if let pct = row.percent, GlanceContent.isTimed(row.state) {
+            parts.append("\(pct) percent")
+        }
+        if shown {
+            parts.append("shown")
+        }
+        return parts.joined(separator: ", ")
     }
 }
 
