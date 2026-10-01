@@ -24,7 +24,7 @@ struct GlanceContent: Equatable, Sendable {
         switch result {
         case .feedDown:
             return StripPresentation(
-                systemImage: "printer.slash",
+                systemImage: offlineImage,
                 title: "",
                 accessibilityLabel: "Can't reach printer"
             )
@@ -43,7 +43,7 @@ struct GlanceContent: Equatable, Sendable {
         case let .doc(doc):
             guard let row = doc.focusRow() else {
                 return StripPresentation(
-                    systemImage: "printer.slash",
+                    systemImage: "printer",
                     title: "",
                     accessibilityLabel: "No printer"
                 )
@@ -52,14 +52,18 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    /// SF Symbols has no `printer.slash`; a missing name draws nothing in the menu bar.
+    static let offlineImage = "wifi.slash"
+    /// The menu bar drops "40m ago" after this; the checkmark stays.
+    static let finishTitleFor: TimeInterval = 2 * 3600
+
     static func strip(row: Printer, occupancyEndedAt: Date? = nil, now: Date = Date()) -> StripPresentation {
         let st = row.state.uppercased()
         switch st {
         case "PREPARE":
-            let title = row.stage ?? "Starting"
             return StripPresentation(
                 systemImage: "printer.fill",
-                title: title,
+                title: shortStage(row.stage),
                 accessibilityLabel: a11y(row)
             )
         case "RUNNING":
@@ -84,15 +88,22 @@ struct GlanceContent: Equatable, Sendable {
                 accessibilityLabel: a11y(row)
             )
         case "FINISH":
-            let title = occupancyEndedAt.map { agoTitle(from: $0, now: now) } ?? ""
+            let ago = occupancyEndedAt.map { agoTitle(from: $0, now: now) }
+            let fresh = occupancyEndedAt.map { now.timeIntervalSince($0) < finishTitleFor } ?? false
             return StripPresentation(
                 systemImage: "checkmark",
-                title: title,
-                accessibilityLabel: a11y(row, occupancyTitle: title)
+                title: fresh ? ago ?? "" : "",
+                accessibilityLabel: a11y(row, ago: ago)
             )
         case "FAILED":
             return StripPresentation(
                 systemImage: "xmark",
+                title: "",
+                accessibilityLabel: a11y(row)
+            )
+        case "OFFLINE":
+            return StripPresentation(
+                systemImage: offlineImage,
                 title: "",
                 accessibilityLabel: a11y(row)
             )
@@ -105,9 +116,16 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    /// First word of the stage: "Loading filament" becomes "Loading".
+    static func shortStage(_ stage: String?) -> String {
+        stage?.split(separator: " ").first.map(String.init) ?? "Starting"
+    }
+
+    /// Pads with figure spaces (U+2007), which are as wide as a digit, so the title keeps its width.
     static func paddedPercent(_ percent: Int?) -> String? {
         guard let percent else { return nil }
-        return String(format: "%3d%%", percent)
+        let s = "\(percent)%"
+        return String(repeating: "\u{2007}", count: max(0, 4 - s.count)) + s
     }
 
     static func humanState(_ state: String) -> String {
@@ -256,21 +274,20 @@ struct GlanceContent: Equatable, Sendable {
         return text
     }
 
-    private static func a11y(_ row: Printer, occupancyTitle: String = "") -> String {
-        var parts = [row.name, humanState(row.state).lowercased()]
-        if !occupancyTitle.isEmpty {
-            parts.append(occupancyTitle)
-        }
-        if let p = row.percent {
+    private static func a11y(_ row: Printer, ago: String? = nil) -> String {
+        let st = row.state.uppercased()
+        let timed = isTimed(st)
+        var parts = [row.name, [humanState(st).lowercased(), ago].compactMap { $0 }.joined(separator: " ")]
+        if let p = row.percent, timed || st == "FAILED" {
             parts.append("\(p) percent")
         }
-        if isTimed(row.state), let eta = row.eta, !eta.isEmpty {
+        if st == "RUNNING" || st == "PREPARE", let eta = row.eta, !eta.isEmpty {
             parts.append("finish \(eta)")
         }
-        if let layer = layerLine(row) {
+        if timed, let layer = layerLine(row) {
             parts.append(layer.lowercased())
         }
-        if let nozzle = row.nozzle, !nozzle.isEmpty {
+        if timed, let nozzle = row.nozzle, !nozzle.isEmpty {
             parts.append("\(nozzle.lowercased()) nozzle")
         }
         return parts.joined(separator: ", ")

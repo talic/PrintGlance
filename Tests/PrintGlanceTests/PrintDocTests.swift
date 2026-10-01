@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import XCTest
 @testable import PrintGlance
 
@@ -19,7 +19,7 @@ final class PrintDocTests: XCTestCase {
 
         let strip = GlanceContent.strip(row: row)
         XCTAssertEqual(strip.systemImage, "printer.fill")
-        XCTAssertEqual(strip.title, " 16%  18:30")
+        XCTAssertEqual(strip.title, "\u{2007}16%  18:30")
         XCTAssertTrue(strip.accessibilityLabel.contains("16 percent"))
         XCTAssertTrue(strip.accessibilityLabel.contains("18:30"))
         XCTAssertEqual(GlanceContent.hero(row), "18:30")
@@ -44,11 +44,11 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.hero(row), "Idle")
     }
 
-    func testEmptyPrintersIsSlashNotSubscript() throws {
+    func testEmptyPrintersIsPlainIconNotSubscript() throws {
         let doc = PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [])
         XCTAssertNil(doc.focusRow())
         let strip = GlanceContent.strip(.doc(doc))
-        XCTAssertEqual(strip.systemImage, "printer.slash")
+        XCTAssertEqual(strip.systemImage, "printer")
         XCTAssertEqual(strip.title, "")
     }
 
@@ -64,8 +64,11 @@ final class PrintDocTests: XCTestCase {
 
     func testPauseAndFinishAndFailedStrip() {
         var pause = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 9)
-        XCTAssertEqual(GlanceContent.strip(row: pause).title, "  9%")
+        pause.eta = "16:25"
+        pause.remainingS = 3600
+        XCTAssertEqual(GlanceContent.strip(row: pause).title, "\u{2007}\u{2007}9%")
         XCTAssertEqual(GlanceContent.strip(row: pause).systemImage, "pause.fill")
+        XCTAssertEqual(GlanceContent.strip(row: pause).accessibilityLabel, "X2D, paused, 9 percent")
 
         pause.state = "FINISH"
         XCTAssertEqual(GlanceContent.strip(row: pause).systemImage, "checkmark")
@@ -75,14 +78,60 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.strip(row: pause).systemImage, "xmark")
     }
 
+    func testFinishedTitleCollapsesAfterTwoHours() {
+        let ended = Date(timeIntervalSince1970: 1_700_000_000)
+        let row = Printer(id: "x2d", name: "X2D", state: "FINISH", percent: 100)
+        let fresh = GlanceContent.strip(row: row, occupancyEndedAt: ended, now: ended + 119 * 60)
+        XCTAssertEqual(fresh.title, "1h 59m ago")
+        XCTAssertEqual(fresh.accessibilityLabel, "X2D, finished 1h 59m ago")
+        let stale = GlanceContent.strip(row: row, occupancyEndedAt: ended, now: ended + 190 * 60)
+        XCTAssertEqual(stale.title, "")
+        XCTAssertEqual(stale.systemImage, "checkmark")
+        XCTAssertEqual(stale.accessibilityLabel, "X2D, finished 3h 10m ago")
+    }
+
+    func testOfflineStripIsNotIdle() {
+        let offline = Printer(id: "x2d", name: "X2D", state: "OFFLINE", percent: 62)
+        let idle = Printer(id: "x2d", name: "X2D", state: "IDLE")
+        XCTAssertEqual(GlanceContent.strip(row: offline).systemImage, "wifi.slash")
+        XCTAssertEqual(GlanceContent.strip(row: offline).title, "")
+        XCTAssertEqual(GlanceContent.strip(row: idle).systemImage, "printer")
+    }
+
+    func testStartingShowsShortStage() {
+        XCTAssertEqual(GlanceContent.shortStage("Loading filament"), "Loading")
+        XCTAssertEqual(GlanceContent.shortStage("Unloading filament"), "Unloading")
+        XCTAssertEqual(GlanceContent.shortStage("Cleaning nozzle"), "Cleaning")
+        XCTAssertEqual(GlanceContent.shortStage("Heating"), "Heating")
+        XCTAssertEqual(GlanceContent.shortStage(nil), "Starting")
+        var row = Printer(id: "x2d", name: "X2D", state: "PREPARE", percent: 0)
+        row.stage = "Loading filament"
+        XCTAssertEqual(GlanceContent.strip(row: row).title, "Loading")
+        XCTAssertEqual(GlanceContent.subtitle(row), "Loading filament")
+    }
+
+    func testEveryStripImageIsARealSymbol() {
+        var images: Set<String> = [
+            GlanceContent.strip(.feedDown).systemImage,
+            GlanceContent.strip(.connecting).systemImage,
+            GlanceContent.strip(.needsSetup).systemImage,
+        ]
+        for state in ["PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE"] {
+            images.insert(GlanceContent.strip(row: Printer(id: "x", name: "X", state: state)).systemImage)
+        }
+        for name in images {
+            XCTAssertNotNil(NSImage(systemSymbolName: name, accessibilityDescription: nil), name)
+        }
+    }
+
     func testPercentPaddingStableWidth() {
-        XCTAssertEqual(GlanceContent.paddedPercent(9), "  9%")
-        XCTAssertEqual(GlanceContent.paddedPercent(16), " 16%")
+        XCTAssertEqual(GlanceContent.paddedPercent(9), "\u{2007}\u{2007}9%")
+        XCTAssertEqual(GlanceContent.paddedPercent(16), "\u{2007}16%")
         XCTAssertEqual(GlanceContent.paddedPercent(100), "100%")
     }
 
     func testFeedDownStrip() {
-        XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "printer.slash")
+        XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "wifi.slash")
         XCTAssertEqual(GlanceContent.strip(.feedDown).accessibilityLabel, "Can't reach printer")
     }
 
