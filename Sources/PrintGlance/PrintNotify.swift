@@ -39,6 +39,10 @@ struct PrintNotifyPrefs: Equatable {
     var comingOff: Bool
     var quietHours: Bool
     var lowFilament: Bool = true
+    /// Minutes before the end that "Print finishing soon" arrives. One of `comingOffLeads`.
+    var comingOffLead: Int = 10
+
+    static let comingOffLeads = [5, 10, 15, 30]
 
     static let `default` = PrintNotifyPrefs(
         finish: true,
@@ -62,6 +66,7 @@ struct PrintNotifyPrefs: Equatable {
             guard d.object(forKey: key) != nil else { return fallback }
             return d.bool(forKey: key)
         }
+        let lead = d.integer(forKey: "pg.notify.comingOffLead")
         return PrintNotifyPrefs(
             finish: flag("pg.notify.finish", fallback: true),
             fail: flag("pg.notify.fail", fallback: true),
@@ -69,7 +74,8 @@ struct PrintNotifyPrefs: Equatable {
             offline: flag("pg.notify.offline", fallback: true),
             comingOff: flag("pg.notify.comingOff", fallback: true),
             quietHours: flag("pg.notify.quietHours", fallback: false),
-            lowFilament: flag("pg.notify.lowFilament", fallback: true)
+            lowFilament: flag("pg.notify.lowFilament", fallback: true),
+            comingOffLead: comingOffLeads.contains(lead) ? lead : 10
         )
     }
 
@@ -81,6 +87,20 @@ struct PrintNotifyPrefs: Equatable {
         d.set(comingOff, forKey: "pg.notify.comingOff")
         d.set(quietHours, forKey: "pg.notify.quietHours")
         d.set(lowFilament, forKey: "pg.notify.lowFilament")
+        d.set(comingOffLead, forKey: "pg.notify.comingOffLead")
+    }
+}
+
+/// The printer a clicked notification named. The next panel open shows it, once.
+struct PendingSelection: Equatable {
+    /// Every notification carries its printer's serial under this `userInfo` key.
+    static let serialKey = "serial"
+
+    var serial: String?
+
+    mutating func take() -> String? {
+        defer { serial = nil }
+        return serial
     }
 }
 
@@ -283,8 +303,13 @@ struct PrintNotify {
         let name = row.name.isEmpty ? "Printer" : row.name
         let job = row.job.flatMap { $0.isEmpty ? nil : $0 }
         var body = job.map { "\($0) on \(name)" } ?? name
-        if kind == .fail || kind == .pause, let code = GlanceContent.errorCodes(row).first {
-            body += " · Error \(code)"
+        if kind == .fail || kind == .pause {
+            if let code = GlanceContent.errorCodes(row).first {
+                body += " · Error \(code)"
+            }
+            if let reason = GlanceContent.errorReason(row) {
+                body = "\(reason) \(body)"
+            }
         }
         let title: String
         switch kind {

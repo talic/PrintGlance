@@ -73,6 +73,7 @@ final class GlanceModel: ObservableObject {
     private var staleTask: Task<Void, Never>?
     private var notify: PrintNotify
     private let notifyPresenter = PrintNotifyPresenter()
+    private var pendingSelection = PendingSelection()
     private var jobLog: JobLog
     private let jobLogURL: URL
     private var occupancyTask: Task<Void, Never>?
@@ -139,6 +140,7 @@ final class GlanceModel: ObservableObject {
         if let size = try? Self.logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 1_000_000 {
             try? FileManager.default.removeItem(at: Self.logURL)
         }
+        notifyPresenter.model = self
         UNUserNotificationCenter.current().delegate = notifyPresenter
         updates.onAvailable = { [weak self] tag in
             guard let self, self.availableUpdate != tag else { return }
@@ -202,8 +204,17 @@ final class GlanceModel: ObservableObject {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
     }
 
+    /// The card's printer for this panel open: a clicked notification's printer, once. Nil means the menu bar's printer.
+    func takePendingSelection() -> String? {
+        pendingSelection.take()
+    }
+
+    fileprivate func notificationClicked(serial: String) {
+        pendingSelection.serial = serial
+    }
+
     func openUpdatePage() {
-        NSWorkspace.shared.open(AppUpdate.latestReleaseURL)
+        NSWorkspace.shared.open(updates.downloadURL)
     }
 
     func removePrinter(serial: String) {
@@ -481,7 +492,7 @@ final class GlanceModel: ObservableObject {
             let comingOffBefore = comingOff
             for row in doc.printers {
                 if let action = comingOff.consider(printer: row, prefs: notifyPrefs) {
-                    deliverComingOff(action)
+                    deliverComingOff(action, serial: row.id)
                 }
             }
             if comingOff != comingOffBefore {
@@ -502,7 +513,7 @@ final class GlanceModel: ObservableObject {
                     taskId: BambuPrint.jobIdentity(snap.printObj),
                     enabled: notifyPrefs.lowFilament
                 ) {
-                    deliverFilament(notice)
+                    post(id: notice.identifier, title: notice.title, body: notice.body, serial: row.id)
                 }
             }
             return
@@ -514,15 +525,12 @@ final class GlanceModel: ObservableObject {
         }
     }
 
-    private func deliverFilament(_ notice: FilamentAlert.Notice) {
-        post(id: notice.identifier, title: notice.title, body: notice.body)
-    }
-
-    private func post(id: String, title: String, body: String, trigger: UNNotificationTrigger? = nil) {
+    private func post(id: String, title: String, body: String, serial: String, trigger: UNNotificationTrigger? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        content.userInfo = [PendingSelection.serialKey: serial]
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: id, content: content, trigger: trigger)
         )
@@ -615,6 +623,7 @@ final class GlanceModel: ObservableObject {
                 id: "pg.\(alert.kind.rawValue).\(id)",
                 title: alert.title,
                 body: alert.body,
+                serial: alert.serial,
                 trigger: finishTrigger(alert)
             )
         }
@@ -632,7 +641,7 @@ final class GlanceModel: ObservableObject {
         return UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
     }
 
-    private func deliverComingOff(_ action: ComingOffAction) {
+    private func deliverComingOff(_ action: ComingOffAction, serial: String) {
         let center = UNUserNotificationCenter.current()
         if !action.cancelIds.isEmpty {
             center.removePendingNotificationRequests(withIdentifiers: action.cancelIds)
@@ -646,17 +655,33 @@ final class GlanceModel: ObservableObject {
         } else {
             trigger = nil
         }
-        post(id: action.identifier, title: action.title, body: action.body, trigger: trigger)
+        post(id: action.identifier, title: action.title, body: action.body, serial: serial, trigger: trigger)
     }
 }
 
 /// Menu bar extras stay running, so banners must be presented while the extra is active.
 private final class PrintNotifyPresenter: NSObject, UNUserNotificationCenterDelegate {
+    weak var model: GlanceModel?
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         completionHandler([.banner, .list, .sound])
+    }
+
+    /// Runs on Apple's queue: read the serial here, then hop to the main actor with only a String.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let serial = response.notification.request.content.userInfo[PendingSelection.serialKey] as? String
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier, let serial, !serial.isEmpty {
+            let model = self.model
+            Task { @MainActor in model?.notificationClicked(serial: serial) }
+        }
+        completionHandler()
     }
 }

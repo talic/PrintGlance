@@ -66,11 +66,11 @@ Click the printer icon to open the print card.
 
 | Printer | Menu bar | Print card |
 |---|---|---|
-| Starting | The stage: **Heating**, **Leveling**, **Loading**, **Unloading**, **Calibrating**, **Cleaning**, **Homing**, or **Starting** | The full stage, such as **Loading filament**, plus the finish time and time left when the printer sends them |
+| Starting | The stage: **Heating**, **Leveling**, **Loading**, **Unloading**, **Calibrating**, **Cleaning**, **Homing**, or **Starting** | The full stage, such as **Loading filament**, plus the finish time and time left when the printer sends them. How far the heaters have got, such as **Nozzle 186 / 220° · Bed 48 / 60°**, and the chamber while it heats. On a dual-nozzle printer, the nozzle shown is the one in use |
 | Printing | Percent and finish time | Finish time, time left, percent, layer, filament name, remaining filament, and color. On a dual-nozzle printer such as H2D, **Left** or **Right** next to the filament |
-| Paused | A pause icon and percent | Time left (not a finish time, because it moves while paused), percent, layer, and the AMS trays. The error code, such as **Error 0700-2000-0002-0001**, with **Look up** to open Bambu's page for it in your browser, or **No error reported.** |
+| Paused | A pause icon and percent | Time left (not a finish time, because it moves while paused), percent, layer, and the AMS trays. For common problems, a short reason, such as **Filament ran out in AMS A, slot 2.** Then the error code, such as **Error 0700-2100-0002-0001**, with **Look up** to open Bambu's page for it in your browser, or **No error reported.** |
 | Finished | A checkmark and how long ago it finished, such as **40m ago**. After 2 hours, only the checkmark | How long ago it finished, the printer name, and the AMS trays. If PrintGlance was not running when the print finished, no elapsed time |
-| Failed | An X | **Failed**, the error code with **Look up**, and the AMS trays. The **Print Failed** notice ends with the error code |
+| Failed | An X | **Failed**, a short reason for common problems, the error code with **Look up**, and the AMS trays. The **Print Failed** notice starts with the reason and ends with the error code |
 | Idle | A printer icon | The printer name and each loaded slot, named like the printer screen (**A1**…**D4**, **HT-A**, **External**): color, filament, and remaining percent. Slots sit under a header such as **AMS A · Dry** or **AMS B · 23%** when there is more than one AMS or the AMS reports humidity |
 | Offline | A Wi-Fi icon with a slash | When PrintGlance last heard from the printer, such as **Last update 14:02**, and what it was doing: **Was printing · 52% · Layer 18 / 29** with **Expected to finish 16:25**, or **Was paused at 52%**. Then why PrintGlance cannot reach the printer, when it knows |
 
@@ -112,15 +112,17 @@ Click **…** and open **Notifications**. Turn on the events you want:
 - **Low Filament**
 - **Quiet Hours**, shown with its hours, such as **Quiet Hours (10 PM–7 AM)**
 
-**Quiet Hours** starts turned off. The others start turned on. **Print Paused** and **Print Failed** end with the error code when the printer sends one.
+**Quiet Hours** starts turned off. The others start turned on. **Print Paused** and **Print Failed** start with a short reason for common problems, such as **Filament ran out in AMS A, slot 2.** They end with the error code when the printer sends one.
 
-**Print Finishing Soon** tells you about 10 minutes before the print ends, so you can be at the printer. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is cancelled.
+**Print Finishing Soon** tells you shortly before the print ends, so you can be at the printer. To choose how early, open **Lead Time** under it and choose **5 Minutes**, **10 Minutes**, **15 Minutes**, or **30 Minutes**. It starts at 10 minutes. If less time is left when PrintGlance first sees the print, the notice comes right away and says how much is left. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is canceled.
 
 **Lost Connection** tells you when PrintGlance stops hearing from a printer during a print, such as **Lost connection to X2D** with **Benchy was at 52%. PrintGlance keeps trying.** It is not sent while this Mac has no network, or for 2 minutes after this Mac's network changes, because then the Mac lost the connection, not the printer.
 
 **Low Filament** tells you when the spool in use drops below 20% while a print is starting or running.
 
 **Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM. **Print Finishing Soon** is skipped in that window. **Print Failed**, **Print Paused**, **Lost Connection**, and **Low Filament** still appear.
+
+To see the printer a notice is about, click the notice, then click the printer icon in the menu bar. The print card opens on that printer.
 
 When macOS asks for notification permission, click **Allow**. PrintGlance asks when you finish adding your first printer, or the first time a print starts. If notifications for PrintGlance are turned off in System Settings, the **Notifications** menu starts with **Notifications Are Off…**. Choose it to open System Settings at PrintGlance.
 
@@ -136,8 +138,8 @@ To quit, click **…** and choose **Quit PrintGlance**.
 
 Once a day PrintGlance checks GitHub. When a newer version is on GitHub, the print card shows **Update available**.
 
-1. Click **Update available**, or click **…** and choose **Download PrintGlance** followed by the new version number.
-2. Download **PrintGlance.zip** and double-click it to extract it.
+1. Click **Update available**, or click **…** and choose **Download PrintGlance** followed by the new version number. Your browser downloads **PrintGlance.zip**. If it opens the release page instead, download **PrintGlance.zip** there.
+2. Double-click **PrintGlance.zip** to extract it.
 3. Drag **PrintGlance** into the **Applications** folder. Replace the existing app when macOS asks.
 4. Open **PrintGlance**. If macOS shows **"PrintGlance" Not Opened**, click **Done**.
 5. Open **System Settings > Privacy & Security**. In **Security**, click **Open Anyway**, then click **Open**.

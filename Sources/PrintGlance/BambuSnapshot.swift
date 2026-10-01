@@ -43,8 +43,19 @@ enum BambuPrint {
             dst.removeValue(forKey: "total_layer_num")
             dst.removeValue(forKey: "gcode_file")
         }
+        mergeObjects(&dst, incoming)
+    }
+
+    /// Like Bambu Studio's json_diff: nested objects merge key by key, so a report that sends only
+    /// `device.extruder` keeps `device.bed`. Arrays and values are replaced whole.
+    private static func mergeObjects(_ dst: inout [String: Any], _ incoming: [String: Any]) {
         for (k, v) in incoming {
-            dst[k] = v
+            if let new = v as? [String: Any], var old = dst[k] as? [String: Any] {
+                mergeObjects(&old, new)
+                dst[k] = old
+            } else {
+                dst[k] = v
+            }
         }
     }
 
@@ -136,20 +147,59 @@ enum BambuPrint {
         return (filamentName(tray), remainPercent(tray["remain"]), now, trayColorHex(tray))
     }
 
-    /// Returns Left or Right for the nozzle that is down.
-    /// Reads `device.extruder.state` bits 4 to 7 (0 is Right, 1 is Left). Nil on a single-nozzle printer.
+    /// Returns Left or Right for the nozzle that is down. Nil on a single-nozzle printer.
     static func activeNozzle(_ printObj: [String: Any]) -> String? {
-        let device = BambuJSON.dict(printObj["device"]) ?? [:]
-        let extruder = BambuJSON.dict(device["extruder"]) ?? [:]
-        guard let packed = BambuJSON.intValue(extruder["state"]) else { return nil }
-        let count = packed & 0xF
-        let infoCount = BambuJSON.array(extruder["info"])?.count ?? 0
-        guard count >= 2 || infoCount >= 2 else { return nil }
-        switch (packed >> 4) & 0xF {
+        switch extruders(printObj)?.active {
         case 0: return "Right"
         case 1: return "Left"
         default: return nil
         }
+    }
+
+    /// Dual-nozzle printers: the nozzle that is down (`device.extruder.state` bits 4 to 7, bits 0 to 3
+    /// count the nozzles) and each nozzle's `device.extruder.info` entry. Nil with one nozzle.
+    private static func extruders(_ printObj: [String: Any]) -> (active: Int, info: [[String: Any]])? {
+        let device = BambuJSON.dict(printObj["device"]) ?? [:]
+        let extruder = BambuJSON.dict(device["extruder"]) ?? [:]
+        guard let packed = BambuJSON.intValue(extruder["state"]) else { return nil }
+        let info = (BambuJSON.array(extruder["info"]) ?? []).compactMap(BambuJSON.dict)
+        guard packed & 0xF >= 2 || info.count >= 2 else { return nil }
+        return ((packed >> 4) & 0xF, info)
+    }
+
+    /// Newer printers pack a heater as `target << 16 | current` in whole °C (Bambu Studio, DevUtil.cpp).
+    static func packedTemp(_ raw: Any?) -> Temp? {
+        guard let v = BambuJSON.intValue(raw), v >= 0 else { return nil }
+        return Temp(current: v & 0xFFFF, target: (v >> 16) & 0xFFFF)
+    }
+
+    /// Top-level fields are numbers, often 1/32 °C steps on A1 and P1; cut to whole degrees like Bambu Studio.
+    private static func temp(_ current: Any?, _ target: Any?) -> Temp? {
+        guard let current = BambuJSON.intValue(current) else { return nil }
+        return Temp(current: current, target: max(0, BambuJSON.intValue(target) ?? 0))
+    }
+
+    /// The nozzle in use. Dual-nozzle printers report each nozzle under `device.extruder.info`, matched by
+    /// `id`; their top-level `nozzle_temper` follows either nozzle, so Bambu Studio ignores it there.
+    static func nozzleTemp(_ printObj: [String: Any]) -> Temp? {
+        if let dual = extruders(printObj) {
+            return dual.info.first { BambuJSON.intValue($0["id"]) == dual.active }.flatMap { packedTemp($0["temp"]) }
+        }
+        return temp(printObj["nozzle_temper"], printObj["nozzle_target_temper"])
+    }
+
+    static func bedTemp(_ printObj: [String: Any]) -> Temp? {
+        let device = BambuJSON.dict(printObj["device"]) ?? [:]
+        let info = BambuJSON.dict(BambuJSON.dict(device["bed"])?["info"])
+        return packedTemp(info?["temp"]) ?? packedTemp(device["bed_temp"])
+            ?? temp(printObj["bed_temper"], printObj["bed_target_temper"])
+    }
+
+    /// `device.ctc` on newer firmware. Printers without a chamber sensor send a placeholder 5 with no target.
+    static func chamberTemp(_ printObj: [String: Any]) -> Temp? {
+        let device = BambuJSON.dict(printObj["device"]) ?? [:]
+        let info = BambuJSON.dict(BambuJSON.dict(device["ctc"])?["info"])
+        return packedTemp(info?["temp"]) ?? temp(printObj["chamber_temper"], printObj["ctt"])
     }
 
     /// MQTT `tray_color` or first `cols` entry, as RRGGBBAA. Nil if missing or fully transparent.
@@ -349,6 +399,8 @@ enum BambuPrint {
             state = "OFFLINE"
         } else if raw.isEmpty {
             state = "OFFLINE"
+        } else if isStartSequence(raw: raw, printObj: printObj) {
+            state = "PREPARE"
         } else {
             state = raw
         }
@@ -391,7 +443,20 @@ enum BambuPrint {
             row.lastSeen = lastReportAt
             row.lastState = raw.isEmpty ? nil : raw
         }
+        if state == "PREPARE" {
+            row.nozzleTemp = nozzleTemp(printObj)
+            row.bedTemp = bedTemp(printObj)
+            row.chamberTemp = chamberTemp(printObj)
+        }
         return row
+    }
+
+    /// Printers heat, level and calibrate under RUNNING with the layer still 0 and `stg_cur` naming
+    /// the stage (0 is printing). PREPARE itself only covers getting the file (Bambu Studio's
+    /// StatusPanel). Both are Starting here. A stage after layer 0, like a filament change, is printing.
+    static func isStartSequence(raw: String, printObj: [String: Any]) -> Bool {
+        guard raw == "RUNNING", let stage = BambuJSON.intValue(printObj["stg_cur"]), stage != 0 else { return false }
+        return (BambuJSON.intValue(printObj["layer_num"]) ?? 0) == 0
     }
 
     static func stageLabel(state: String, printObj: [String: Any]) -> String? {

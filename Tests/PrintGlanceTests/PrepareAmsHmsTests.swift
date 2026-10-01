@@ -217,6 +217,59 @@ final class PrepareAmsHmsTests: XCTestCase {
         XCTAssertTrue(pe.copiesCode)
     }
 
+    func testReasonsNameTheAMSUnitAndSlot() {
+        func reason(_ code: String) -> String? { GlanceContent.errorReason(code: code) }
+        XCTAssertEqual(reason("0700-2000-0002-0001"), "Filament ran out in AMS A, slot 1.")
+        XCTAssertEqual(reason("0700-2100-0002-0001"), "Filament ran out in AMS A, slot 2.")
+        XCTAssertEqual(reason("0702-2300-0002-0001"), "Filament ran out in AMS C, slot 4.")
+        XCTAssertEqual(reason("1200-2200-0002-0001"), "Filament ran out in AMS A, slot 3.", "AMS lite is unit A on the card")
+        XCTAssertEqual(reason("1801-2000-0002-0001"), "Filament ran out in AMS HT-B.", "one slot, so no number")
+        XCTAssertEqual(reason("1880-2000-0002-0001"), "Filament ran out in AMS HT-A.", "HT units also appear as 80 to 87")
+        XCTAssertEqual(reason("0701-8011"), "Filament ran out in AMS B.", "print_error has the unit but no slot")
+        XCTAssertEqual(reason("07FF-2000-0002-0001"), "The external spool ran out of filament.")
+        XCTAssertEqual(reason("07FE-8011"), "The external spool ran out of filament.")
+        XCTAssertEqual(reason("0700-7100-0002-0004"), "Couldn't pull the filament back into AMS A, slot 2.")
+        XCTAssertEqual(
+            reason("0701-0100-0002-0002"),
+            "The feed motor in AMS B is overloaded. A spool may be tangled or stuck.",
+            "a motor code names the unit only"
+        )
+        XCTAssertEqual(reason("0700-4500-0002-0003"), "The filament cutter is stuck.")
+        XCTAssertEqual(reason("0300-1E00-0001-0004"), "The nozzle heater or its sensor has a fault.", "left nozzle")
+        XCTAssertEqual(reason("0300-806E"), "The nozzle overheated. Turn the printer off and have it checked.")
+        XCTAssertEqual(reason("0300-400C"), "The print was canceled.")
+    }
+
+    func testUnknownCodesKeepJustTheCode() {
+        XCTAssertNil(GlanceContent.errorReason(code: "0300-0000-0100-0001"))
+        XCTAssertNil(GlanceContent.errorReason(code: "0700-2000-0002-0099"))
+        XCTAssertNil(GlanceContent.errorReason(code: "0708-2000-0002-0001"), "AMS units stop at H")
+        XCTAssertNil(GlanceContent.errorReason(code: "0700-2000-0002"))
+        XCTAssertNil(GlanceContent.errorReason(code: "not a code"))
+
+        var row = Printer(id: "x2d", name: "X2D", state: "PAUSE")
+        row.hmsCode = "0300-0000-0100-0001"
+        XCTAssertNil(GlanceContent.errorReason(row))
+        row.printError = "0700-8002"
+        XCTAssertEqual(GlanceContent.errorReason(row), "The filament cutter is stuck.", "the first code that has a reason")
+        row.state = "RUNNING"
+        XCTAssertNil(GlanceContent.errorReason(row), "only while paused or failed")
+    }
+
+    func testPauseBodyStartsWithTheReason() {
+        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        _ = n.observe(GlanceContent(result: .doc(PrintDoc(
+            v: 1,
+            updatedAt: nil,
+            focusId: "x2d",
+            printers: [Printer(id: "x2d", name: "X2D", state: "RUNNING", job: "Benchy", jobId: "t1")]
+        ))))
+        var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", job: "Benchy", jobId: "t1")
+        paused.hmsCode = "0700-2100-0002-0001"
+        let out = n.observe(GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [paused]))))
+        XCTAssertEqual(out.alert?.body, "Filament ran out in AMS A, slot 2. Benchy on X2D · Error 0700-2100-0002-0001")
+    }
+
     func testFailWithoutHMSUnchanged() {
         var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
         _ = n.observe(GlanceContent(result: .doc(PrintDoc(
@@ -238,6 +291,131 @@ final class PrepareAmsHmsTests: XCTestCase {
             )]
         ))))
         XCTAssertEqual(out.alert?.body, "Print in Parts on X2D")
+    }
+
+    func testHeatingUnderRunningIsStarting() {
+        func row(_ printObj: [String: Any]) -> Printer {
+            BambuPrint.row(id: "x2d", name: "X2D", printObj: printObj, online: true)
+        }
+        let heating: [String: Any] = [
+            "gcode_state": "RUNNING", "stg_cur": 2, "layer_num": 0, "mc_percent": 0,
+            "nozzle_temper": 186.5, "nozzle_target_temper": 220, "bed_temper": 48.2, "bed_target_temper": 60,
+        ]
+        let starting = row(heating)
+        XCTAssertEqual(starting.state, "PREPARE")
+        XCTAssertEqual(starting.stage, "Heating")
+        XCTAssertEqual(starting.nozzleTemp, Temp(current: 186, target: 220))
+        XCTAssertEqual(GlanceContent.heatLine(starting), "Nozzle 186 / 220° · Bed 48 / 60°")
+        XCTAssertEqual(GlanceContent.strip(row: starting).title, "Heating")
+
+        var noLayerYet = heating
+        noLayerYet["layer_num"] = nil
+        XCTAssertEqual(row(noLayerYet).state, "PREPARE", "a new job's layer arrives later")
+
+        var printing = heating
+        printing["stg_cur"] = 0
+        printing["layer_num"] = 1
+        XCTAssertEqual(row(printing).state, "RUNNING")
+        XCTAssertNil(row(printing).nozzleTemp, "no temperatures while printing, so rows stay equal")
+
+        var swap = heating
+        swap["stg_cur"] = 4
+        swap["layer_num"] = 37
+        XCTAssertEqual(row(swap).state, "RUNNING", "a filament change mid-print is printing")
+
+        var paused = heating
+        paused["gcode_state"] = "PAUSE"
+        XCTAssertEqual(row(paused).state, "PAUSE")
+        XCTAssertNil(row(paused).nozzleTemp)
+
+        XCTAssertEqual(row(["gcode_state": "PREPARE", "gcode_file_prepare_percent": "40"]).state, "PREPARE")
+    }
+
+    func testHeatLine() {
+        var row = Printer(id: "x2d", name: "X2D", state: "PREPARE")
+        XCTAssertNil(GlanceContent.heatLine(row))
+        row.nozzleTemp = Temp(current: 45, target: 0)
+        row.bedTemp = Temp(current: 48, target: 60)
+        row.chamberTemp = Temp(current: 30, target: 0)
+        XCTAssertEqual(GlanceContent.heatLine(row), "Nozzle 45° · Bed 48 / 60°", "chamber hidden while it isn't heating")
+        row.chamberTemp = Temp(current: 31, target: 45)
+        XCTAssertEqual(GlanceContent.heatLine(row), "Nozzle 45° · Bed 48 / 60° · Chamber 31 / 45°")
+        row.state = "RUNNING"
+        XCTAssertNil(GlanceContent.heatLine(row))
+    }
+
+    func testPackedTemperatures() {
+        XCTAssertEqual(BambuPrint.packedTemp(14_418_140), Temp(current: 220, target: 220))
+        XCTAssertEqual(BambuPrint.packedTemp(3_604_535), Temp(current: 55, target: 55))
+        XCTAssertEqual(BambuPrint.packedTemp(45), Temp(current: 45, target: 0), "under 65536: no target")
+        XCTAssertEqual(BambuPrint.packedTemp(186 | 220 << 16), Temp(current: 186, target: 220))
+        XCTAssertNil(BambuPrint.packedTemp(-1))
+        XCTAssertNil(BambuPrint.packedTemp(nil))
+    }
+
+    /// Values from a real X2D report: the left nozzle (id 1) is down at 220°, the other idles at 45°.
+    func testDualNozzleReadsTheActiveNozzle() {
+        var x2d: [String: Any] = [
+            "nozzle_temper": 199.0,
+            "nozzle_target_temper": 0.0,
+            "bed_temper": 55.0,
+            "bed_target_temper": 55.0,
+            "device": [
+                "extruder": [
+                    "state": 33042,
+                    "info": [["id": 0, "temp": 45], ["id": 1, "temp": 14_418_140]],
+                ],
+                "bed": ["info": ["temp": 3_604_535], "state": 2],
+                "bed_temp": 3_604_535,
+                "ctc": ["info": ["temp": 34], "state": 0],
+            ],
+        ]
+        XCTAssertEqual(BambuPrint.nozzleTemp(x2d), Temp(current: 220, target: 220), "top-level nozzle ignored")
+        XCTAssertEqual(BambuPrint.bedTemp(x2d), Temp(current: 55, target: 55))
+        XCTAssertEqual(BambuPrint.chamberTemp(x2d), Temp(current: 34, target: 0))
+
+        x2d["device"] = ["extruder": ["state": 2 | 0 << 4, "info": [["id": 1, "temp": 45], ["id": 0, "temp": 186 | 220 << 16]]]]
+        XCTAssertEqual(BambuPrint.nozzleTemp(x2d), Temp(current: 186, target: 220), "matched by id, not position")
+        XCTAssertEqual(BambuPrint.bedTemp(x2d), Temp(current: 55, target: 55), "top-level bed without a device block")
+    }
+
+    func testSingleNozzleReadsTopLevelFields() {
+        let a1: [String: Any] = [
+            "nozzle_temper": 186.9375,
+            "nozzle_target_temper": 220,
+            "bed_temper": 47.96875,
+            "bed_target_temper": 60,
+            "chamber_temper": 5,
+        ]
+        XCTAssertEqual(BambuPrint.nozzleTemp(a1), Temp(current: 186, target: 220), "cut off, not rounded")
+        XCTAssertEqual(BambuPrint.bedTemp(a1), Temp(current: 47, target: 60))
+        XCTAssertEqual(BambuPrint.chamberTemp(a1), Temp(current: 5, target: 0), "placeholder without a sensor")
+        XCTAssertNil(BambuPrint.nozzleTemp([:]))
+
+        let h2d: [String: Any] = ["chamber_temper": 49, "ctt": 60, "device": ["ctc": ["info": ["temp": 48 | 60 << 16]]]]
+        XCTAssertEqual(BambuPrint.chamberTemp(h2d), Temp(current: 48, target: 60), "device.ctc wins, like Bambu Studio")
+        XCTAssertEqual(BambuPrint.chamberTemp(["chamber_temper": 49, "ctt": 60]), Temp(current: 49, target: 60))
+    }
+
+    func testNestedObjectsMergeKeyByKey() {
+        var dst: [String: Any] = [
+            "gcode_state": "PREPARE",
+            "device": [
+                "bed": ["info": ["temp": 3_604_535]],
+                "extruder": ["state": 33042, "info": [["id": 0, "temp": 45], ["id": 1, "temp": 100]]],
+            ],
+            "hms": [["attr": 1, "code": 2]],
+        ]
+        BambuPrint.merge(&dst, incoming: [
+            "device": ["extruder": ["info": [["id": 1, "temp": 150 | 220 << 16]]]],
+            "hms": [],
+        ])
+        XCTAssertEqual(BambuPrint.bedTemp(dst), Temp(current: 55, target: 55), "bed kept")
+        let extruder = (dst["device"] as? [String: Any])?["extruder"] as? [String: Any]
+        XCTAssertEqual(extruder?["state"] as? Int, 33042, "state kept")
+        XCTAssertEqual((extruder?["info"] as? [Any])?.count, 1, "arrays are replaced whole")
+        XCTAssertEqual((dst["hms"] as? [Any])?.count, 0)
+        XCTAssertEqual(dst["gcode_state"] as? String, "PREPARE")
     }
 
     private func label(_ stg: Int) -> String? {

@@ -36,6 +36,17 @@ enum AppUpdate {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// The release's `PrintGlance.zip` download. Nil when the asset is missing or isn't a GitHub https link.
+    static func zipURL(fromAPIJSON data: Data) -> URL? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let assets = obj["assets"] as? [[String: Any]],
+              let asset = assets.first(where: { $0["name"] as? String == "PrintGlance.zip" }),
+              let url = (asset["browser_download_url"] as? String).flatMap(URL.init(string:)),
+              url.scheme == "https", url.host == "github.com"
+        else { return nil }
+        return url
+    }
+
     static func numbers(_ raw: String) -> [Int] {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.first == "v" || s.first == "V" {
@@ -56,6 +67,7 @@ enum AppUpdate {
 final class AppUpdateChecker {
     static let lastCheckKey = "pg.update.lastCheck"
     static let remoteTagKey = "pg.update.remoteTag"
+    static let remoteZipKey = "pg.update.remoteZip"
 
     private let defaults: UserDefaults
     private let localVersion: String
@@ -116,7 +128,13 @@ final class AppUpdateChecker {
         }
         defaults.set(Date(), forKey: Self.lastCheckKey)
         defaults.set(tag, forKey: Self.remoteTagKey)
+        defaults.set(AppUpdate.zipURL(fromAPIJSON: data)?.absoluteString, forKey: Self.remoteZipKey)
         publish(tag)
+    }
+
+    /// The newest release's zip, saved with its tag, else the release page.
+    var downloadURL: URL {
+        defaults.string(forKey: Self.remoteZipKey).flatMap(URL.init(string:)) ?? AppUpdate.latestReleaseURL
     }
 
     private func publishCached() {

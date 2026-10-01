@@ -1,5 +1,9 @@
 # Builds PrintGlance.app. `make install` copies it to ~/Applications.
 # `swift test` does not exercise Gatekeeper or the menu bar extra.
+#
+# `make app` signs ad-hoc. A release signs with a Developer ID and notarizes:
+#   make notarize SIGN_ID="Developer ID Application: …" NOTARY_PROFILE=<notarytool store-credentials profile>
+# CI passes NOTARY_KEY (a .p8 path), NOTARY_KEY_ID and NOTARY_ISSUER instead of NOTARY_PROFILE.
 
 export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 
@@ -9,8 +13,13 @@ BUILD    := .build/release/$(APP_NAME)
 APP      := dist/$(APP_NAME).app
 ZIP      := dist/$(APP_NAME).zip
 ICNS     := dist/AppIcon.icns
+SIGN_ID  ?= -
 
-.PHONY: test release app zip install clean icon
+# Notarization needs the hardened runtime and a secure timestamp; ad-hoc builds get neither.
+SIGN_FLAGS  := $(if $(filter-out -,$(SIGN_ID)),--options runtime --timestamp)
+NOTARY_AUTH := $(if $(NOTARY_PROFILE),--keychain-profile "$(NOTARY_PROFILE)",--key "$(NOTARY_KEY)" --key-id "$(NOTARY_KEY_ID)" --issuer "$(NOTARY_ISSUER)")
+
+.PHONY: test release app zip notarize install clean icon
 
 test:
 	swift test
@@ -33,11 +42,26 @@ app: release $(ICNS)
 	printf 'APPL????' > $(APP)/Contents/PkgInfo
 	cp $(ICNS) $(APP)/Contents/Resources/AppIcon.icns
 	test -f $(APP)/Contents/Resources/AppIcon.icns
-	codesign -s - --force $(APP)
+	codesign --force -s "$(SIGN_ID)" $(SIGN_FLAGS) $(APP)
 
 zip: app
 	rm -f $(ZIP)
-	cd dist && zip -ry $(APP_NAME).zip $(APP_NAME).app
+	ditto -c -k --keepParent $(APP) $(ZIP)
+
+# notarytool can exit 0 for a rejected submission, so check its status and print Apple's log.
+# Stapling can fail for a short while after acceptance, so it retries. Then zip again so the
+# download carries the ticket.
+notarize: zip
+	xcrun notarytool submit $(ZIP) --wait --timeout 1h --output-format json $(NOTARY_AUTH) > dist/notary.json
+	@status=$$(plutil -extract status raw -o - dist/notary.json); \
+	if [ "$$status" != Accepted ]; then \
+	  echo "Notarization: $$status" >&2; \
+	  xcrun notarytool log "$$(plutil -extract id raw -o - dist/notary.json)" $(NOTARY_AUTH) >&2; \
+	  exit 1; \
+	fi
+	@for i in 1 2 3 4 5; do xcrun stapler staple $(APP) && exit 0; sleep 20; done; exit 1
+	rm -f $(ZIP)
+	ditto -c -k --keepParent $(APP) $(ZIP)
 
 install: app
 	-pkill -x $(APP_NAME)

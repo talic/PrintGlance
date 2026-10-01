@@ -27,6 +27,78 @@ final class ComingOffTests: XCTestCase {
         )
     }
 
+    func testEachLeadTime() {
+        for lead in PrintNotifyPrefs.comingOffLeads {
+            var prefs = PrintNotifyPrefs.default
+            prefs.comingOffLead = lead
+            var c = ComingOff()
+            let action = c.consider(printer: printer("RUNNING", remainingS: 3600, jobId: "t1"), prefs: prefs)
+            XCTAssertEqual(action?.interval, TimeInterval(3600 - lead * 60), "\(lead)")
+            XCTAssertEqual(action?.body, "Print in Parts on X2D. About \(lead) minutes left.")
+        }
+        XCTAssertEqual(PrintNotifyPrefs.default.comingOffLead, 10)
+    }
+
+    func testChangingLeadTimeReschedulesOnce() {
+        var c = ComingOff()
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        var prefs = PrintNotifyPrefs.default
+        _ = c.consider(printer: printer("RUNNING", remainingS: 3600, jobId: "t1"), prefs: prefs, now: now)
+        prefs.comingOffLead = 30
+        let moved = c.consider(printer: printer("RUNNING", remainingS: 3590, jobId: "t1"), prefs: prefs, now: now + 10)
+        XCTAssertEqual(moved?.interval, 1790)
+        XCTAssertEqual(moved?.identifier, "pg.comingoff.x2d.t1", "same id replaces the pending notice")
+        XCTAssertEqual(moved?.cancelIds, ["pg.comingoff.x2d.t1"])
+        XCTAssertEqual(moved?.body, "Print in Parts on X2D. About 30 minutes left.")
+        XCTAssertNil(
+            c.consider(printer: printer("RUNNING", remainingS: 3570, jobId: "t1"), prefs: prefs, now: now + 30),
+            "rescheduled once"
+        )
+
+        prefs.comingOffLead = 5
+        XCTAssertEqual(
+            c.consider(printer: printer("RUNNING", remainingS: 3560, jobId: "t1"), prefs: prefs, now: now + 40)?.interval,
+            3260
+        )
+    }
+
+    func testInsideLeadTimeSaysWhatIsLeft() {
+        var prefs = PrintNotifyPrefs.default
+        prefs.comingOffLead = 30
+        var c = ComingOff()
+        let late = c.consider(printer: printer("RUNNING", remainingS: 170, jobId: "t1"), prefs: prefs)
+        XCTAssertEqual(late?.immediate, true)
+        XCTAssertEqual(late?.body, "Print in Parts on X2D. About 3 minutes left.")
+
+        var d = ComingOff()
+        XCTAssertEqual(
+            d.consider(printer: printer("RUNNING", remainingS: 30, jobId: "t2"), prefs: prefs)?.body,
+            "Print in Parts on X2D. About 1 minute left."
+        )
+
+        var e = ComingOff()
+        _ = e.consider(printer: printer("RUNNING", remainingS: 1500, jobId: "t3"), prefs: .default)
+        let raised = e.consider(printer: printer("RUNNING", remainingS: 1490, jobId: "t3"), prefs: prefs)
+        XCTAssertEqual(raised?.immediate, true, "a longer lead time than what's left fires now")
+        XCTAssertEqual(raised?.body, "Print in Parts on X2D. About 25 minutes left.")
+        XCTAssertNil(e.consider(printer: printer("RUNNING", remainingS: 1480, jobId: "t3"), prefs: prefs))
+    }
+
+    func testLeadTimePrefLoadsAndSaves() throws {
+        let name = "PrintGlance.lead.\(UUID().uuidString)"
+        let d = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { d.removePersistentDomain(forName: name) }
+
+        XCTAssertEqual(PrintNotifyPrefs.load(d).comingOffLead, 10, "fresh install")
+        var prefs = PrintNotifyPrefs.load(d)
+        prefs.comingOffLead = 15
+        prefs.save(d)
+        XCTAssertEqual(d.object(forKey: "pg.notify.comingOffLead") as? Int, 15)
+        XCTAssertEqual(PrintNotifyPrefs.load(d).comingOffLead, 15)
+        d.set(7, forKey: "pg.notify.comingOffLead")
+        XCTAssertEqual(PrintNotifyPrefs.load(d).comingOffLead, 10, "not a choice in the menu")
+    }
+
     func testRemainingJumpReschedules() {
         var c = ComingOff()
         let now = Date(timeIntervalSince1970: 1_700_000_000)

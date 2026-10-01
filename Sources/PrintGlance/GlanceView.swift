@@ -6,7 +6,8 @@ struct GlanceView: View {
     @ObservedObject var model: GlanceModel
     @State private var openAtLogin = LoginItem.isEnabled
     @State private var showHistory = false
-    /// The printer clicked in the list, for this visit only. Each open starts on the menu bar's printer.
+    /// The printer clicked in the list, for this visit only. Each open starts on the menu bar's printer,
+    /// or on a clicked notification's printer.
     @State private var selectedId: String?
 
     var body: some View {
@@ -37,7 +38,7 @@ struct GlanceView: View {
             }
         }
         .background(PanelOpened {
-            selectedId = nil
+            selectedId = model.takePendingSelection()
             showHistory = false
             openAtLogin = LoginItem.isEnabled
             model.refreshNotificationStatus()
@@ -126,6 +127,13 @@ struct GlanceView: View {
                 Toggle("Print Failed", isOn: $model.notifyPrefs.fail)
                 Toggle("Print Finished", isOn: $model.notifyPrefs.finish)
                 Toggle("Print Finishing Soon", isOn: $model.notifyPrefs.comingOff)
+                Picker("Lead Time", selection: $model.notifyPrefs.comingOffLead) {
+                    ForEach(PrintNotifyPrefs.comingOffLeads, id: \.self) { minutes in
+                        Text("\(minutes) Minutes").tag(minutes)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!model.notifyPrefs.comingOff)
                 Toggle("Lost Connection", isOn: $model.notifyPrefs.offline)
                 Toggle("Low Filament", isOn: $model.notifyPrefs.lowFilament)
                 Divider()
@@ -352,6 +360,14 @@ struct PrinterDetail: View {
             metaRow(row)
         }
 
+        if let heat = GlanceContent.heatLine(row) {
+            Text(heat)
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
         if row.state.uppercased() == "OFFLINE" {
             let lines = GlanceContent.offlineLines(row, now: now)
             if !lines.isEmpty {
@@ -391,6 +407,13 @@ struct PrinterDetail: View {
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 2) {
+                if let reason = GlanceContent.errorReason(row) {
+                    Text(reason)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 2)
+                }
                 ForEach(codes, id: \.self) { code in
                     HStack(spacing: 6) {
                         Text("Error \(code)")

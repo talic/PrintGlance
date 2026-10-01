@@ -48,15 +48,17 @@ struct ComingOffAction: Equatable {
     }
 }
 
-/// Once-per-job "about 10 minutes left" banner. Not a `PrintNotify` state edge.
+/// Once-per-job "Print finishing soon" banner, `PrintNotifyPrefs.comingOffLead` minutes before the end.
+/// Not a `PrintNotify` state edge.
 struct ComingOff: Equatable {
-    static let windowS = 600
     static let jumpS = 120
     static let listKey = "pg.comingoff.phase"
-    static let remainKey = "pg.comingoff.remain"
+    /// Before lead times this key held the remaining time; a notice saved then reschedules once.
+    static let fireInKey = "pg.comingoff.remain"
 
     var phase: [String: ComingOffPhase] = [:]
-    var scheduledRemainingS: [String: Int] = [:]
+    /// Seconds from scheduling to the notice. It moves when the remaining time jumps or the lead time changes.
+    var scheduledFireInS: [String: Int] = [:]
 
     static func notificationId(serial: String, jobId: String) -> String {
         "pg.comingoff.\(serial).\(jobId)"
@@ -71,8 +73,8 @@ struct ComingOff: Equatable {
                 }
             }
         }
-        if let remain = d.dictionary(forKey: remainKey) as? [String: Int] {
-            out.scheduledRemainingS = remain
+        if let fireIn = d.dictionary(forKey: fireInKey) as? [String: Int] {
+            out.scheduledFireInS = fireIn
         }
         return out
     }
@@ -83,7 +85,7 @@ struct ComingOff: Equatable {
             raw[k] = v.rawValue
         }
         d.set(raw, forKey: Self.listKey)
-        d.set(scheduledRemainingS, forKey: Self.remainKey)
+        d.set(scheduledFireInS, forKey: Self.fireInKey)
     }
 
     mutating func consider(
@@ -105,7 +107,7 @@ struct ComingOff: Equatable {
                 cancelIds.append(Self.notificationId(serial: serial, jobId: jobId))
             }
             phase[existing] = nil
-            scheduledRemainingS[existing] = nil
+            scheduledFireInS[existing] = nil
         }
 
         let action: ComingOffAction?
@@ -155,30 +157,28 @@ struct ComingOff: Equatable {
         guard prefs.comingOff, let remainingS = printer.remainingS else { return nil }
         if phase[key] == .done { return nil }
 
-        let fireAt: Date
-        if remainingS > Self.windowS {
-            fireAt = now.addingTimeInterval(TimeInterval(remainingS - Self.windowS))
-        } else {
-            fireAt = now
-        }
-        if prefs.quietHours, QuietHours.contains(fireAt, calendar: calendar) {
+        let fireInS = max(0, remainingS - prefs.comingOffLead * 60)
+        if prefs.quietHours, QuietHours.contains(now.addingTimeInterval(TimeInterval(fireInS)), calendar: calendar) {
             phase[key] = .done
-            scheduledRemainingS[key] = nil
+            scheduledFireInS[key] = nil
             return ComingOffAction.cancelOnly(id)
         }
 
         let title = "Print finishing soon"
         let name = printer.name.isEmpty ? "Printer" : printer.name
+        // Already inside the lead time: say what is actually left.
+        let minutes = fireInS > 0 ? prefs.comingOffLead : max(1, (remainingS + 59) / 60)
+        let left = "About \(minutes) \(minutes == 1 ? "minute" : "minutes") left."
         let body: String
         if let job = printer.job, !job.isEmpty {
-            body = "\(job) on \(name). About 10 minutes left."
+            body = "\(job) on \(name). \(left)"
         } else {
-            body = "\(name). About 10 minutes left."
+            body = "\(name). \(left)"
         }
 
-        if remainingS <= Self.windowS {
+        if fireInS == 0 {
             phase[key] = .done
-            scheduledRemainingS[key] = nil
+            scheduledFireInS[key] = nil
             return ComingOffAction(
                 identifier: id,
                 cancelIds: [id],
@@ -190,17 +190,17 @@ struct ComingOff: Equatable {
         }
 
         if phase[key] == .scheduled {
-            let prev = scheduledRemainingS[key] ?? remainingS
-            if abs(prev - remainingS) <= Self.jumpS {
+            let prev = scheduledFireInS[key] ?? fireInS
+            if abs(prev - fireInS) <= Self.jumpS {
                 return nil
             }
         }
         phase[key] = .scheduled
-        scheduledRemainingS[key] = remainingS
+        scheduledFireInS[key] = fireInS
         return ComingOffAction(
             identifier: id,
             cancelIds: [id],
-            interval: TimeInterval(remainingS - Self.windowS),
+            interval: TimeInterval(fireInS),
             immediate: false,
             title: title,
             body: body
@@ -211,7 +211,7 @@ struct ComingOff: Equatable {
         if phase[key] == .done { return nil }
         if phase[key] == .scheduled {
             phase[key] = nil
-            scheduledRemainingS[key] = nil
+            scheduledFireInS[key] = nil
             return ComingOffAction.cancelOnly(id)
         }
         return nil
@@ -220,7 +220,7 @@ struct ComingOff: Equatable {
     private mutating func complete(key: String, id: String) -> ComingOffAction? {
         let had = phase[key]
         phase[key] = .done
-        scheduledRemainingS[key] = nil
+        scheduledFireInS[key] = nil
         if had == .scheduled || had == nil {
             return ComingOffAction.cancelOnly(id)
         }
