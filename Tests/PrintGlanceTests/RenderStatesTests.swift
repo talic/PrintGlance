@@ -108,6 +108,8 @@ final class RenderStatesTests: XCTestCase {
         p.filament = "PLA Matte"
         p.filamentRemain = 80
         p.filamentColor = "F5C6A0FF"
+        p.trays = BambuPrint.trays(oneAMS)
+        p.humidity = BambuPrint.amsHumidity(oneAMS)
         return p
     }
 

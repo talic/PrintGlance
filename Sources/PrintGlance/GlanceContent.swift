@@ -141,9 +141,24 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    /// The job name while there is a job to talk about; the printer name when idle.
     static func headline(_ row: Printer) -> String {
+        if row.state.uppercased() == "IDLE" { return row.name }
         if let job = row.job, !job.isEmpty { return job }
         return row.name
+    }
+
+    /// The printer name under a finished or failed job's hero.
+    static func caption(_ row: Printer) -> String? {
+        guard ["FINISH", "FAILED"].contains(row.state.uppercased()), headline(row) != row.name else {
+            return nil
+        }
+        return row.name
+    }
+
+    /// Trays matter when you are at the printer: before a print, after one, or on a paused runout.
+    static func showsAMS(_ row: Printer) -> Bool {
+        ["IDLE", "FINISH", "FAILED", "PAUSE"].contains(row.state.uppercased())
     }
 
     static func subtitle(_ row: Printer) -> String {
@@ -220,29 +235,27 @@ struct GlanceContent: Equatable, Sendable {
         return "\(formatRemain(s)) ago"
     }
 
-    static func hero(_ row: Printer, occupancyEndedAt: Date? = nil, now: Date = Date()) -> String {
-        let timed = isTimed(row.state)
-        if timed, let eta = row.eta, !eta.isEmpty {
-            return eta
-        }
-        if timed, let s = row.remainingS, s > 0 {
-            return formatRemain(s)
-        }
+    /// The big line. Nil when it would only repeat the subtitle.
+    static func hero(_ row: Printer, occupancyEndedAt: Date? = nil, now: Date = Date()) -> String? {
         switch row.state.uppercased() {
+        case "RUNNING", "PREPARE":
+            if let eta = row.eta, !eta.isEmpty { return eta }
+            return row.remainingS.flatMap { $0 > 0 ? formatRemain($0) : nil }
+        case "PAUSE":
+            // The finish time slides later while paused; time left holds still.
+            return row.remainingS.flatMap { $0 > 0 ? "\(formatRemain($0)) left" : nil }
         case "FINISH":
-            if let occupancyEndedAt {
-                return agoTitle(from: occupancyEndedAt, now: now)
-            }
-            return "Finished"
-        case "FAILED": return "Failed"
-        case "IDLE": return "Idle"
-        case "OFFLINE": return "Offline"
-        default: return humanState(row.state)
+            return occupancyEndedAt.map { agoTitle(from: $0, now: now) }
+        default:
+            return nil
         }
     }
 
+    /// "1h 24m left" under a finish-time hero.
     static func remainingLine(_ row: Printer) -> String? {
-        guard isTimed(row.state), let s = row.remainingS, s > 0, let eta = row.eta, !eta.isEmpty else {
+        guard ["RUNNING", "PREPARE"].contains(row.state.uppercased()),
+              let s = row.remainingS, s > 0, let eta = row.eta, !eta.isEmpty
+        else {
             return nil
         }
         return "\(formatRemain(s)) left"

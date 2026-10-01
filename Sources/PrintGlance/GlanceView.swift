@@ -293,71 +293,63 @@ struct PrinterDetail: View {
 
     var body: some View {
         let timed = GlanceContent.isTimed(row.state)
+        let hero = GlanceContent.hero(row, occupancyEndedAt: endedAt, now: now)
+        let left = GlanceContent.remainingLine(row)
+        let caption = GlanceContent.caption(row)
 
-        if timed {
+        if hero != nil || caption != nil {
             VStack(alignment: .leading, spacing: 2) {
-                heroText(row)
-                if let left = GlanceContent.remainingLine(row) {
+                if let hero {
+                    Text(hero)
+                        .font(.system(size: 28, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                if let left {
                     Text(left)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
-            }
-
-            if let percent = row.percent {
-                HStack(spacing: 8) {
-                    CapsuleBar(percent: percent, tint: stateColor(row.state, otherwise: .primary))
-                    Text("\(percent)%")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 36, alignment: .trailing)
-                }
-            }
-
-            metaRow(row)
-        } else if row.state.uppercased() == "FINISH" {
-            VStack(alignment: .leading, spacing: 2) {
-                heroText(row)
-                if let caption = printerCaption(row) {
+                if let caption {
                     Text(caption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            amsBlock(row)
-        } else if row.state.uppercased() == "OFFLINE" {
+        }
+
+        if timed, let percent = row.percent {
+            HStack(spacing: 8) {
+                CapsuleBar(percent: percent, tint: stateColor(row.state, otherwise: .primary))
+                Text("\(percent)%")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 36, alignment: .trailing)
+            }
+        }
+
+        if timed {
+            metaRow(row)
+        }
+
+        if row.state.uppercased() == "OFFLINE" {
             Text(GlanceCopy.feedDownDetail(reason: disconnectReason))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-        } else {
-            if let caption = printerCaption(row) {
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        }
+
+        if GlanceContent.showsAMS(row) {
             amsBlock(row)
         }
     }
 
-    private func heroText(_ row: Printer) -> some View {
-        Text(GlanceContent.hero(
-            row,
-            occupancyEndedAt: endedAt,
-            now: now
-        ))
-        .font(.system(size: 28, weight: .semibold))
-        .monospacedDigit()
-        .foregroundStyle(.primary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-    }
-
     @ViewBuilder
     private func amsBlock(_ row: Printer) -> some View {
-        let idle = ["IDLE", "FINISH"].contains(row.state.uppercased())
-        if idle, let trays = row.trays, !trays.isEmpty {
+        if let trays = row.trays, !trays.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 if let h = row.humidity {
                     Text("Humidity \(h)/5")
@@ -385,11 +377,6 @@ struct PrinterDetail: View {
             ? tray.name.map { "External · \($0)" } ?? "External"
             : tray.name ?? "Slot \(tray.id)"
         return tray.remain.map { "\(name)  \($0)%" } ?? name
-    }
-
-    private func printerCaption(_ row: Printer) -> String? {
-        if let job = row.job, !job.isEmpty { return row.name }
-        return nil
     }
 
     @ViewBuilder

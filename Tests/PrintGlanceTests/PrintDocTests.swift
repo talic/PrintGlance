@@ -41,7 +41,7 @@ final class PrintDocTests: XCTestCase {
         let strip = GlanceContent.strip(row: row)
         XCTAssertEqual(strip.systemImage, "printer")
         XCTAssertEqual(strip.title, "")
-        XCTAssertEqual(GlanceContent.hero(row), "Idle")
+        XCTAssertNil(GlanceContent.hero(row))
     }
 
     func testEmptyPrintersIsPlainIconNotSubscript() throws {
@@ -128,6 +128,51 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.paddedPercent(9), "\u{2007}\u{2007}9%")
         XCTAssertEqual(GlanceContent.paddedPercent(16), "\u{2007}16%")
         XCTAssertEqual(GlanceContent.paddedPercent(100), "100%")
+    }
+
+    func testCardRulesPerState() {
+        var row = Printer(id: "x2d", name: "X2D", state: "RUNNING", percent: 52, job: "Benchy", jobId: "t1")
+        row.remainingS = 84 * 60
+        row.eta = "16:25"
+        let ended = Date(timeIntervalSince1970: 1_700_000_000)
+        let now = ended + 40 * 60
+        func hero(_ state: String, endedAt: Date? = nil) -> String? {
+            var r = row
+            r.state = state
+            return GlanceContent.hero(r, occupancyEndedAt: endedAt, now: now)
+        }
+        func with(_ state: String) -> Printer {
+            var r = row
+            r.state = state
+            return r
+        }
+
+        XCTAssertEqual(GlanceContent.headline(row), "Benchy")
+        XCTAssertEqual(GlanceContent.headline(with("FINISH")), "Benchy")
+        XCTAssertEqual(GlanceContent.headline(with("IDLE")), "X2D", "idle names the printer, not the last job")
+
+        XCTAssertEqual(hero("RUNNING"), "16:25")
+        XCTAssertEqual(GlanceContent.remainingLine(row), "1h 24m left")
+        XCTAssertEqual(hero("PREPARE"), "16:25")
+        XCTAssertEqual(hero("PAUSE"), "1h 24m left")
+        XCTAssertNil(GlanceContent.remainingLine(with("PAUSE")), "paused shows time left once, as the hero")
+        var pausedUnknown = with("PAUSE")
+        pausedUnknown.remainingS = nil
+        XCTAssertNil(GlanceContent.hero(pausedUnknown))
+        XCTAssertEqual(hero("FINISH", endedAt: ended), "40m ago")
+        XCTAssertNil(hero("FINISH"), "unknown finish time shows no hero, not Finished twice")
+        XCTAssertNil(hero("FAILED"))
+        XCTAssertNil(hero("IDLE"))
+
+        XCTAssertEqual(GlanceContent.caption(with("FINISH")), "X2D")
+        XCTAssertEqual(GlanceContent.caption(with("FAILED")), "X2D")
+        XCTAssertNil(GlanceContent.caption(with("IDLE")))
+        XCTAssertNil(GlanceContent.caption(row))
+
+        XCTAssertEqual(
+            ["RUNNING", "PREPARE", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE"].filter { GlanceContent.showsAMS(with($0)) },
+            ["PAUSE", "FINISH", "FAILED", "IDLE"]
+        )
     }
 
     func testFeedDownStrip() {

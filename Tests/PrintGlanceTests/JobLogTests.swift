@@ -157,7 +157,7 @@ final class JobLogTests: XCTestCase {
             GlanceContent.hero(printer, occupancyEndedAt: ended, now: later),
             "40m ago"
         )
-        XCTAssertEqual(GlanceContent.hero(printer), "Finished")
+        XCTAssertNil(GlanceContent.hero(printer))
         XCTAssertEqual(GlanceContent.strip(row: printer).title, "")
     }
 
