@@ -195,6 +195,18 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertEqual(out.alert?.body, "Print in Parts on X2D · Error 0700-8002")
     }
 
+    func testClickedNotificationPicksThePrinterOnce() {
+        var pending = PendingSelection()
+        XCTAssertNil(pending.take(), "no click: the menu bar's printer")
+        pending.serial = "x2d"
+        XCTAssertEqual(pending.take(), "x2d")
+        XCTAssertNil(pending.take(), "the next open is back to the menu bar's printer")
+        pending.serial = "p1s"
+        pending.serial = "x2d"
+        XCTAssertEqual(pending.take(), "x2d", "the last click wins")
+        XCTAssertNil(pending.take())
+    }
+
     private func row(_ state: String, jobId: String?, job: String? = "Print in Parts") -> GlanceContent {
         let printer = Printer(id: "x2d", name: "X2D", state: state, percent: 16, job: job, jobId: jobId)
         return GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [printer])))

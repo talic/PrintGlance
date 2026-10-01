@@ -91,6 +91,19 @@ struct PrintNotifyPrefs: Equatable {
     }
 }
 
+/// The printer a clicked notification named. The next panel open shows it, once.
+struct PendingSelection: Equatable {
+    /// Every notification carries its printer's serial under this `userInfo` key.
+    static let serialKey = "serial"
+
+    var serial: String?
+
+    mutating func take() -> String? {
+        defer { serial = nil }
+        return serial
+    }
+}
+
 struct PrintNotifyStamp: Equatable {
     var serial: String
     var state: String

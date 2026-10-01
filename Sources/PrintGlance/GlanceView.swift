@@ -6,7 +6,8 @@ struct GlanceView: View {
     @ObservedObject var model: GlanceModel
     @State private var openAtLogin = LoginItem.isEnabled
     @State private var showHistory = false
-    /// The printer clicked in the list, for this visit only. Each open starts on the menu bar's printer.
+    /// The printer clicked in the list, for this visit only. Each open starts on the menu bar's printer,
+    /// or on a clicked notification's printer.
     @State private var selectedId: String?
 
     var body: some View {
@@ -37,7 +38,7 @@ struct GlanceView: View {
             }
         }
         .background(PanelOpened {
-            selectedId = nil
+            selectedId = model.takePendingSelection()
             showHistory = false
             openAtLogin = LoginItem.isEnabled
             model.refreshNotificationStatus()
