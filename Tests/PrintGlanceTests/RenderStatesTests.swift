@@ -14,6 +14,8 @@ final class RenderStatesTests: XCTestCase {
         for (name, row, endedAt, reason) in Self.detailStates() {
             try write("detail-\(name)", card(row: row, endedAt: endedAt, reason: reason), to: dir)
         }
+        let rejected = Printer(id: "x2d", name: "X2D", state: "OFFLINE")
+        try write("detail-offline-code-rejected", card(row: rejected, endedAt: nil, reason: "MQTT CONNACK 5", onUpdateCode: {}), to: dir)
     }
 
     func testRenderStrip() throws {
@@ -88,14 +90,14 @@ final class RenderStatesTests: XCTestCase {
         }
     }
 
-    private func card(row: Printer, endedAt: Date?, reason: String?) -> some View {
+    private func card(row: Printer, endedAt: Date?, reason: String?, onUpdateCode: (() -> Void)? = nil) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             CardHeader(
                 headline: GlanceContent.headline(row),
                 subtitle: GlanceContent.subtitle(row),
                 state: row.state
             )
-            PrinterDetail(row: row, endedAt: endedAt, now: Self.now, disconnectReason: reason)
+            PrinterDetail(row: row, endedAt: endedAt, now: Self.now, disconnectReason: reason, onUpdateCode: onUpdateCode)
         }
         .padding(14)
         .frame(width: 248, alignment: .leading)
