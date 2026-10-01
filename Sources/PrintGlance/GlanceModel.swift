@@ -1,13 +1,21 @@
 import AppKit
 import Combine
 import Foundation
+import Network
 import UserNotifications
+
+enum LinkStatus: Equatable {
+    case connecting
+    case connected
+    /// Stays failed through retries until a connect succeeds.
+    case failed(reason: String?)
+}
 
 @MainActor
 final class GlanceModel: ObservableObject {
     @Published private(set) var content = GlanceContent(result: .needsSetup)
-    /// Last disconnect reason per printer serial. A successful connect clears that printer's entry.
-    @Published private(set) var disconnectReasons: [String: String] = [:]
+    /// Per printer serial, separate from `content` and `Link.failed`.
+    @Published private(set) var linkStatus: [String: LinkStatus] = [:]
     @Published private(set) var availableUpdate: String?
     @Published var settings: SavedPrinters
     @Published var notifyPrefs: PrintNotifyPrefs {
@@ -16,6 +24,8 @@ final class GlanceModel: ObservableObject {
             notifyPrefs.save(.standard)
         }
     }
+    /// The user turned PrintGlance's notifications off in System Settings.
+    @Published private(set) var notificationsOff = false
     @Published private(set) var occupancyNow = Date()
     @Published private(set) var historyRows: [JobLogRow] = []
 
@@ -67,6 +77,10 @@ final class GlanceModel: ObservableObject {
     private let jobLogURL: URL
     private var occupancyTask: Task<Void, Never>?
     private var comingOff = ComingOff()
+    private let pathMonitor = NWPathMonitor()
+    private var pathSignature: String?
+    private var macOnline = true
+    private var networkChangedAt: Date?
 
     init(jobLogURL: URL = JobLog.fileURL()) {
         let settings = SavedPrinters.load()
@@ -131,6 +145,13 @@ final class GlanceModel: ObservableObject {
             self.availableUpdate = tag
         }
         updates.start()
+        refreshNotificationStatus()
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let online = path.status == .satisfied
+            let signature = "\(path.status) \(path.availableInterfaces.map(\.name)) \(path.gateways)"
+            MainActor.assumeIsolated { self?.notePath(online: online, signature: signature) }
+        }
+        pathMonitor.start(queue: .main)
         applySettingsAndConnect()
         staleTask = Task { @MainActor [weak self] in
             while let self, !Task.isCancelled {
@@ -160,16 +181,29 @@ final class GlanceModel: ObservableObject {
         }
     }
 
+    /// The first update is the starting state, not a change. Repeats with the same interfaces and gateways are ignored.
+    private func notePath(online: Bool, signature: String) {
+        defer { pathSignature = signature }
+        macOnline = online
+        guard let pathSignature, pathSignature != signature else { return }
+        networkChangedAt = Date()
+        log("mac network changed: \(signature)")
+    }
+
+    func refreshNotificationStatus() {
+        Task {
+            let off = await Self.notificationsDenied()
+            if notificationsOff != off { notificationsOff = off }
+        }
+    }
+
+    /// Off the main actor: `UNNotificationSettings` is not Sendable in the macOS 15 SDK.
+    nonisolated private static func notificationsDenied() async -> Bool {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+    }
+
     func openUpdatePage() {
         NSWorkspace.shared.open(AppUpdate.latestReleaseURL)
-    }
-
-    func addPrinter(_ printer: PrinterSettings) {
-        saveSettings(settings.adding(printer))
-    }
-
-    func updatePrinter(_ printer: PrinterSettings, serial: String) {
-        saveSettings(settings.replacing(printer, serial: serial))
     }
 
     func removePrinter(serial: String) {
@@ -199,8 +233,9 @@ final class GlanceModel: ObservableObject {
             link.tearDown()
         }
         links.removeAll()
-        if !disconnectReasons.isEmpty { disconnectReasons = [:] }
         let complete = settings.printers.filter(\.isComplete)
+        let fresh = Dictionary(complete.map { ($0.serial, LinkStatus.connecting) }) { first, _ in first }
+        if linkStatus != fresh { linkStatus = fresh }
         guard !complete.isEmpty else {
             apply(GlanceContent(result: .needsSetup))
             return
@@ -241,6 +276,7 @@ final class GlanceModel: ObservableObject {
         link.connectedAt = nil
         // Keep `failed` through retries. Clearing it publishes `.connecting`,
         // remounts the extra as `printer` on Tahoe, and the icon flashes off.
+        if case .failed = linkStatus[id] {} else { setLink(id, .connecting) }
         let printer = link.printer
         log("connecting \(printer.ip):8883")
         link.mqtt.connect(
@@ -257,7 +293,7 @@ final class GlanceModel: ObservableObject {
             link.failed = true
             link.authRejected = false
             link.snapshot.connectionLost()
-            self.noteDisconnect(id, "connect timed out")
+            self.setLink(id, .failed(reason: "connect timed out"))
             self.log("connect timed out \(id)")
             link.mqtt.disconnect()
             self.publishSnapshot()
@@ -278,10 +314,6 @@ final class GlanceModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             self.beginConnect(id)
         }
-    }
-
-    private func isAccessRejected(_ reason: String?) -> Bool {
-        reason?.hasPrefix("MQTT CONNACK") == true
     }
 
     private func requestRediscover(_ id: String, ifSkipped: () -> Void) {
@@ -386,7 +418,7 @@ final class GlanceModel: ObservableObject {
         link.connectedAt = Date()
         link.authRejected = false
         commitCandidate(id)
-        noteDisconnect(id, nil)
+        setLink(id, .connected)
         log("connected \(id)")
         link.mqtt.subscribe("device/\(id)/report")
         let body = Data(#"{"pushing":{"command":"pushall","sequence_id":"0"}}"#.utf8)
@@ -396,7 +428,7 @@ final class GlanceModel: ObservableObject {
 
     private func didDisconnect(_ id: String, _ reason: String?) {
         guard let link = links[id] else { return }
-        noteDisconnect(id, reason)
+        setLink(id, .failed(reason: reason))
         log("disconnected \(id) \(reason ?? "")")
         link.handshake = false
         link.snapshot.connectionLost()
@@ -407,7 +439,7 @@ final class GlanceModel: ObservableObject {
         }
         link.connectedAt = nil
         publishSnapshot()
-        if isAccessRejected(reason) {
+        if GlanceCopy.codeRejected(reason) {
             link.authRejected = true
             revertCandidate(id)
             scheduleReconnect(id)
@@ -467,7 +499,8 @@ final class GlanceModel: ObservableObject {
                     filament: fil.type,
                     tray: fil.tray,
                     remain: fil.remain,
-                    taskId: BambuPrint.jobIdentity(snap.printObj)
+                    taskId: BambuPrint.jobIdentity(snap.printObj),
+                    enabled: notifyPrefs.lowFilament
                 ) {
                     deliverFilament(notice)
                 }
@@ -495,15 +528,19 @@ final class GlanceModel: ObservableObject {
         )
     }
 
-    private func noteDisconnect(_ id: String, _ reason: String?) {
-        if disconnectReasons[id] != reason {
-            disconnectReasons[id] = reason
+    private func setLink(_ id: String, _ status: LinkStatus) {
+        if linkStatus[id] != status {
+            linkStatus[id] = status
         }
     }
 
-    /// That printer's reason, else any printer's.
+    /// That printer's last failure reason, else any printer's.
     func disconnectReason(for id: String?) -> String? {
-        id.flatMap { disconnectReasons[$0] } ?? disconnectReasons.values.first
+        func reason(_ status: LinkStatus?) -> String? {
+            if case let .failed(reason) = status { return reason }
+            return nil
+        }
+        return id.flatMap { reason(linkStatus[$0]) } ?? linkStatus.values.lazy.compactMap(reason).first
     }
 
     private func apply(_ next: GlanceContent) {
@@ -550,16 +587,29 @@ final class GlanceModel: ObservableObject {
         }
     }
 
+    func requestNotificationPermission() {
+        // The completion runs on Apple's notify queue. A MainActor
+        // closure traps (SIGTRAP) and the extra vanishes.
+        Task {
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound])
+            refreshNotificationStatus()
+        }
+    }
+
     private func deliver(_ outcome: PrintNotifyOutcome) {
         if outcome.requestPermission {
-            // The completion runs on Apple's notify queue. A MainActor
-            // closure traps (SIGTRAP) and the extra vanishes.
-            Task {
-                _ = try? await UNUserNotificationCenter.current()
-                    .requestAuthorization(options: [.alert, .sound])
-            }
+            requestNotificationPermission()
         }
         for alert in outcome.alerts {
+            if alert.kind == .offline, !PrintNotify.offlineAlertAllowed(
+                macOnline: macOnline,
+                networkChangedAt: networkChangedAt,
+                now: Date()
+            ) {
+                log("skipped lost connection alert \(alert.serial): this Mac's network")
+                continue
+            }
             let id = alert.serial.isEmpty ? "printer" : alert.serial
             post(
                 id: "pg.\(alert.kind.rawValue).\(id)",

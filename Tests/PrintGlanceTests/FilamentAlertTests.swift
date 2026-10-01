@@ -2,6 +2,19 @@ import XCTest
 @testable import PrintGlance
 
 final class FilamentAlertTests: XCTestCase {
+    func testLowFilamentOffSendsNothingAndOnStillFires() {
+        var alert = FilamentAlert()
+        func low(_ enabled: Bool) -> FilamentAlert.Notice? {
+            alert.consider(
+                serial: "x2d", name: "X2D", state: "RUNNING", filament: "PLA",
+                tray: 0, remain: 5, taskId: "t1", enabled: enabled
+            )
+        }
+        XCTAssertNil(low(false))
+        XCTAssertEqual(low(true)?.title, "Low filament", "turning it on during the print still warns once")
+        XCTAssertNil(low(true))
+    }
+
     func testLowFilamentWarning() {
         let unknown = BambuPrint.activeFilament(
             ams(now: 1, trays: [(0, "ABS", 5), (1, "PLA", -1)])

@@ -14,6 +14,32 @@ enum PrinterDiscovery {
 
     static let timeout: TimeInterval = 4
 
+    /// `DevModel.bambu.com` code to the name on the box. Unknown codes show as sent.
+    static func modelName(_ code: String) -> String {
+        modelNames[code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()] ?? code
+    }
+
+    /// Bambu Studio `resources/printers/<code>.json` (`printer_type`). X1 firmware has sent both forms.
+    private static let modelNames: [String: String] = [
+        "3DPRINTER-X1-CARBON": "X1 Carbon",
+        "BL-P001": "X1 Carbon",
+        "3DPRINTER-X1": "X1",
+        "BL-P002": "X1",
+        "C11": "P1P",
+        "C12": "P1S",
+        "C13": "X1E",
+        "N1": "A1 mini",
+        "N2S": "A1",
+        "N6": "X2D",
+        "N7": "P2S",
+        "N9": "A2L",
+        "O1C": "H2C",
+        "O1C2": "H2C",
+        "O1D": "H2D",
+        "O1E": "H2D Pro",
+        "O1S": "H2S",
+    ]
+
     static func parse(_ packet: String) -> Hit? {
         var location = ""
         var usn = ""

@@ -153,6 +153,29 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    /// Notifications for this app in System Settings. Undocumented: an unknown `id` opens the Notifications page.
+    static let notificationSettingsURL = URL(
+        string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "local.PrintGlance")"
+    )!
+
+    /// "Quiet Hours (10 PM–7 AM)", or "(22:00–07:00)" where the Mac uses a 24-hour clock.
+    static func quietHoursTitle(locale: Locale = .autoupdatingCurrent) -> String {
+        let pattern = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: locale) ?? "HH"
+        let unquoted = pattern.replacingOccurrences(of: "'[^']*'", with: "", options: .regularExpression)
+        let twelve = unquoted.contains("h") || unquoted.contains("K")
+        func hour(_ h: Int) -> String {
+            twelve ? "\(h % 12 == 0 ? 12 : h % 12) \(h < 12 ? "AM" : "PM")" : String(format: "%02d:00", h)
+        }
+        return "Quiet Hours (\(hour(QuietHours.startHour))–\(hour(QuietHours.endHour)))"
+    }
+
+    /// A printer list row's right side: "52% · 4:25 PM" while printing, else the state word.
+    static func listDetail(_ row: Printer) -> String {
+        guard row.state.uppercased() == "RUNNING", let pct = row.percent else { return humanState(row.state) }
+        guard let eta = row.eta, !eta.isEmpty else { return "\(pct)%" }
+        return "\(pct)% · \(eta)"
+    }
+
     /// The job name while there is a job to talk about (offline: the last known state); otherwise the printer name.
     static func headline(_ row: Printer) -> String {
         var st = row.state.uppercased()
@@ -445,9 +468,14 @@ enum GlanceCopy {
         if r.contains("ECONNREFUSED") {
             return "The printer refused the connection. It may still be starting up, or another device may have its IP address now. Check the IP address on the printer's LAN or Network page."
         }
-        if r.contains("MQTT CONNACK") {
+        if codeRejected(reason) {
             return "The access code was rejected. Check the access code on the printer's LAN or Network page."
         }
         return "Can't reach the printer. Check Wi-Fi and the IP address."
+    }
+
+    /// The printer answered and refused the access code.
+    static func codeRejected(_ reason: String?) -> Bool {
+        reason?.hasPrefix("MQTT CONNACK") == true
     }
 }

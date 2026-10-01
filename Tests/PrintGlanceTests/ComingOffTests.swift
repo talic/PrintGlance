@@ -215,6 +215,12 @@ final class ComingOffTests: XCTestCase {
         XCTAssertEqual(cal.component(.day, from: fromDawn), 23)
     }
 
+    func testQuietHoursTitleFollowsHourCycle() {
+        XCTAssertEqual(GlanceContent.quietHoursTitle(locale: Locale(identifier: "en_US")), "Quiet Hours (10 PM–7 AM)")
+        XCTAssertEqual(GlanceContent.quietHoursTitle(locale: Locale(identifier: "en_GB")), "Quiet Hours (22:00–07:00)")
+        XCTAssertEqual(GlanceContent.quietHoursTitle(locale: Locale(identifier: "de_DE")), "Quiet Hours (22:00–07:00)", "quoted Uhr is not an hour letter")
+    }
+
     func testPrefOffDoesNotSchedule() {
         var prefs = PrintNotifyPrefs.default
         prefs.comingOff = false

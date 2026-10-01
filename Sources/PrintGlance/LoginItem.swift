@@ -6,6 +6,15 @@ enum LoginItem {
         SMAppService.mainApp.status == .enabled
     }
 
+    /// Registered, but the user must allow it in System Settings.
+    static var needsApproval: Bool {
+        SMAppService.mainApp.status == .requiresApproval
+    }
+
+    static func openSettings() {
+        SMAppService.openSystemSettingsLoginItems()
+    }
+
     static func setEnabled(_ on: Bool) {
         do {
             if on {

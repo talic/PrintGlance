@@ -3,12 +3,15 @@ import SwiftUI
 
 @main
 struct PrintGlanceApp: App {
+    @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @StateObject private var model: GlanceModel
 
     init() {
         let model = GlanceModel()
         model.start()
         _model = StateObject(wrappedValue: model)
+        AppDelegate.model = model
+        DispatchQueue.main.async { SetupWindow.showIfNeeded(model: model) }
     }
 
     var body: some Scene {
@@ -22,6 +25,24 @@ struct PrintGlanceApp: App {
                 .background(PinMenuBarExtra())
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    static var model: GlanceModel?
+
+    /// Opening the app from Finder while no printer is set up shows setup.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let model = Self.model {
+            SetupWindow.showIfNeeded(model: model)
+        }
+        return false
+    }
+
+    /// Closing the setup window must not quit a menu bar app.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 }
 

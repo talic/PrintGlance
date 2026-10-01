@@ -82,6 +82,16 @@ final class PrinterDiscoveryTests: XCTestCase {
         XCTAssertEqual(firstCase.map(\.ip), ["192.0.2.20"])
     }
 
+    func testModelCodesBecomeMarketingNames() {
+        XCTAssertEqual(PrinterDiscovery.modelName("C12"), "P1S")
+        XCTAssertEqual(PrinterDiscovery.modelName("BL-P001"), "X1 Carbon")
+        XCTAssertEqual(PrinterDiscovery.modelName("3DPrinter-X1-Carbon"), "X1 Carbon", "older X1 firmware")
+        XCTAssertEqual(PrinterDiscovery.modelName(" n2s "), "A1")
+        XCTAssertEqual(PrinterDiscovery.modelName("O1E"), "H2D Pro")
+        XCTAssertEqual(PrinterDiscovery.modelName("N8"), "N8", "unknown codes show as sent")
+        XCTAssertEqual(PrinterDiscovery.modelName(""), "")
+    }
+
     private func hit(_ ip: String, _ serial: String) -> PrinterDiscovery.Hit {
         PrinterDiscovery.Hit(ip: ip, serial: serial, name: "", model: "")
     }

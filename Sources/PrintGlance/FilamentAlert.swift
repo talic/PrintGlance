@@ -19,8 +19,10 @@ struct FilamentAlert {
         filament: String?,
         tray: Int?,
         remain: Int?,
-        taskId: String?
+        taskId: String?,
+        enabled: Bool = true
     ) -> Notice? {
+        guard enabled else { return nil }
         switch state.uppercased() {
         case "RUNNING", "PREPARE":
             break

@@ -14,6 +14,8 @@ final class RenderStatesTests: XCTestCase {
         for (name, row, endedAt, reason) in Self.detailStates() {
             try write("detail-\(name)", card(row: row, endedAt: endedAt, reason: reason), to: dir)
         }
+        let rejected = Printer(id: "x2d", name: "X2D", state: "OFFLINE")
+        try write("detail-offline-code-rejected", card(row: rejected, endedAt: nil, reason: "MQTT CONNACK 5", onUpdateCode: {}), to: dir)
     }
 
     func testRenderStrip() throws {
@@ -40,22 +42,23 @@ final class RenderStatesTests: XCTestCase {
         var paused = Self.running("PAUSE")
         paused.id = "p1s"
         paused.name = "P1S"
+        paused.hmsCode = "0700-2000-0002-0001"
         var idle = Self.idle(Self.oneAMS)
         idle.id = "a1"
         idle.name = "A1 mini"
-        var offline = Printer(id: "h2d", name: "H2D", state: "OFFLINE")
-        offline.lastState = "IDLE"
-        let printers = [Self.running("RUNNING"), paused, idle, offline]
-        let doc = PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: printers)
-        let row = try XCTUnwrap(doc.displayRow())
-        let view = VStack(alignment: .leading, spacing: 12) {
-            CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row), state: row.state)
-            PrinterList(printers: printers, shownId: row.id) { _ in }
-            PrinterDetail(row: row, endedAt: nil, now: Self.now, disconnectReason: nil)
+        let printers = [Self.running("RUNNING"), paused, idle]
+        for (name, shown) in [("paused-shown", "p1s"), ("printing-shown", "x2d")] {
+            let row = try XCTUnwrap(printers.first { $0.id == shown })
+            let view = VStack(alignment: .leading, spacing: 12) {
+                CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row), state: row.state)
+                PrinterDetail(row: row, endedAt: nil, now: Self.now, disconnectReason: nil)
+                Divider()
+                PrinterList(printers: printers, shownId: row.id, onSelect: { _ in }, onEdit: { _ in }, onRemove: { _ in })
+            }
+            .padding(14)
+            .frame(width: 248, alignment: .leading)
+            try write("list-three-\(name)", view, to: dir)
         }
-        .padding(14)
-        .frame(width: 248, alignment: .leading)
-        try write("list-four-printers", view, to: dir)
     }
 
     func testRenderHistory() throws {
@@ -80,14 +83,21 @@ final class RenderStatesTests: XCTestCase {
         }
     }
 
-    private func card(row: Printer, endedAt: Date?, reason: String?) -> some View {
+    func testRenderSetup() throws {
+        let dir = try renderDir()
+        for (name, flow) in Self.setupStates() {
+            try write("setup-\(name)", SetupView(flow: flow), to: dir)
+        }
+    }
+
+    private func card(row: Printer, endedAt: Date?, reason: String?, onUpdateCode: (() -> Void)? = nil) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             CardHeader(
                 headline: GlanceContent.headline(row),
                 subtitle: GlanceContent.subtitle(row),
                 state: row.state
             )
-            PrinterDetail(row: row, endedAt: endedAt, now: Self.now, disconnectReason: reason)
+            PrinterDetail(row: row, endedAt: endedAt, now: Self.now, disconnectReason: reason, onUpdateCode: onUpdateCode)
         }
         .padding(14)
         .frame(width: 248, alignment: .leading)
@@ -156,6 +166,72 @@ final class RenderStatesTests: XCTestCase {
             ("offline-was-paused", offlinePaused, nil, "connect timed out"),
             ("offline-was-idle", offlineIdle, nil, "ECONNREFUSED"),
             ("offline-never", offlineNever, nil, "MQTT CONNACK 5"),
+        ]
+    }
+
+    private static let setupSaved = SavedPrinters(
+        printers: [PrinterSettings(ip: "192.168.1.21", serial: "00M09A350100123", accessCode: "12345678", name: "Office X1C")],
+        focusId: nil
+    )
+
+    private static let setupHits = [
+        PrinterDiscovery.Hit(ip: "192.168.1.20", serial: "01P00A411800456", name: "Garage P1S", model: "C12"),
+        PrinterDiscovery.Hit(ip: "192.168.1.21", serial: "00M09A350100123", name: "Office X1C", model: "BL-P001"),
+        PrinterDiscovery.Hit(ip: "192.168.1.22", serial: "0309DA123456789", name: "", model: "N1"),
+    ]
+
+    private static func setupStates() -> [(String, SetupFlow)] {
+        func flow(_ mode: SetupWindow.Mode = .add, _ configure: (SetupFlow) -> Void) -> SetupFlow {
+            let f = SetupFlow(mode: mode, saved: setupSaved)
+            configure(f)
+            return f
+        }
+        return [
+            ("searching", flow { $0.scanning = true }),
+            ("found", flow {
+                $0.found = setupHits
+                $0.pick(setupHits[0])
+                $0.draft.accessCode = "1234"
+            }),
+            ("nothing-found", flow { $0.manual = true }),
+            ("manual", flow {
+                $0.manual = true
+                $0.draft = PrinterSettings(ip: "192.168.1.20", serial: "01P00A411800456", accessCode: "AB12cd34", name: "")
+            }),
+            ("edit", flow(.edit(serial: "00M09A350100123")) { $0.found = setupHits }),
+            ("connecting", flow {
+                $0.found = setupHits
+                $0.pick(setupHits[0])
+                $0.draft.accessCode = "12345678"
+                $0.phase = .connecting
+            }),
+            ("connected", flow {
+                $0.found = setupHits
+                $0.pick(setupHits[0])
+                $0.draft.accessCode = "12345678"
+                $0.phase = .connected
+            }),
+            ("failed-rejected", flow {
+                $0.found = setupHits
+                $0.pick(setupHits[0])
+                $0.draft.accessCode = "12345678"
+                $0.phase = .failed(SetupFlow.failureMessage("MQTT CONNACK 5", ip: "192.168.1.20"))
+            }),
+            ("failed-refused", flow {
+                $0.manual = true
+                $0.draft = PrinterSettings(ip: "192.168.1.20", serial: "01P00A411800456", accessCode: "12345678", name: "")
+                $0.phase = .failed(SetupFlow.failureMessage("ECONNREFUSED", ip: "192.168.1.20"))
+            }),
+            ("failed-no-answer", flow {
+                $0.manual = true
+                $0.draft = PrinterSettings(ip: "192.168.1.20", serial: "01P00A411800456", accessCode: "12345678", name: "")
+                $0.phase = .failed(SetupFlow.failureMessage(nil, ip: "192.168.1.20"))
+            }),
+            ("welcome", flow { $0.phase = .welcome }),
+            ("welcome-approval", flow {
+                $0.phase = .welcome
+                $0.loginNeedsApproval = true
+            }),
         ]
     }
 
