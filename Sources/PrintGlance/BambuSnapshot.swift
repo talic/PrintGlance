@@ -8,7 +8,7 @@ enum BambuJSON {
         case let n as Int64:
             return Int(n)
         case let n as Double:
-            return Int(n)
+            return Int(exactly: n.rounded(.towardZero))
         case let n as NSNumber:
             return n.intValue
         case let s as String:
@@ -372,7 +372,7 @@ enum BambuPrint {
         if let p = percent { percent = min(100, max(0, p)) }
         var remainingS: Int?
         if let minutes = BambuJSON.intValue(printObj["mc_remaining_time"]) {
-            remainingS = max(0, minutes * 60)
+            remainingS = min(max(minutes, 0), 43_200) * 60
         }
         var layer: Int?
         var layerTotal: Int?
@@ -435,7 +435,7 @@ enum BambuPrint {
                     if name == nil, remain == nil, color == nil { continue }
                     out.append(
                         AMSTray(
-                            id: "\(uid * 4 + tid)",
+                            id: "\(uid &* 4 &+ tid)",
                             name: name,
                             remain: remain,
                             color: color

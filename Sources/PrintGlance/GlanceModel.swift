@@ -85,10 +85,12 @@ final class GlanceModel: ObservableObject {
         self.comingOff = ComingOff.load(.standard)
     }
 
+    private static let logURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/PrintGlance.log")
+
     private func log(_ msg: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/PrintGlance.log")
+        let line = "\(Date().ISO8601Format()) \(msg)\n"
+        let url = Self.logURL
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
@@ -116,6 +118,10 @@ final class GlanceModel: ObservableObject {
     }
 
     func start() {
+        // ponytail: crude 1 MB cap, wipes all history; rotate instead if old lines ever matter.
+        if let size = try? Self.logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 1_000_000 {
+            try? FileManager.default.removeItem(at: Self.logURL)
+        }
         UNUserNotificationCenter.current().delegate = notifyPresenter
         updates.onAvailable = { [weak self] tag in
             guard let self, self.availableUpdate != tag else { return }
@@ -379,7 +385,6 @@ final class GlanceModel: ObservableObject {
         commitCandidate(id)
         noteDisconnect(id, nil)
         log("connected \(id)")
-        NSLog("PrintGlance: connected to printer")
         link.mqtt.subscribe("device/\(id)/report")
         let body = Data(#"{"pushing":{"command":"pushall","sequence_id":"0"}}"#.utf8)
         link.mqtt.publish(topic: "device/\(id)/request", payload: body)
@@ -390,7 +395,6 @@ final class GlanceModel: ObservableObject {
         guard let link = links[id] else { return }
         noteDisconnect(id, reason)
         log("disconnected \(id) \(reason ?? "")")
-        NSLog("PrintGlance: printer connection dropped")
         link.handshake = false
         link.snapshot.connectionLost()
         link.failed = true

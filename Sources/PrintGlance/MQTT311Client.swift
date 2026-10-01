@@ -81,6 +81,8 @@ final class MQTT311Client: @unchecked Sendable {
         buffer.removeAll()
         awaitingPong = false
         let tls = NWProtocolTLS.Options()
+        // ponytail: accepts any server certificate (the printer's is signed by Bambu's own CA), so a device
+        // on the LAN can impersonate the printer and read the access code. Upgrade: pin the Bambu CA.
         sec_protocol_options_set_peer_authentication_required(tls.securityProtocolOptions, false)
         sec_protocol_options_set_verify_block(
             tls.securityProtocolOptions,
@@ -185,14 +187,17 @@ final class MQTT311Client: @unchecked Sendable {
     }
 
     private func drain(generation: UInt64) {
-        while true {
-            let bytes = [UInt8](buffer)
-            guard bytes.count >= 2 else { return }
-            guard let (len, size) = Self.decodeRemainingLength(bytes, start: 1) else { return }
+        while buffer.count >= 2 {
+            let header = [UInt8](buffer.prefix(5))
+            guard let (len, size) = Self.decodeRemainingLength(header, start: 1) else {
+                // Five bytes hold the longest valid header; anything still undecoded is garbage.
+                if header.count == 5 { fail("malformed packet", generation: generation) }
+                return
+            }
             let total = 1 + size + len
-            guard bytes.count >= total else { return }
-            let packet = Array(bytes.prefix(total))
-            buffer = Data(bytes.dropFirst(total))
+            guard buffer.count >= total else { return }
+            let packet = [UInt8](buffer.prefix(total))
+            buffer.removeFirst(total)
             handle(packet, generation: generation)
         }
     }

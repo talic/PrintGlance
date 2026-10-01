@@ -183,6 +183,17 @@ final class PrintDocTests: XCTestCase {
         XCTAssertFalse(SavedPrinters.load(from: d).isComplete)
     }
 
+    func testReplacingOntoExistingSerialDropsTheOtherRow() {
+        let a = PrinterSettings(ip: "192.0.2.10", serial: "aaa", accessCode: "x", name: "Alpha")
+        let b = PrinterSettings(ip: "192.0.2.11", serial: "bbb", accessCode: "y", name: "Beta")
+        let c = PrinterSettings(ip: "192.0.2.12", serial: "ccc", accessCode: "z", name: "Gamma")
+        var edited = c
+        edited.serial = "aaa"
+        let next = SavedPrinters(printers: [a, b, c], focusId: "aaa").replacing(edited, serial: "ccc")
+        XCTAssertEqual(next.printers, [b, edited])
+        XCTAssertEqual(next.focusId, "aaa")
+    }
+
     func testTwoPrintersBothInDoc() {
         let a = PrinterSettings(ip: "192.0.2.10", serial: "aaa", accessCode: "x", name: "Alpha")
         let b = PrinterSettings(ip: "192.0.2.11", serial: "bbb", accessCode: "y", name: "Beta")

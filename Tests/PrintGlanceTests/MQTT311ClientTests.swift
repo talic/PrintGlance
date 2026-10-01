@@ -47,5 +47,9 @@ final class MQTT311ClientTests: XCTestCase {
             let decoded = MQTT311Client.decodeRemainingLength([UInt8](packet), start: 1)
             XCTAssertEqual(decoded?.0, n, "n=\(n)")
         }
+        // drain decodes from at most 5 header bytes: the largest length fits, a fifth continuation byte does not.
+        let maxHeader = [UInt8(0x30)] + [UInt8](MQTT311Client.encodeRemainingLength(268_435_455))
+        XCTAssertEqual(MQTT311Client.decodeRemainingLength(maxHeader, start: 1)?.0, 268_435_455)
+        XCTAssertNil(MQTT311Client.decodeRemainingLength([0x30, 0x80, 0x80, 0x80, 0x80], start: 1))
     }
 }

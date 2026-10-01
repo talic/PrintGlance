@@ -73,6 +73,22 @@ final class PrepareAmsHmsTests: XCTestCase {
         XCTAssertEqual(trays.last?.remain, 55)
     }
 
+    func testHostileNumbersDoNotTrap() throws {
+        let json = #"""
+        {"gcode_state": "RUNNING", "mc_percent": 1e300, "mc_remaining_time": 9223372036854775807,
+         "ams": {"ams": [{"id": 9223372036854775807,
+                          "tray": [{"id": 9223372036854775807, "tray_type": "PLA", "remain": 50}]}]}}
+        """#
+        let printObj = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        )
+        let row = BambuPrint.row(id: "x2d", name: "X2D", printObj: printObj, online: true)
+        XCTAssertEqual(row.state, "RUNNING")
+        XCTAssertNil(row.percent)
+        XCTAssertEqual(row.remainingS, 43_200 * 60)
+        XCTAssertEqual(row.trays?.count, 1)
+    }
+
     func testHMSCodeOnFailBody() {
         let printObj: [String: Any] = [
             "gcode_state": "FAILED",
