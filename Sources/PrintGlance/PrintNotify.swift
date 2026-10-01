@@ -39,6 +39,10 @@ struct PrintNotifyPrefs: Equatable {
     var comingOff: Bool
     var quietHours: Bool
     var lowFilament: Bool = true
+    /// Minutes before the end that "Print finishing soon" arrives. One of `comingOffLeads`.
+    var comingOffLead: Int = 10
+
+    static let comingOffLeads = [5, 10, 15, 30]
 
     static let `default` = PrintNotifyPrefs(
         finish: true,
@@ -62,6 +66,7 @@ struct PrintNotifyPrefs: Equatable {
             guard d.object(forKey: key) != nil else { return fallback }
             return d.bool(forKey: key)
         }
+        let lead = d.integer(forKey: "pg.notify.comingOffLead")
         return PrintNotifyPrefs(
             finish: flag("pg.notify.finish", fallback: true),
             fail: flag("pg.notify.fail", fallback: true),
@@ -69,7 +74,8 @@ struct PrintNotifyPrefs: Equatable {
             offline: flag("pg.notify.offline", fallback: true),
             comingOff: flag("pg.notify.comingOff", fallback: true),
             quietHours: flag("pg.notify.quietHours", fallback: false),
-            lowFilament: flag("pg.notify.lowFilament", fallback: true)
+            lowFilament: flag("pg.notify.lowFilament", fallback: true),
+            comingOffLead: comingOffLeads.contains(lead) ? lead : 10
         )
     }
 
@@ -81,6 +87,7 @@ struct PrintNotifyPrefs: Equatable {
         d.set(comingOff, forKey: "pg.notify.comingOff")
         d.set(quietHours, forKey: "pg.notify.quietHours")
         d.set(lowFilament, forKey: "pg.notify.lowFilament")
+        d.set(comingOffLead, forKey: "pg.notify.comingOffLead")
     }
 }
 

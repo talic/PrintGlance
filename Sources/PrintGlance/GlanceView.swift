@@ -126,6 +126,13 @@ struct GlanceView: View {
                 Toggle("Print Failed", isOn: $model.notifyPrefs.fail)
                 Toggle("Print Finished", isOn: $model.notifyPrefs.finish)
                 Toggle("Print Finishing Soon", isOn: $model.notifyPrefs.comingOff)
+                Picker("Lead Time", selection: $model.notifyPrefs.comingOffLead) {
+                    ForEach(PrintNotifyPrefs.comingOffLeads, id: \.self) { minutes in
+                        Text("\(minutes) Minutes").tag(minutes)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!model.notifyPrefs.comingOff)
                 Toggle("Lost Connection", isOn: $model.notifyPrefs.offline)
                 Toggle("Low Filament", isOn: $model.notifyPrefs.lowFilament)
                 Divider()
