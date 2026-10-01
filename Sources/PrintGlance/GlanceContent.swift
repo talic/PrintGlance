@@ -230,6 +230,83 @@ struct GlanceContent: Equatable, Sendable {
         return codes
     }
 
+    /// The plain reason for the first code that has one.
+    static func errorReason(_ row: Printer) -> String? {
+        errorCodes(row).lazy.compactMap(errorReason(code:)).first
+    }
+
+    /// A short reason in our words for a common code. Nil for every other code, which keeps "Error <code>".
+    /// AMS codes carry the unit in the first group's low byte and, for feed and filament parts, the slot in
+    /// the second group's second digit (Bambu Studio's DevHMS.cpp); the table holds unit A, slot 1.
+    static func errorReason(code: String) -> String? {
+        let parts = code.split(separator: "-")
+        var groups = parts.compactMap { UInt16($0, radix: 16) }
+        guard groups.count == parts.count, groups.count == 2 || groups.count == 4 else { return nil }
+        let module = Int(groups[0] >> 8)
+        let unit = Int(groups[0] & 0xFF) & (module == 0x18 ? 0x7F : 0xFF)
+        var place: String?
+        if [0x07, 0x12, 0x18].contains(module), unit < 8 {
+            // AMS HT units are ids 128 and up in reports, so they get P0's HT-A labels.
+            place = "AMS \(BambuPrint.unitLabel(module == 0x18 ? 128 + unit : unit))"
+            groups[0] = UInt16(module << 8)
+            if groups.count == 4, [1, 2, 6, 7].contains(groups[1] >> 12) {
+                if module != 0x18 { place? += ", slot \((groups[1] >> 8 & 0xF) + 1)" }
+                groups[1] &= 0xF0FF
+            }
+        }
+        let key = groups.map { String(format: "%04X", $0) }.joined(separator: "-")
+        return reasons[key].map { $0.replacingOccurrences(of: "{where}", with: place ?? "the AMS") }
+    }
+
+    // ponytail: about 30 common pause and failure reasons, cross-checked with Bambu's per-model code
+    // dictionaries; add a row when a code shows up often. Each row is the HMS and print_error forms.
+    private static let reasons: [String: String] = {
+        let heater = { (part: String, last: Int) in (1...last).map { "0300-\(part)-0001-000\($0)" } }
+        let rows: [([String], String)] = [
+            (["0700-2000-0002-0001", "1200-2000-0002-0001", "1800-2000-0002-0001", "0700-8011", "1200-8011", "1800-8011"],
+             "Filament ran out in {where}."),
+            (["07FF-2000-0002-0001", "07FE-2000-0002-0001", "12FF-2000-0002-0001", "07FF-8011", "07FE-8011", "12FF-8011"],
+             "The external spool ran out of filament."),
+            (["0300-8004"], "Filament ran out."),
+            (["0700-7000-0002-0004", "0700-8004"], "Couldn't pull the filament back into {where}."),
+            (["0700-7000-0002-0005", "0700-8005"], "Couldn't feed filament out of {where}."),
+            (["0700-7000-0002-0002", "0700-8006"], "Filament from {where} didn't reach the toolhead."),
+            (["0700-7000-0002-0003", "0700-8007"], "Filament reached the nozzle but didn't come out. The nozzle may be clogged."),
+            (["0700-0100-0002-0002", "0700-8010"], "The feed motor in {where} is overloaded. A spool may be tangled or stuck."),
+            (["0700-7000-0002-0006", "0700-8013"], "Flushing out the old filament took too long."),
+            (["0700-2000-0002-0004"], "Filament from {where} may have snapped in the toolhead."),
+            (["0700-6000-0002-0001"], "The spool in {where} may be tangled."),
+            (["0700-8001", "07FF-8001", "07FE-8001", "1200-8001"], "The filament wasn't cut. Check that the cutter moves freely."),
+            (["0700-4500-0002-0003", "0700-8002", "07FF-8002", "0300-800B"], "The filament cutter is stuck."),
+            (["0300-4008"], "A filament change failed, so the print stopped."),
+            (["0300-1A00-0002-0002", "0300-8016", "0300-4006"], "The nozzle may be clogged."),
+            (["0300-1A00-0002-0001", "0300-8014"], "Filament may be wrapped around the nozzle, or the plate isn't sitting flat."),
+            (["0C00-0300-0003-000D", "0300-800D", "0300-801A"], "Extrusion may have stopped. Check the filament and the nozzle."),
+            (["0300-0900-0002-0002", "0300-801C"], "The extruder is meeting resistance. The nozzle may be clogged."),
+            (["0C00-0300-0003-0007", "0300-8002", "0C00-8001"], "First-layer inspection found possible defects."),
+            (["0C00-0300-0003-0008", "0300-8003", "0C00-8042"], "The camera spotted what looks like spaghetti."),
+            (["0C00-0300-0003-0006", "0300-800A", "0C00-8005"], "Purged filament is piling up at the chute."),
+            (["0C00-0300-0002-000C", "0300-8006", "0C00-8009", "0500-8062"], "The build plate is missing or out of place."),
+            (["0300-8011", "0500-8051"], "The build plate isn't the one the file was sliced for."),
+            (["0500-0400-0003-0008", "0300-9600-0001-0001", "0300-800F", "0300-8042"], "The door was opened."),
+            (["0300-9700-0001-0001", "0300-404B"], "The door or top lid was opened."),
+            (["0300-1200-0002-0001", "0300-8005"], "The toolhead's front cover came off."),
+            (heater("0200", 7) + heater("1E00", 7) + ["0300-8008"], "The nozzle heater or its sensor has a fault."),
+            (heater("0100", 8) + ["0300-8009"], "The heatbed heater or its sensor has a fault."),
+            (["0300-9000-0001-0002", "0300-9300-0001-0001", "0300-9400-0002-0003", "0300-8018"], "The chamber couldn't heat properly."),
+            (["0300-806E"], "The nozzle overheated. Turn the printer off and have it checked."),
+            (["0300-806F"], "The heatbed overheated. Turn the printer off and have it checked."),
+            (["0300-400C"], "The print was canceled."),
+            (["0300-8001"], "The print was paused on the printer or in an app."),
+            (["0300-8013"], "The print file asked to pause here."),
+        ]
+        var out: [String: String] = [:]
+        for (codes, text) in rows {
+            for code in codes { out[code] = text }
+        }
+        return out
+    }()
+
     /// Bambu's page for a code. HMS codes have one (Bambu Studio's get_hms_wiki_url);
     /// `print_error` codes only appear in a table, so the caller also copies the code.
     static func errorLookup(code: String, serial: String) -> (url: URL, copiesCode: Bool) {

@@ -303,8 +303,13 @@ struct PrintNotify {
         let name = row.name.isEmpty ? "Printer" : row.name
         let job = row.job.flatMap { $0.isEmpty ? nil : $0 }
         var body = job.map { "\($0) on \(name)" } ?? name
-        if kind == .fail || kind == .pause, let code = GlanceContent.errorCodes(row).first {
-            body += " · Error \(code)"
+        if kind == .fail || kind == .pause {
+            if let code = GlanceContent.errorCodes(row).first {
+                body += " · Error \(code)"
+            }
+            if let reason = GlanceContent.errorReason(row) {
+                body = "\(reason) \(body)"
+            }
         }
         let title: String
         switch kind {

@@ -133,6 +133,9 @@ final class RenderStatesTests: XCTestCase {
         failed.remainingS = nil
         failed.eta = nil
         failed.hmsCode = "0300-0000-0100-0001"
+        var overheated = failed
+        overheated.hmsCode = nil
+        overheated.printError = "0300-806E"
 
         var finished = idle(oneAMS)
         finished.state = "FINISH"
@@ -162,6 +165,7 @@ final class RenderStatesTests: XCTestCase {
             ("paused-code", paused, nil, nil),
             ("paused-bare", pausedBare, nil, nil),
             ("failed-code", failed, nil, nil),
+            ("failed-reason", overheated, nil, nil),
             ("finished-40m", finished, now - 40 * 60, nil),
             ("finished-unknown", finished, nil, nil),
             ("finished-2d", finished, now - 51 * 3600, nil),

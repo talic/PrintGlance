@@ -407,6 +407,13 @@ struct PrinterDetail: View {
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 2) {
+                if let reason = GlanceContent.errorReason(row) {
+                    Text(reason)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 2)
+                }
                 ForEach(codes, id: \.self) { code in
                     HStack(spacing: 6) {
                         Text("Error \(code)")

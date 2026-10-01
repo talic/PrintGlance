@@ -185,14 +185,14 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertTrue(PrintNotifyPrefs.load(d).finish, "other prefs untouched")
     }
 
-    func testPauseAndFailBodiesEndWithErrorCode() {
+    func testPauseAndFailBodiesEndWithErrorCodeAfterTheReason() {
         var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
         _ = n.observe(row("RUNNING", jobId: "t1"))
         var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 16, job: "Print in Parts", jobId: "t1")
         paused.printError = "0700-8002"
         let out = n.observe(GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [paused]))))
         XCTAssertEqual(out.alert?.kind, .pause)
-        XCTAssertEqual(out.alert?.body, "Print in Parts on X2D · Error 0700-8002")
+        XCTAssertEqual(out.alert?.body, "The filament cutter is stuck. Print in Parts on X2D · Error 0700-8002")
     }
 
     func testClickedNotificationPicksThePrinterOnce() {

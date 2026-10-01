@@ -217,6 +217,59 @@ final class PrepareAmsHmsTests: XCTestCase {
         XCTAssertTrue(pe.copiesCode)
     }
 
+    func testReasonsNameTheAMSUnitAndSlot() {
+        func reason(_ code: String) -> String? { GlanceContent.errorReason(code: code) }
+        XCTAssertEqual(reason("0700-2000-0002-0001"), "Filament ran out in AMS A, slot 1.")
+        XCTAssertEqual(reason("0700-2100-0002-0001"), "Filament ran out in AMS A, slot 2.")
+        XCTAssertEqual(reason("0702-2300-0002-0001"), "Filament ran out in AMS C, slot 4.")
+        XCTAssertEqual(reason("1200-2200-0002-0001"), "Filament ran out in AMS A, slot 3.", "AMS lite is unit A on the card")
+        XCTAssertEqual(reason("1801-2000-0002-0001"), "Filament ran out in AMS HT-B.", "one slot, so no number")
+        XCTAssertEqual(reason("1880-2000-0002-0001"), "Filament ran out in AMS HT-A.", "HT units also appear as 80 to 87")
+        XCTAssertEqual(reason("0701-8011"), "Filament ran out in AMS B.", "print_error has the unit but no slot")
+        XCTAssertEqual(reason("07FF-2000-0002-0001"), "The external spool ran out of filament.")
+        XCTAssertEqual(reason("07FE-8011"), "The external spool ran out of filament.")
+        XCTAssertEqual(reason("0700-7100-0002-0004"), "Couldn't pull the filament back into AMS A, slot 2.")
+        XCTAssertEqual(
+            reason("0701-0100-0002-0002"),
+            "The feed motor in AMS B is overloaded. A spool may be tangled or stuck.",
+            "a motor code names the unit only"
+        )
+        XCTAssertEqual(reason("0700-4500-0002-0003"), "The filament cutter is stuck.")
+        XCTAssertEqual(reason("0300-1E00-0001-0004"), "The nozzle heater or its sensor has a fault.", "left nozzle")
+        XCTAssertEqual(reason("0300-806E"), "The nozzle overheated. Turn the printer off and have it checked.")
+        XCTAssertEqual(reason("0300-400C"), "The print was canceled.")
+    }
+
+    func testUnknownCodesKeepJustTheCode() {
+        XCTAssertNil(GlanceContent.errorReason(code: "0300-0000-0100-0001"))
+        XCTAssertNil(GlanceContent.errorReason(code: "0700-2000-0002-0099"))
+        XCTAssertNil(GlanceContent.errorReason(code: "0708-2000-0002-0001"), "AMS units stop at H")
+        XCTAssertNil(GlanceContent.errorReason(code: "0700-2000-0002"))
+        XCTAssertNil(GlanceContent.errorReason(code: "not a code"))
+
+        var row = Printer(id: "x2d", name: "X2D", state: "PAUSE")
+        row.hmsCode = "0300-0000-0100-0001"
+        XCTAssertNil(GlanceContent.errorReason(row))
+        row.printError = "0700-8002"
+        XCTAssertEqual(GlanceContent.errorReason(row), "The filament cutter is stuck.", "the first code that has a reason")
+        row.state = "RUNNING"
+        XCTAssertNil(GlanceContent.errorReason(row), "only while paused or failed")
+    }
+
+    func testPauseBodyStartsWithTheReason() {
+        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        _ = n.observe(GlanceContent(result: .doc(PrintDoc(
+            v: 1,
+            updatedAt: nil,
+            focusId: "x2d",
+            printers: [Printer(id: "x2d", name: "X2D", state: "RUNNING", job: "Benchy", jobId: "t1")]
+        ))))
+        var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", job: "Benchy", jobId: "t1")
+        paused.hmsCode = "0700-2100-0002-0001"
+        let out = n.observe(GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [paused]))))
+        XCTAssertEqual(out.alert?.body, "Filament ran out in AMS A, slot 2. Benchy on X2D · Error 0700-2100-0002-0001")
+    }
+
     func testFailWithoutHMSUnchanged() {
         var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
         _ = n.observe(GlanceContent(result: .doc(PrintDoc(
