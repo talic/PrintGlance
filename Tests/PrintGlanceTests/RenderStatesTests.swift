@@ -40,22 +40,23 @@ final class RenderStatesTests: XCTestCase {
         var paused = Self.running("PAUSE")
         paused.id = "p1s"
         paused.name = "P1S"
+        paused.hmsCode = "0700-2000-0002-0001"
         var idle = Self.idle(Self.oneAMS)
         idle.id = "a1"
         idle.name = "A1 mini"
-        var offline = Printer(id: "h2d", name: "H2D", state: "OFFLINE")
-        offline.lastState = "IDLE"
-        let printers = [Self.running("RUNNING"), paused, idle, offline]
-        let doc = PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: printers)
-        let row = try XCTUnwrap(doc.displayRow())
-        let view = VStack(alignment: .leading, spacing: 12) {
-            CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row), state: row.state)
-            PrinterList(printers: printers, shownId: row.id) { _ in }
-            PrinterDetail(row: row, endedAt: nil, now: Self.now, disconnectReason: nil)
+        let printers = [Self.running("RUNNING"), paused, idle]
+        for (name, shown) in [("paused-shown", "p1s"), ("printing-shown", "x2d")] {
+            let row = try XCTUnwrap(printers.first { $0.id == shown })
+            let view = VStack(alignment: .leading, spacing: 12) {
+                CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row), state: row.state)
+                PrinterDetail(row: row, endedAt: nil, now: Self.now, disconnectReason: nil)
+                Divider()
+                PrinterList(printers: printers, shownId: row.id, onSelect: { _ in }, onEdit: { _ in }, onRemove: { _ in })
+            }
+            .padding(14)
+            .frame(width: 248, alignment: .leading)
+            try write("list-three-\(name)", view, to: dir)
         }
-        .padding(14)
-        .frame(width: 248, alignment: .leading)
-        try write("list-four-printers", view, to: dir)
     }
 
     func testRenderHistory() throws {

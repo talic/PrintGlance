@@ -153,6 +153,13 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    /// A printer list row's right side: "52% · 4:25 PM" while printing, else the state word.
+    static func listDetail(_ row: Printer) -> String {
+        guard row.state.uppercased() == "RUNNING", let pct = row.percent else { return humanState(row.state) }
+        guard let eta = row.eta, !eta.isEmpty else { return "\(pct)%" }
+        return "\(pct)% · \(eta)"
+    }
+
     /// The job name while there is a job to talk about (offline: the last known state); otherwise the printer name.
     static func headline(_ row: Printer) -> String {
         var st = row.state.uppercased()

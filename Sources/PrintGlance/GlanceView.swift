@@ -53,12 +53,6 @@ struct GlanceView: View {
     @ViewBuilder
     private var bodyContent: some View {
         if case let .doc(doc) = model.content.result {
-            if doc.printers.count > 1 {
-                PrinterList(printers: doc.printers, shownId: cardRow?.id) { id in
-                    selectedId = id
-                    model.focusPrinter(id)
-                }
-            }
             if let row = cardRow {
                 PrinterDetail(
                     row: row,
@@ -69,6 +63,19 @@ struct GlanceView: View {
                 )
             } else {
                 emptyText
+            }
+            if doc.printers.count > 1 {
+                Divider()
+                PrinterList(
+                    printers: doc.printers,
+                    shownId: cardRow?.id,
+                    onSelect: { id in
+                        selectedId = id
+                        model.focusPrinter(id)
+                    },
+                    onEdit: openEdit(serial:),
+                    onRemove: remove(serial:)
+                )
             }
         } else if case .needsSetup = model.content.result {
             Button("Add Printer") { SetupWindow.showIfNeeded(model: model) }
@@ -167,6 +174,12 @@ struct GlanceView: View {
         SetupWindow.show(model: model, mode: .edit(serial: serial))
     }
 
+    private func remove(serial: String) {
+        let name = model.settings.printers.first { $0.serial == serial }?.displayName ?? "Printer"
+        guard SetupWindow.confirmRemove(name: name) else { return }
+        model.removePrinter(serial: serial)
+    }
+
     private var headline: String {
         if let row = cardRow {
             return GlanceContent.headline(row)
@@ -219,45 +232,62 @@ struct CardHeader: View {
     }
 }
 
+/// Every printer in saved order, so rows don't jump. The card's printer is highlighted.
 struct PrinterList: View {
     var printers: [Printer]
     var shownId: String?
     var onSelect: (String) -> Void
+    var onEdit: (String) -> Void
+    var onRemove: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             ForEach(printers, id: \.id) { p in
+                let shown = p.id == shownId
                 Button {
                     onSelect(p.id)
                 } label: {
                     HStack(spacing: 6) {
+                        Image(systemName: GlanceContent.strip(row: p).systemImage)
+                            .foregroundStyle(stateColor(p.state, otherwise: .secondary))
+                            .frame(width: 16)
                         Text(p.name)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Spacer(minLength: 4)
-                        if let pct = p.percent, GlanceContent.isTimed(p.state) {
-                            Text("\(pct)%")
-                                .monospacedDigit()
-                        }
-                        Text(GlanceContent.humanState(p.state))
+                        Text(GlanceContent.listDetail(p))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    .font(.caption)
-                    .foregroundStyle(p.id == shownId ? .primary : .secondary)
+                    .font(.subheadline)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(Color.primary.opacity(shown ? 0.08 : 0))
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(a11y(p, shown: p.id == shownId))
+                .accessibilityLabel(a11y(p))
+                .accessibilityAddTraits(shown ? .isSelected : [])
+                .contextMenu {
+                    Button("Edit…") { onEdit(p.id) }
+                    Button("Remove…") { onRemove(p.id) }
+                }
             }
         }
+        .padding(.horizontal, -6)
     }
 
-    private func a11y(_ row: Printer, shown: Bool) -> String {
+    private func a11y(_ row: Printer) -> String {
         var parts = [row.name, GlanceContent.humanState(row.state)]
         if let pct = row.percent, GlanceContent.isTimed(row.state) {
             parts.append("\(pct) percent")
         }
-        if shown {
-            parts.append("shown")
+        if ["RUNNING", "PREPARE"].contains(row.state.uppercased()), let eta = row.eta, !eta.isEmpty {
+            parts.append("finish \(eta)")
         }
         return parts.joined(separator: ", ")
     }

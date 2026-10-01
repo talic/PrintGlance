@@ -82,9 +82,11 @@ The menu bar shows the printer that needs you most:
 4. A finished printer
 5. The printer you last clicked, otherwise the first one
 
-The print card opens on the same printer. Click another printer in the list to see it. The next time you open the card, it shows the menu bar's printer again.
+The print card opens on the same printer. Below it, each printer has a row, in the order you added them. A printing row shows the percent and finish time, such as **52% · 4:25 PM**. Other rows show the state, such as **Paused** or **Idle**. A paused printer's icon is orange, and a failed printer's icon is red.
 
-To change or remove the printer on the card, click **…** and choose **Edit** followed by the printer's name. **Remove** is available when more than one printer is saved.
+Click a row to see that printer on the card. The next time you open the card, it shows the menu bar's printer again.
+
+To change or remove a printer, Control-click its row and choose **Edit…** or **Remove…**. PrintGlance asks before it removes a printer.
 
 ## See recent prints
 
