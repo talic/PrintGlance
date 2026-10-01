@@ -63,17 +63,6 @@ struct Printer: Codable, Equatable, Sendable {
 enum FeedResult: Equatable, Sendable {
     case doc(PrintDoc)
     case feedDown
-    case unauthorized
-    case http(Int)
-    case invalid
     case needsSetup
     case connecting
-}
-
-enum JSONCoding {
-    static let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.keyDecodingStrategy = .convertFromSnakeCase
-        return d
-    }()
 }

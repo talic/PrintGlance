@@ -49,7 +49,7 @@ struct ComingOffAction: Equatable {
 }
 
 /// Once-per-job "about 10 minutes left" banner. Not a `PrintNotify` state edge.
-struct ComingOff {
+struct ComingOff: Equatable {
     static let windowS = 600
     static let jumpS = 120
     static let listKey = "pg.comingoff.phase"
@@ -101,9 +101,11 @@ struct ComingOff {
         var cancelIds: [String] = []
         for existing in Array(phase.keys) where existing.hasPrefix("\(serial)|") && existing != key {
             let jobId = String(existing.dropFirst(serial.count + 1))
-            let oldId = Self.notificationId(serial: serial, jobId: jobId)
-            _ = complete(key: existing, id: oldId)
-            cancelIds.append(oldId)
+            if phase[existing] == .scheduled {
+                cancelIds.append(Self.notificationId(serial: serial, jobId: jobId))
+            }
+            phase[existing] = nil
+            scheduledRemainingS[existing] = nil
         }
 
         let action: ComingOffAction?

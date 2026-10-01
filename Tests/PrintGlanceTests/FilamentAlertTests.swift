@@ -79,11 +79,11 @@ final class FilamentAlertTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            BambuPrint.taskId(["subtask_id": "sub-9"]),
+            BambuPrint.jobIdentity(["subtask_id": "sub-9"]),
             "sub-9"
         )
         XCTAssertEqual(
-            BambuPrint.taskId(["task_id": "task-1", "subtask_id": "sub-9"]),
+            BambuPrint.jobIdentity(["task_id": "task-1", "subtask_id": "sub-9"]),
             "task-1"
         )
     }

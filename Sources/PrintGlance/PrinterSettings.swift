@@ -149,6 +149,10 @@ struct SavedPrinters: Equatable {
             return adding(next)
         }
         printers[i] = next
+        // Never two rows with one serial: drop any other row that already had the new serial.
+        printers = printers.enumerated()
+            .filter { $0.offset == i || $0.element.serial != next.serial }
+            .map(\.element)
         let focus = focusId == serial ? next.serial : focusId
         return SavedPrinters(printers: printers, focusId: focus)
     }

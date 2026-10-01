@@ -8,7 +8,7 @@ enum BambuJSON {
         case let n as Int64:
             return Int(n)
         case let n as Double:
-            return Int(n)
+            return Int(exactly: n.rounded(.towardZero))
         case let n as NSNumber:
             return n.intValue
         case let s as String:
@@ -34,9 +34,7 @@ enum BambuJSON {
 
 enum BambuPrint {
     static let staleAfter: TimeInterval = 120
-    static let knownStates: Set<String> = [
-        "PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE",
-    ]
+    static let offlineGrace: TimeInterval = 30
 
     static func merge(_ dst: inout [String: Any], incoming: [String: Any]) {
         guard !incoming.isEmpty else { return }
@@ -121,10 +119,6 @@ enum BambuPrint {
     static func remainPercent(_ raw: Any?) -> Int? {
         guard let r = BambuJSON.intValue(raw), r >= 0 else { return nil }
         return min(100, r)
-    }
-
-    static func taskId(_ printObj: [String: Any]) -> String? {
-        jobIdentity(printObj)
     }
 
     static func activeFilament(_ printObj: [String: Any]) -> (type: String?, remain: Int?, tray: Int?, color: String?) {
@@ -378,7 +372,7 @@ enum BambuPrint {
         if let p = percent { percent = min(100, max(0, p)) }
         var remainingS: Int?
         if let minutes = BambuJSON.intValue(printObj["mc_remaining_time"]) {
-            remainingS = max(0, minutes * 60)
+            remainingS = min(max(minutes, 0), 43_200) * 60
         }
         var layer: Int?
         var layerTotal: Int?
@@ -441,7 +435,7 @@ enum BambuPrint {
                     if name == nil, remain == nil, color == nil { continue }
                     out.append(
                         AMSTray(
-                            id: "\(uid * 4 + tid)",
+                            id: "\(uid &* 4 &+ tid)",
                             name: name,
                             remain: remain,
                             color: color
@@ -498,39 +492,44 @@ final class BambuSnapshot {
     let printerID: String
     var name: String
     private(set) var printObj: [String: Any] = [:]
-    private var lastReport: Date?
-    private var connected = false
+    /// Online while `now` is before this. Nil until the first report.
+    /// `.distantFuture` means frozen online while the Mac sleeps.
+    private var trustedUntil: Date?
 
     init(printerID: String, name: String) {
         self.printerID = printerID
         self.name = name
     }
 
-    func markConnected(_ ok: Bool) {
-        connected = ok
-    }
-
-    func ingest(_ payload: [String: Any]) {
+    func ingest(_ payload: [String: Any], now: Date = Date()) {
         guard let incoming = BambuJSON.dict(payload["print"]), !incoming.isEmpty else { return }
         BambuPrint.merge(&printObj, incoming: incoming)
-        lastReport = Date()
-        connected = true
+        trustedUntil = now + BambuPrint.staleAfter
     }
 
-    var hasReport: Bool { lastReport != nil }
+    /// Stays online for `offlineGrace` unless a report arrives first. Also ends a sleep freeze.
+    func connectionLost(now: Date = Date()) {
+        guard let trustedUntil else { return }
+        self.trustedUntil = min(trustedUntil, now + BambuPrint.offlineGrace)
+    }
 
-    var isOnline: Bool {
-        guard connected, let lastReport else { return false }
-        return Date().timeIntervalSince(lastReport) < BambuPrint.staleAfter
+    func willSleep(now: Date = Date()) {
+        if isOnline(now: now) { trustedUntil = .distantFuture }
+    }
+
+    func didWake(now: Date = Date()) {
+        if trustedUntil == .distantFuture { trustedUntil = now + BambuPrint.offlineGrace }
+    }
+
+    var hasReport: Bool { trustedUntil != nil }
+
+    func isOnline(now: Date = Date()) -> Bool {
+        guard let trustedUntil else { return false }
+        return now < trustedUntil
     }
 
     func printer() -> Printer {
-        BambuPrint.row(id: printerID, name: name.isEmpty ? "Printer" : name, printObj: printObj, online: isOnline)
-    }
-
-    func doc() -> PrintDoc {
-        let row = printer()
-        return PrintDoc(v: 1, updatedAt: nil, focusId: row.id, printers: [row])
+        BambuPrint.row(id: printerID, name: name.isEmpty ? "Printer" : name, printObj: printObj, online: isOnline())
     }
 
     static func fleetDoc(

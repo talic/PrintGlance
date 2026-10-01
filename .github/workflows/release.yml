@@ -12,6 +12,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Check tag matches Info.plist
+        run: |
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Info.plist version v$version" >&2
+            exit 1
+          fi
+      - name: Run tests
+        run: swift test
       - name: Build app
         run: make zip
       - name: Attach to release

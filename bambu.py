@@ -395,7 +395,7 @@ def make_client(ip: str, serial: str, access_code: str, snap: BambuSnapshot):
         raise SystemExit("paho-mqtt is not installed. pip install paho-mqtt")
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-        client_id=f"printglance-{serial[-6:]}",
+        client_id=f"pg-feed-{serial[-6:]}-{os.getpid() & 0xffff:x}",
         protocol=mqtt.MQTTv311,
     )
     client.user_data_set({"snap": snap, "serial": serial})

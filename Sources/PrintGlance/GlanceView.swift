@@ -75,7 +75,7 @@ struct GlanceView: View {
                 if let sub = subtitle {
                     Text(sub)
                         .font(.subheadline)
-                        .foregroundStyle(statusColor)
+                        .foregroundStyle(stateColor(model.content.row?.state, otherwise: .secondary))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -93,17 +93,18 @@ struct GlanceView: View {
             if let row = doc.focusRow() {
                 printerBody(row)
             } else {
-                Text(emptyDetail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                emptyText
             }
         } else {
-            Text(emptyDetail)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            emptyText
         }
+    }
+
+    private var emptyText: some View {
+        Text(emptyDetail)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func fleetList(_ doc: PrintDoc) -> some View {
@@ -151,16 +152,7 @@ struct GlanceView: View {
 
         if timed {
             VStack(alignment: .leading, spacing: 2) {
-                Text(GlanceContent.hero(
-                    row,
-                    occupancyEndedAt: model.occupancyEndedAt,
-                    now: model.occupancyNow
-                ))
-                    .font(.system(size: 28, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                heroText(row)
                 if let left = GlanceContent.remainingLine(row) {
                     Text(left)
                         .font(.subheadline)
@@ -171,7 +163,7 @@ struct GlanceView: View {
 
             if let percent = row.percent {
                 HStack(spacing: 8) {
-                    CapsuleBar(percent: percent, tint: barTint(row.state))
+                    CapsuleBar(percent: percent, tint: stateColor(row.state, otherwise: .primary))
                     Text("\(percent)%")
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -182,16 +174,7 @@ struct GlanceView: View {
             metaRow(row)
         } else if row.state.uppercased() == "FINISH" {
             VStack(alignment: .leading, spacing: 2) {
-                Text(GlanceContent.hero(
-                    row,
-                    occupancyEndedAt: model.occupancyEndedAt,
-                    now: model.occupancyNow
-                ))
-                .font(.system(size: 28, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                heroText(row)
                 if let caption = printerCaption(row) {
                     Text(caption)
                         .font(.caption)
@@ -200,7 +183,7 @@ struct GlanceView: View {
             }
             amsBlock(row)
         } else if row.state.uppercased() == "OFFLINE" {
-            Text(GlanceCopy.feedDownDetail(reason: model.lastDisconnectReason))
+            Text(GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: row.id)))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -212,6 +195,19 @@ struct GlanceView: View {
             }
             amsBlock(row)
         }
+    }
+
+    private func heroText(_ row: Printer) -> some View {
+        Text(GlanceContent.hero(
+            row,
+            occupancyEndedAt: model.occupancyEndedAt,
+            now: model.occupancyNow
+        ))
+        .font(.system(size: 28, weight: .semibold))
+        .monospacedDigit()
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
     }
 
     @ViewBuilder
@@ -226,14 +222,8 @@ struct GlanceView: View {
                 }
                 ForEach(trays) { tray in
                     HStack(spacing: 6) {
-                        if let hex = tray.color, let c = Color(filamentHex: hex) {
-                            Circle()
-                                .fill(c)
-                                .frame(width: 8, height: 8)
-                                .overlay {
-                                    Circle().stroke(Color.primary.opacity(0.3), lineWidth: 0.5)
-                                }
-                                .accessibilityHidden(true)
+                        if let hex = tray.color {
+                            FilamentDot(hex: hex)
                         }
                         Text(amsLine(tray))
                             .font(.caption)
@@ -247,17 +237,10 @@ struct GlanceView: View {
     }
 
     private func amsLine(_ tray: AMSTray) -> String {
-        let label = tray.id == "ext" ? "External" : tray.name ?? "Slot \(tray.id)"
-        let name: String
-        if tray.id == "ext" {
-            name = [label, tray.name].compactMap { $0 }.joined(separator: " · ")
-        } else {
-            name = tray.name ?? label
-        }
-        if let remain = tray.remain {
-            return "\(name)  \(remain)%"
-        }
-        return name
+        let name = tray.id == "ext"
+            ? tray.name.map { "External · \($0)" } ?? "External"
+            : tray.name ?? "Slot \(tray.id)"
+        return tray.remain.map { "\(name)  \($0)%" } ?? name
     }
 
     private var overflowMenu: some View {
@@ -347,15 +330,12 @@ struct GlanceView: View {
     }
 
     private var headline: String {
-        if let row = model.content.row, case .doc = model.content.result {
+        if let row = model.content.row {
             if let job = row.job, !job.isEmpty { return job }
             return row.name
         }
         switch model.content.result {
         case .feedDown: return "Can't update"
-        case .unauthorized: return "Can't update"
-        case .http: return "Can't update"
-        case .invalid: return "Can't update"
         case .needsSetup: return "Add your printer"
         case .connecting: return "Connecting"
         case .doc: return "No printer"
@@ -363,7 +343,7 @@ struct GlanceView: View {
     }
 
     private var subtitle: String? {
-        if let row = model.content.row, case .doc = model.content.result {
+        if let row = model.content.row {
             if row.state.uppercased() == "PREPARE", let stage = row.stage, !stage.isEmpty {
                 return stage
             }
@@ -375,13 +355,7 @@ struct GlanceView: View {
     private var emptyDetail: String {
         switch model.content.result {
         case .feedDown:
-            return GlanceCopy.feedDownDetail(reason: model.lastDisconnectReason)
-        case .unauthorized:
-            return "This Mac needs the feed token."
-        case let .http(code):
-            return "The feed returned HTTP \(code)."
-        case .invalid:
-            return "Can't read the feed."
+            return GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: model.settings.focusId))
         case .needsSetup:
             return "Click … and choose Add printer. Enter the IP address, serial number, and access code from the printer's LAN or Network page."
         case .connecting:
@@ -391,22 +365,11 @@ struct GlanceView: View {
         }
     }
 
-    private var statusColor: Color {
-        guard let row = model.content.row, case .doc = model.content.result else {
-            return .secondary
-        }
-        switch row.state.uppercased() {
+    private func stateColor(_ state: String?, otherwise: Color) -> Color {
+        switch state?.uppercased() {
         case "PAUSE": return .orange
         case "FAILED": return .red
-        default: return .secondary
-        }
-    }
-
-    private func barTint(_ state: String) -> Color {
-        switch state.uppercased() {
-        case "PAUSE": return .orange
-        case "FAILED": return .red
-        default: return .primary
+        default: return otherwise
         }
     }
 
@@ -427,14 +390,8 @@ struct GlanceView: View {
                 Spacer(minLength: 8)
                 if let fil {
                     HStack(spacing: 4) {
-                        if let hex = row.filamentColor, let c = Color(filamentHex: hex) {
-                            Circle()
-                                .fill(c)
-                                .frame(width: 8, height: 8)
-                                .overlay {
-                                    Circle().stroke(Color.primary.opacity(0.3), lineWidth: 0.5)
-                                }
-                                .accessibilityHidden(true)
+                        if let hex = row.filamentColor {
+                            FilamentDot(hex: hex)
                         }
                         Text(fil)
                             .monospacedDigit()
@@ -459,6 +416,22 @@ private extension Color {
             blue: Double((v >> 8) & 0xFF) / 255,
             opacity: Double(v & 0xFF) / 255
         )
+    }
+}
+
+private struct FilamentDot: View {
+    var hex: String
+
+    var body: some View {
+        if let c = Color(filamentHex: hex) {
+            Circle()
+                .fill(c)
+                .frame(width: 8, height: 8)
+                .overlay {
+                    Circle().stroke(Color.primary.opacity(0.3), lineWidth: 0.5)
+                }
+                .accessibilityHidden(true)
+        }
     }
 }
 
