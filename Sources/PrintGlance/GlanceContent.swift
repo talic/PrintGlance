@@ -530,6 +530,23 @@ struct GlanceContent: Equatable, Sendable {
         return text
     }
 
+    /// "PLA Matte in A2 runs out around 15:45." under the bar, and the runout notice body.
+    static func runoutLine(_ r: Runout) -> String {
+        let what = [r.name ?? "Filament", r.tray.map { "in \($0)" }].compactMap { $0 }.joined(separator: " ")
+        var line: String
+        if r.soon {
+            line = "\(what) is about to run out."
+        } else if let at = r.at {
+            line = "\(what) runs out around \(at)."
+        } else {
+            line = "\(what) runs out at about \(r.percent)%."
+        }
+        if let backup = r.backup {
+            line += " AMS may switch to \(backup)."
+        }
+        return line
+    }
+
     private static func a11y(_ row: Printer, ago: String? = nil) -> String {
         let st = row.state.uppercased()
         let timed = isTimed(st)

@@ -110,6 +110,14 @@ final class RenderStatesTests: XCTestCase {
         var dual = printing
         dual.nozzle = "Left"
 
+        var runout = printing
+        runout.filamentRemain = 6
+        runout.runout = Runout(percent: 78, at: "15:45", tray: "A1", name: "PLA Matte", color: "F5C6A0FF")
+        var runoutBackup = runout
+        runoutBackup.runout?.backup = "A3"
+        var runoutPaused = running("PAUSE")
+        runoutPaused.runout = Runout(percent: 78, tray: "A1", name: "PLA Matte", color: "F5C6A0FF")
+
         var starting = running("PREPARE")
         starting.percent = 0
         starting.layer = 0
@@ -160,6 +168,9 @@ final class RenderStatesTests: XCTestCase {
         return [
             ("printing", printing, nil, nil),
             ("printing-dual", dual, nil, nil),
+            ("printing-runout", runout, nil, nil),
+            ("printing-runout-backup", runoutBackup, nil, nil),
+            ("paused-runout", runoutPaused, nil, nil),
             ("starting", starting, nil, nil),
             ("starting-chamber", soaking, nil, nil),
             ("paused-code", paused, nil, nil),

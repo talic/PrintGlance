@@ -348,7 +348,7 @@ struct PrinterDetail: View {
 
         if timed, let percent = row.percent {
             HStack(spacing: 8) {
-                CapsuleBar(percent: percent, tint: stateColor(row.state, otherwise: .primary))
+                CapsuleBar(percent: percent, tint: stateColor(row.state, otherwise: .primary), runoutAt: row.runout?.percent)
                 Text("\(percent)%")
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -358,6 +358,19 @@ struct PrinterDetail: View {
 
         if timed {
             metaRow(row)
+        }
+
+        if timed, let runout = row.runout {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                if let hex = runout.color {
+                    FilamentDot(hex: hex)
+                }
+                Text(GlanceContent.runoutLine(runout))
+                    .monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.caption)
+            .foregroundStyle(.orange)
         }
 
         if let heat = GlanceContent.heatLine(row) {
@@ -606,14 +619,32 @@ struct HistoryView: View {
 struct CapsuleBar: View {
     var percent: Int
     var tint: Color
+    /// Progress where a spool should run out: a notch there, and the track past it shaded.
+    var runoutAt: Int? = nil
 
     var body: some View {
         GeometryReader { g in
+            let x = { (p: Int) in g.size.width * CGFloat(min(max(p, 0), 100)) / 100 }
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.08))
+                if let runoutAt {
+                    Rectangle()
+                        .fill(Color.orange.opacity(0.3))
+                        .frame(width: g.size.width - x(runoutAt))
+                        .offset(x: x(runoutAt))
+                }
                 Capsule()
                     .fill(tint)
-                    .frame(width: max(0, g.size.width * CGFloat(min(max(percent, 0), 100)) / 100))
+                    .frame(width: max(0, x(percent)))
+            }
+            .clipShape(Capsule())
+            .overlay(alignment: .leading) {
+                if let runoutAt {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Color.orange)
+                        .frame(width: 2, height: 10)
+                        .offset(x: x(runoutAt) - 1)
+                }
             }
         }
         .frame(height: 4)
