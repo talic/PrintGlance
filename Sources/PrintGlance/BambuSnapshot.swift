@@ -34,6 +34,7 @@ enum BambuJSON {
 
 enum BambuPrint {
     static let staleAfter: TimeInterval = 120
+    static let offlineGrace: TimeInterval = 30
     static let knownStates: Set<String> = [
         "PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE",
     ]
@@ -498,34 +499,44 @@ final class BambuSnapshot {
     let printerID: String
     var name: String
     private(set) var printObj: [String: Any] = [:]
-    private var lastReport: Date?
-    private var connected = false
+    /// Online while `now` is before this. Nil until the first report.
+    /// `.distantFuture` means frozen online while the Mac sleeps.
+    private var trustedUntil: Date?
 
     init(printerID: String, name: String) {
         self.printerID = printerID
         self.name = name
     }
 
-    func markConnected(_ ok: Bool) {
-        connected = ok
-    }
-
-    func ingest(_ payload: [String: Any]) {
+    func ingest(_ payload: [String: Any], now: Date = Date()) {
         guard let incoming = BambuJSON.dict(payload["print"]), !incoming.isEmpty else { return }
         BambuPrint.merge(&printObj, incoming: incoming)
-        lastReport = Date()
-        connected = true
+        trustedUntil = now + BambuPrint.staleAfter
     }
 
-    var hasReport: Bool { lastReport != nil }
+    /// Stays online for `offlineGrace` unless a report arrives first. Also ends a sleep freeze.
+    func connectionLost(now: Date = Date()) {
+        guard let trustedUntil else { return }
+        self.trustedUntil = min(trustedUntil, now + BambuPrint.offlineGrace)
+    }
 
-    var isOnline: Bool {
-        guard connected, let lastReport else { return false }
-        return Date().timeIntervalSince(lastReport) < BambuPrint.staleAfter
+    func willSleep(now: Date = Date()) {
+        if isOnline(now: now) { trustedUntil = .distantFuture }
+    }
+
+    func didWake(now: Date = Date()) {
+        if trustedUntil == .distantFuture { trustedUntil = now + BambuPrint.offlineGrace }
+    }
+
+    var hasReport: Bool { trustedUntil != nil }
+
+    func isOnline(now: Date = Date()) -> Bool {
+        guard let trustedUntil else { return false }
+        return now < trustedUntil
     }
 
     func printer() -> Printer {
-        BambuPrint.row(id: printerID, name: name.isEmpty ? "Printer" : name, printObj: printObj, online: isOnline)
+        BambuPrint.row(id: printerID, name: name.isEmpty ? "Printer" : name, printObj: printObj, online: isOnline())
     }
 
     func doc() -> PrintDoc {

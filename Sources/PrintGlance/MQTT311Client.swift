@@ -16,6 +16,8 @@ final class MQTT311Client: @unchecked Sendable {
     /// Bumped on each `connect` / `disconnect` so a cancelled socket cannot
     /// fail the attempt that replaced it.
     private var generation: UInt64 = 0
+    /// PINGREQ sent and nothing received since. Still set at the next tick means the link is dead.
+    private var awaitingPong = false
 
     /// 1s, 2s, 4s, 8s, 16s, then 30s. `attempt` is 1 after the first drop.
     static func reconnectDelaySeconds(attempt: Int) -> TimeInterval {
@@ -77,6 +79,7 @@ final class MQTT311Client: @unchecked Sendable {
         connection?.cancel()
         connection = nil
         buffer.removeAll()
+        awaitingPong = false
         let tls = NWProtocolTLS.Options()
         sec_protocol_options_set_peer_authentication_required(tls.securityProtocolOptions, false)
         sec_protocol_options_set_verify_block(
@@ -195,6 +198,7 @@ final class MQTT311Client: @unchecked Sendable {
     }
 
     private func handle(_ packet: [UInt8], generation: UInt64) {
+        awaitingPong = false
         guard let first = packet.first else { return }
         let type = first >> 4
         switch type {
@@ -240,10 +244,16 @@ final class MQTT311Client: @unchecked Sendable {
 
     private func startPing(generation: UInt64) {
         pingTimer?.cancel()
+        awaitingPong = false
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + 20, repeating: 20)
         t.setEventHandler { [weak self] in
             guard let self, generation == self.generation else { return }
+            if self.awaitingPong {
+                self.fail("ping timeout", generation: generation)
+                return
+            }
+            self.awaitingPong = true
             self.send(Data([0xC0, 0x00]), generation: generation)
         }
         t.resume()

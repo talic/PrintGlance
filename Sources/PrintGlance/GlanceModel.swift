@@ -320,7 +320,8 @@ enum GlanceCopy {
 @MainActor
 final class GlanceModel: ObservableObject {
     @Published private(set) var content = GlanceContent(result: .needsSetup)
-    @Published private(set) var lastDisconnectReason: String?
+    /// Last disconnect reason per printer serial. A successful connect clears that printer's entry.
+    @Published private(set) var disconnectReasons: [String: String] = [:]
     @Published private(set) var availableUpdate: String?
     @Published var settings = SavedPrinters.load()
     @Published var notifyPrefs: PrintNotifyPrefs {
@@ -341,6 +342,8 @@ final class GlanceModel: ObservableObject {
         /// CONNACK for this attempt. A prior session can still have `hasReport`.
         var handshake = false
         var reconnectAttempt = 0
+        /// CONNACK time of the current session, nil when not connected.
+        var connectedAt: Date?
         /// Dial this address. Preferences keep the saved IP until connect succeeds.
         var candidateIP: String?
         /// The saved IP answered and rejected the access code.
@@ -450,6 +453,16 @@ final class GlanceModel: ObservableObject {
                 await self?.updates.checkIfDue()
             }
         }
+        _ = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Inline, not a Task: the freeze must land before the Mac sleeps.
+            MainActor.assumeIsolated {
+                self?.links.values.forEach { $0.snapshot.willSleep() }
+            }
+        }
     }
 
     func openUpdatePage() {
@@ -491,6 +504,7 @@ final class GlanceModel: ObservableObject {
             link.tearDown()
         }
         links.removeAll()
+        if !disconnectReasons.isEmpty { disconnectReasons = [:] }
         let complete = settings.printers.filter(\.isComplete)
         guard !complete.isEmpty else {
             apply(GlanceContent(result: .needsSetup))
@@ -509,6 +523,7 @@ final class GlanceModel: ObservableObject {
     }
 
     private func reconnectAfterWake() {
+        links.values.forEach { $0.snapshot.didWake() }
         if links.isEmpty {
             applySettingsAndConnect()
             return
@@ -528,6 +543,7 @@ final class GlanceModel: ObservableObject {
         guard let link = links[id] else { return }
         link.timeout?.cancel()
         link.handshake = false
+        link.connectedAt = nil
         // Keep `failed` through retries. Clearing it publishes `.connecting`,
         // remounts the extra as `printer` on Tahoe, and the icon flashes off.
         let printer = link.printer
@@ -545,7 +561,8 @@ final class GlanceModel: ObservableObject {
             guard let link = self.links[id], !link.handshake else { return }
             link.failed = true
             link.authRejected = false
-            self.noteDisconnect("connect timed out")
+            link.snapshot.connectionLost()
+            self.noteDisconnect(id, "connect timed out")
             self.log("connect timed out \(id)")
             link.mqtt.disconnect()
             self.publishSnapshot()
@@ -671,27 +688,31 @@ final class GlanceModel: ObservableObject {
         link.timeout?.cancel()
         link.failed = false
         link.handshake = true
-        link.reconnectAttempt = 0
+        link.connectedAt = Date()
         link.authRejected = false
         commitCandidate(id)
-        noteDisconnect(nil)
+        noteDisconnect(id, nil)
         log("connected \(id)")
         NSLog("PrintGlance: connected to printer")
         link.mqtt.subscribe("device/\(id)/report")
         let body = Data(#"{"pushing":{"command":"pushall","sequence_id":"0"}}"#.utf8)
         link.mqtt.publish(topic: "device/\(id)/request", payload: body)
-        link.snapshot.markConnected(true)
         publishSnapshot()
     }
 
     private func didDisconnect(_ id: String, _ reason: String?) {
         guard let link = links[id] else { return }
-        noteDisconnect(reason)
+        noteDisconnect(id, reason)
         log("disconnected \(id) \(reason ?? "")")
         NSLog("PrintGlance: printer connection dropped")
         link.handshake = false
-        link.snapshot.markConnected(false)
+        link.snapshot.connectionLost()
         link.failed = true
+        // Reset backoff only after a stable session, so accept-then-drop keeps backing off.
+        if let at = link.connectedAt, Date().timeIntervalSince(at) >= 30 {
+            link.reconnectAttempt = 0
+        }
+        link.connectedAt = nil
         publishSnapshot()
         if isAccessRejected(reason) {
             link.authRejected = true
@@ -780,10 +801,15 @@ final class GlanceModel: ObservableObject {
         UNUserNotificationCenter.current().add(req)
     }
 
-    private func noteDisconnect(_ reason: String?) {
-        if lastDisconnectReason != reason {
-            lastDisconnectReason = reason
+    private func noteDisconnect(_ id: String, _ reason: String?) {
+        if disconnectReasons[id] != reason {
+            disconnectReasons[id] = reason
         }
+    }
+
+    /// That printer's reason, else any printer's.
+    func disconnectReason(for id: String?) -> String? {
+        id.flatMap { disconnectReasons[$0] } ?? disconnectReasons.values.first
     }
 
     private func apply(_ next: GlanceContent) {

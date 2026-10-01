@@ -200,7 +200,7 @@ struct GlanceView: View {
             }
             amsBlock(row)
         } else if row.state.uppercased() == "OFFLINE" {
-            Text(GlanceCopy.feedDownDetail(reason: model.lastDisconnectReason))
+            Text(GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: row.id)))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -375,7 +375,7 @@ struct GlanceView: View {
     private var emptyDetail: String {
         switch model.content.result {
         case .feedDown:
-            return GlanceCopy.feedDownDetail(reason: model.lastDisconnectReason)
+            return GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: model.settings.focusId))
         case .unauthorized:
             return "This Mac needs the feed token."
         case let .http(code):
