@@ -123,6 +123,18 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    static func headline(_ row: Printer) -> String {
+        if let job = row.job, !job.isEmpty { return job }
+        return row.name
+    }
+
+    static func subtitle(_ row: Printer) -> String {
+        if row.state.uppercased() == "PREPARE", let stage = row.stage, !stage.isEmpty {
+            return stage
+        }
+        return humanState(row.state)
+    }
+
     static func formatRemain(_ seconds: Int) -> String {
         if seconds < 0 { return "--" }
         let h = seconds / 3600
