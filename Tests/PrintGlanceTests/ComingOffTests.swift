@@ -160,11 +160,29 @@ final class ComingOffTests: XCTestCase {
             printer: printer("RUNNING", remainingS: 2400, jobId: "t2"),
             prefs: .default
         )
-        XCTAssertEqual(c.phase["x2d|t1"], .done)
+        XCTAssertNil(c.phase["x2d|t1"])
         XCTAssertEqual(c.phase["x2d|t2"], .scheduled)
         XCTAssertEqual(next?.interval, 1800)
         XCTAssertTrue(next?.cancelIds.contains("pg.comingoff.x2d.t1") == true)
         XCTAssertTrue(next?.cancelIds.contains("pg.comingoff.x2d.t2") == true)
+    }
+
+    func testOldJobsArePrunedNotKept() {
+        var c = ComingOff()
+        for job in ["t1", "t2", "t3"] {
+            _ = c.consider(printer: printer("RUNNING", remainingS: 3600, jobId: job), prefs: .default)
+            _ = c.consider(printer: printer("FINISH", remainingS: 0, jobId: job), prefs: .default)
+        }
+        XCTAssertEqual(c.phase.count, 1)
+        XCTAssertEqual(c.phase["x2d|t3"], .done)
+
+        var stale = ComingOff()
+        stale.phase = ["x2d|old1": .done, "x2d|old2": .done, "x2d|t3": .done, "p1s|j1": .done]
+        XCTAssertNil(
+            stale.consider(printer: printer("FINISH", remainingS: 0, jobId: "t3"), prefs: .default),
+            "stale done neighbours cancel nothing"
+        )
+        XCTAssertEqual(stale.phase, ["x2d|t3": .done, "p1s|j1": .done])
     }
 
     func testQuietHoursSkipsComingOff() {

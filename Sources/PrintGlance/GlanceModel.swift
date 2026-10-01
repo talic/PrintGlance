@@ -368,6 +368,7 @@ final class GlanceModel: ObservableObject {
     private var waitingOnScan: Set<String> = []
     private var rediscoverPausedSerial: String?
     private static let adoptGap: TimeInterval = 60
+    private static let instanceTag = String(UInt16.random(in: .min ... .max), radix: 16)
     private let updates = AppUpdateChecker()
     private var filament = FilamentAlert()
     private var staleTask: Task<Void, Never>?
@@ -534,7 +535,7 @@ final class GlanceModel: ObservableObject {
         link.mqtt.connect(
             host: printer.ip,
             port: 8883,
-            clientID: "printglance-\(id.suffix(6))",
+            clientID: "pg-app-\(id.suffix(6))-\(Self.instanceTag)",
             username: "bblp",
             password: printer.accessCode
         )
@@ -725,15 +726,21 @@ final class GlanceModel: ObservableObject {
                 snapshots: snaps,
                 focusId: settings.focusId
             )
+            let rowsBefore = jobLog.rows
             jobLog.observe(printers: doc.printers)
-            jobLog.save(to: jobLogURL)
-            historyRows = jobLog.recent(20)
+            if jobLog.rows != rowsBefore {
+                jobLog.save(to: jobLogURL)
+                historyRows = jobLog.recent(20)
+            }
+            let comingOffBefore = comingOff
             for row in doc.printers {
                 if let action = comingOff.consider(printer: row, prefs: notifyPrefs) {
                     deliverComingOff(action)
                 }
             }
-            comingOff.save(.standard)
+            if comingOff != comingOffBefore {
+                comingOff.save(.standard)
+            }
             apply(GlanceContent(result: .doc(doc)))
             syncOccupancyClock()
             for row in doc.printers {
@@ -781,8 +788,11 @@ final class GlanceModel: ObservableObject {
 
     private func apply(_ next: GlanceContent) {
         if content != next {
+            let stampsBefore = notify.stamps
             let outcome = notify.observe(next)
-            notify.persistStamp(.standard)
+            if notify.stamps != stampsBefore {
+                notify.persistStamp(.standard)
+            }
             deliver(outcome)
             content = next
         }
@@ -794,13 +804,13 @@ final class GlanceModel: ObservableObject {
     }
 
     private func syncOccupancyClock() {
-        occupancyNow = Date()
         guard occupancyEndedAt != nil else {
             occupancyTask?.cancel()
             occupancyTask = nil
             return
         }
         guard occupancyTask == nil else { return }
+        occupancyNow = Date()
         occupancyTask = Task { @MainActor [weak self] in
             while let self, !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 60_000_000_000)
