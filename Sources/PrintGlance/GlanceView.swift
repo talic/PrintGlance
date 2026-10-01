@@ -336,8 +336,19 @@ struct PrinterDetail: View {
         }
 
         if row.state.uppercased() == "OFFLINE" {
-            Text(GlanceCopy.feedDownDetail(reason: disconnectReason))
+            let lines = GlanceContent.offlineLines(row, now: now)
+            if !lines.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(lines, id: \.self) { line in
+                        Text(line)
+                            .monospacedDigit()
+                    }
+                }
                 .font(.subheadline)
+                .foregroundStyle(.secondary)
+            }
+            Text(GlanceCopy.feedDownDetail(reason: disconnectReason))
+                .font(lines.isEmpty ? .subheadline : .caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

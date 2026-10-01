@@ -340,7 +340,8 @@ enum BambuPrint {
         id: String,
         name: String,
         printObj: [String: Any],
-        online: Bool
+        online: Bool,
+        lastReportAt: Date? = nil
     ) -> Printer {
         let raw = (BambuJSON.stringValue(printObj["gcode_state"]) ?? "").uppercased()
         let state: String
@@ -364,7 +365,7 @@ enum BambuPrint {
             layerTotal = BambuJSON.intValue(printObj["total_layer_num"])
         }
         let fil = activeFilament(printObj)
-        return Printer(
+        var row = Printer(
             id: id,
             name: name,
             state: state,
@@ -384,6 +385,11 @@ enum BambuPrint {
             humidity: amsHumidity(printObj),
             hmsCode: firstHMSCode(printObj)
         )
+        if !online, let lastReportAt {
+            row.lastSeen = lastReportAt
+            row.lastState = raw.isEmpty ? nil : raw
+        }
+        return row
     }
 
     static func stageLabel(state: String, printObj: [String: Any]) -> String? {
@@ -475,6 +481,7 @@ final class BambuSnapshot {
     let printerID: String
     var name: String
     private(set) var printObj: [String: Any] = [:]
+    private(set) var lastReportAt: Date?
     /// Online while `now` is before this. Nil until the first report.
     /// `.distantFuture` means frozen online while the Mac sleeps.
     private var trustedUntil: Date?
@@ -487,6 +494,7 @@ final class BambuSnapshot {
     func ingest(_ payload: [String: Any], now: Date = Date()) {
         guard let incoming = BambuJSON.dict(payload["print"]), !incoming.isEmpty else { return }
         BambuPrint.merge(&printObj, incoming: incoming)
+        lastReportAt = now
         trustedUntil = now + BambuPrint.staleAfter
     }
 
@@ -512,7 +520,13 @@ final class BambuSnapshot {
     }
 
     func printer() -> Printer {
-        BambuPrint.row(id: printerID, name: name.isEmpty ? "Printer" : name, printObj: printObj, online: isOnline())
+        BambuPrint.row(
+            id: printerID,
+            name: name.isEmpty ? "Printer" : name,
+            printObj: printObj,
+            online: isOnline(),
+            lastReportAt: lastReportAt
+        )
     }
 
     static func fleetDoc(

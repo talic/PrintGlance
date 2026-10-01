@@ -57,7 +57,13 @@ struct GlanceContent: Equatable, Sendable {
     /// The menu bar drops "40m ago" after this; the checkmark stays.
     static let finishTitleFor: TimeInterval = 2 * 3600
 
-    static func strip(row: Printer, occupancyEndedAt: Date? = nil, now: Date = Date()) -> StripPresentation {
+    static func strip(
+        row: Printer,
+        occupancyEndedAt: Date? = nil,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> StripPresentation {
         let st = row.state.uppercased()
         switch st {
         case "PREPARE":
@@ -102,10 +108,11 @@ struct GlanceContent: Equatable, Sendable {
                 accessibilityLabel: a11y(row)
             )
         case "OFFLINE":
+            let seen = row.lastSeen.map { "last update \(dayTime($0, now: now, calendar: calendar, locale: locale))" }
             return StripPresentation(
                 systemImage: offlineImage,
                 title: "",
-                accessibilityLabel: a11y(row)
+                accessibilityLabel: [row.name, "offline", seen].compactMap { $0 }.joined(separator: ", ")
             )
         default:
             return StripPresentation(
@@ -141,11 +148,40 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
-    /// The job name while there is a job to talk about; the printer name when idle.
+    /// The job name while there is a job to talk about (offline: the last known state); otherwise the printer name.
     static func headline(_ row: Printer) -> String {
-        if row.state.uppercased() == "IDLE" { return row.name }
-        if let job = row.job, !job.isEmpty { return job }
-        return row.name
+        var st = row.state.uppercased()
+        if st == "OFFLINE" { st = row.lastState?.uppercased() ?? "" }
+        guard ["PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED"].contains(st),
+              let job = row.job, !job.isEmpty
+        else { return row.name }
+        return job
+    }
+
+    /// What we last knew about an offline printer, newest fact first.
+    static func offlineLines(
+        _ row: Printer,
+        now: Date,
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> [String] {
+        guard row.state.uppercased() == "OFFLINE", let seen = row.lastSeen else { return [] }
+        func at(_ date: Date) -> String { dayTime(date, now: now, calendar: calendar, locale: locale) }
+        var lines = ["Last update \(at(seen))"]
+        switch row.lastState?.uppercased() {
+        case "RUNNING", "PREPARE":
+            let was = ["Was printing", row.percent.map { "\($0)%" }, layerLine(row)]
+            lines.append(was.compactMap { $0 }.joined(separator: " · "))
+            if let s = row.remainingS, s > 0 {
+                let due = seen + TimeInterval(s)
+                lines.append(due > now ? "Expected to finish \(at(due))" : "Was due to finish \(at(due))")
+            }
+        case "PAUSE":
+            lines.append(row.percent.map { "Was paused at \($0)%" } ?? "Was paused")
+        default:
+            break
+        }
+        return lines
     }
 
     /// The printer name under a finished or failed job's hero.

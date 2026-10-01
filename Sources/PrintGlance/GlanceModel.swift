@@ -520,8 +520,15 @@ final class GlanceModel: ObservableObject {
         occupancyTask = nil
     }
 
+    /// The minute clock runs while a card shows elapsed time or an offline printer's last update.
+    private var clockNeeded: Bool {
+        if occupancyEndedAt != nil { return true }
+        guard case let .doc(doc) = content.result else { return false }
+        return doc.printers.contains { $0.lastSeen != nil }
+    }
+
     private func syncOccupancyClock() {
-        guard occupancyEndedAt != nil else {
+        guard clockNeeded else {
             occupancyTask?.cancel()
             occupancyTask = nil
             return
@@ -532,7 +539,7 @@ final class GlanceModel: ObservableObject {
             while let self, !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 60_000_000_000)
                 guard !Task.isCancelled else { return }
-                guard self.occupancyEndedAt != nil else {
+                guard self.clockNeeded else {
                     self.occupancyTask = nil
                     return
                 }

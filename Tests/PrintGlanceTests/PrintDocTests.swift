@@ -175,6 +175,46 @@ final class PrintDocTests: XCTestCase {
         )
     }
 
+    func testOfflineCardKeepsLastKnownProgress() {
+        let gb = Locale(identifier: "en_GB")
+        // Saturday 2026-08-22 14:02 GMT
+        let seen = Date(timeIntervalSince1970: 1_787_407_320)
+        var row = Printer(id: "x2d", name: "X2D", state: "OFFLINE", percent: 52, job: "Benchy", jobId: "t1")
+        row.remainingS = 143 * 60
+        row.layer = 18
+        row.layerTotal = 29
+        row.lastSeen = seen
+        row.lastState = "RUNNING"
+        func lines(at now: Date) -> [String] {
+            GlanceContent.offlineLines(row, now: now, calendar: gmt, locale: gb)
+        }
+
+        XCTAssertEqual(lines(at: seen + 600), [
+            "Last update 14:02",
+            "Was printing · 52% · Layer 18 / 29",
+            "Expected to finish 16:25",
+        ])
+        XCTAssertEqual(lines(at: seen + 3 * 3600).last, "Was due to finish 16:25")
+        XCTAssertEqual(GlanceContent.headline(row), "Benchy")
+        XCTAssertEqual(GlanceContent.subtitle(row), "Offline")
+        XCTAssertEqual(
+            GlanceContent.strip(row: row, now: seen + 600, calendar: gmt, locale: gb).accessibilityLabel,
+            "X2D, offline, last update 14:02"
+        )
+
+        row.lastState = "PAUSE"
+        XCTAssertEqual(lines(at: seen + 600), ["Last update 14:02", "Was paused at 52%"])
+
+        row.lastState = "IDLE"
+        XCTAssertEqual(lines(at: seen + 600), ["Last update 14:02"])
+        XCTAssertEqual(GlanceContent.headline(row), "X2D")
+
+        row.lastSeen = nil
+        row.lastState = nil
+        XCTAssertEqual(lines(at: seen), [])
+        XCTAssertEqual(GlanceContent.strip(row: row).accessibilityLabel, "X2D, offline")
+    }
+
     func testFeedDownStrip() {
         XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "wifi.slash")
         XCTAssertEqual(GlanceContent.strip(.feedDown).accessibilityLabel, "Can't reach printer")

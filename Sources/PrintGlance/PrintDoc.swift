@@ -58,6 +58,10 @@ struct Printer: Codable, Equatable, Sendable {
     var humidity: Int? = nil
     /// First HMS code as AAAA-BBBB-CCCC-DDDD.
     var hmsCode: String? = nil
+    /// Offline only: when the last report arrived. Nil while online so rows stay equal between messages.
+    var lastSeen: Date? = nil
+    /// Offline only: `gcode_state` from the last report.
+    var lastState: String? = nil
 }
 
 enum FeedResult: Equatable, Sendable {

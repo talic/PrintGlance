@@ -79,8 +79,17 @@ final class RenderStatesTests: XCTestCase {
 
         var offlinePrinting = running("RUNNING")
         offlinePrinting.state = "OFFLINE"
+        offlinePrinting.lastState = "RUNNING"
+        offlinePrinting.lastSeen = now - 20 * 60
+        var offlineDue = offlinePrinting
+        offlineDue.lastSeen = now - 3 * 3600
+        var offlinePaused = offlinePrinting
+        offlinePaused.lastState = "PAUSE"
         var offlineIdle = idle(oneAMS)
         offlineIdle.state = "OFFLINE"
+        offlineIdle.lastState = "IDLE"
+        offlineIdle.lastSeen = now - 26 * 3600
+        let offlineNever = Printer(id: "x2d", name: "X2D", state: "OFFLINE")
 
         return [
             ("printing", printing, nil, nil),
@@ -95,7 +104,10 @@ final class RenderStatesTests: XCTestCase {
             ("idle-one-ams", idle(oneAMS), nil, nil),
             ("idle-two-ams-ext", idle(twoAMSExternal), nil, nil),
             ("offline-was-printing", offlinePrinting, nil, "connect timed out"),
+            ("offline-was-due", offlineDue, nil, "connect timed out"),
+            ("offline-was-paused", offlinePaused, nil, "connect timed out"),
             ("offline-was-idle", offlineIdle, nil, "ECONNREFUSED"),
+            ("offline-never", offlineNever, nil, "MQTT CONNACK 5"),
         ]
     }
 
