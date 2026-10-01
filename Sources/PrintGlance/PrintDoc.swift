@@ -49,6 +49,12 @@ struct AMSUnit: Codable, Equatable, Sendable {
     var humidityPercent: Int? = nil
 }
 
+/// A heater in whole °C, cut off like Bambu Studio shows it. Target 0 means it isn't heating.
+struct Temp: Codable, Equatable, Sendable {
+    var current: Int
+    var target: Int
+}
+
 struct Printer: Codable, Equatable, Sendable {
     var id: String
     var name: String
@@ -81,6 +87,10 @@ struct Printer: Codable, Equatable, Sendable {
     var lastSeen: Date? = nil
     /// Offline only: `gcode_state` from the last report.
     var lastState: String? = nil
+    /// Starting only, so rows stay equal between reports while printing. The nozzle in use.
+    var nozzleTemp: Temp? = nil
+    var bedTemp: Temp? = nil
+    var chamberTemp: Temp? = nil
 }
 
 enum FeedResult: Equatable, Sendable {

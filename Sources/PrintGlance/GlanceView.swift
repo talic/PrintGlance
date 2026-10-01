@@ -360,6 +360,14 @@ struct PrinterDetail: View {
             metaRow(row)
         }
 
+        if let heat = GlanceContent.heatLine(row) {
+            Text(heat)
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
         if row.state.uppercased() == "OFFLINE" {
             let lines = GlanceContent.offlineLines(row, now: now)
             if !lines.isEmpty {

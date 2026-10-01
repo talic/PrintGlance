@@ -114,6 +114,13 @@ final class RenderStatesTests: XCTestCase {
         starting.percent = 0
         starting.layer = 0
         starting.stage = "Heating"
+        starting.nozzleTemp = Temp(current: 186, target: 220)
+        starting.bedTemp = Temp(current: 48, target: 60)
+        var soaking = starting
+        soaking.nozzle = "Left"
+        soaking.nozzleTemp = Temp(current: 25, target: 0)
+        soaking.bedTemp = Temp(current: 88, target: 90)
+        soaking.chamberTemp = Temp(current: 38, target: 60)
 
         var paused = running("PAUSE")
         paused.hmsCode = "0700-2000-0002-0001"
@@ -151,6 +158,7 @@ final class RenderStatesTests: XCTestCase {
             ("printing", printing, nil, nil),
             ("printing-dual", dual, nil, nil),
             ("starting", starting, nil, nil),
+            ("starting-chamber", soaking, nil, nil),
             ("paused-code", paused, nil, nil),
             ("paused-bare", pausedBare, nil, nil),
             ("failed-code", failed, nil, nil),

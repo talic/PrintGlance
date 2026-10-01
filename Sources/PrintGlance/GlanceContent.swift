@@ -414,6 +414,19 @@ struct GlanceContent: Equatable, Sendable {
         return "\(formatRemain(s)) left"
     }
 
+    /// "Nozzle 186 / 220° · Bed 48 / 60°" while starting. A heater without a target shows only its
+    /// temperature; the chamber shows only while it heats.
+    static func heatLine(_ row: Printer) -> String? {
+        guard row.state.uppercased() == "PREPARE" else { return nil }
+        func reading(_ name: String, _ temp: Temp?) -> String? {
+            guard let temp else { return nil }
+            return temp.target > 0 ? "\(name) \(temp.current) / \(temp.target)°" : "\(name) \(temp.current)°"
+        }
+        let chamber = row.chamberTemp.flatMap { $0.target > 0 ? reading("Chamber", $0) : nil }
+        let parts = [reading("Nozzle", row.nozzleTemp), reading("Bed", row.bedTemp), chamber].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     static func layerLine(_ row: Printer) -> String? {
         guard let layer = row.layer else { return nil }
         if let total = row.layerTotal, total > 0 {
