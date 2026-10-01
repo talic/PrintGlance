@@ -41,7 +41,7 @@ jobs:
           echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
           security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -f pkcs12 -T /usr/bin/codesign
           rm -f "$RUNNER_TEMP/developer-id.p12"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$KEYCHAIN" > /dev/null
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$KEYCHAIN" > /dev/null
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           identity=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/"Developer ID Application/ { print $2; exit }')
           if [ -z "$identity" ]; then
@@ -66,7 +66,8 @@ jobs:
         run: |
           ditto -x -k dist/PrintGlance.zip "$RUNNER_TEMP/check"
           xcrun stapler validate "$RUNNER_TEMP/check/PrintGlance.app"
-          spctl -a -vv "$RUNNER_TEMP/check/PrintGlance.app"
+          spctl -a -vv "$RUNNER_TEMP/check/PrintGlance.app" 2>&1 | tee "$RUNNER_TEMP/spctl.txt"
+          grep -q "source=Notarized Developer ID" "$RUNNER_TEMP/spctl.txt"
       - name: Attach to release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2

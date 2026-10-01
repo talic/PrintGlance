@@ -48,10 +48,18 @@ zip: app
 	rm -f $(ZIP)
 	ditto -c -k --keepParent $(APP) $(ZIP)
 
-# Staple the ticket to the app, then zip again so the download carries it.
+# notarytool can exit 0 for a rejected submission, so check its status and print Apple's log.
+# Stapling can fail for a short while after acceptance, so it retries. Then zip again so the
+# download carries the ticket.
 notarize: zip
-	xcrun notarytool submit $(ZIP) --wait --timeout 30m $(NOTARY_AUTH)
-	xcrun stapler staple $(APP)
+	xcrun notarytool submit $(ZIP) --wait --timeout 1h --output-format json $(NOTARY_AUTH) > dist/notary.json
+	@status=$$(plutil -extract status raw -o - dist/notary.json); \
+	if [ "$$status" != Accepted ]; then \
+	  echo "Notarization: $$status" >&2; \
+	  xcrun notarytool log "$$(plutil -extract id raw -o - dist/notary.json)" $(NOTARY_AUTH) >&2; \
+	  exit 1; \
+	fi
+	@for i in 1 2 3 4 5; do xcrun stapler staple $(APP) && exit 0; sleep 20; done; exit 1
 	rm -f $(ZIP)
 	ditto -c -k --keepParent $(APP) $(ZIP)
 
