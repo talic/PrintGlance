@@ -3,11 +3,18 @@ import Combine
 import Foundation
 import UserNotifications
 
+enum LinkStatus: Equatable {
+    case connecting
+    case connected
+    /// Stays failed through retries until a connect succeeds.
+    case failed(reason: String?)
+}
+
 @MainActor
 final class GlanceModel: ObservableObject {
     @Published private(set) var content = GlanceContent(result: .needsSetup)
-    /// Last disconnect reason per printer serial. A successful connect clears that printer's entry.
-    @Published private(set) var disconnectReasons: [String: String] = [:]
+    /// Per printer serial, separate from `content` and `Link.failed`.
+    @Published private(set) var linkStatus: [String: LinkStatus] = [:]
     @Published private(set) var availableUpdate: String?
     @Published var settings: SavedPrinters
     @Published var notifyPrefs: PrintNotifyPrefs {
@@ -199,8 +206,9 @@ final class GlanceModel: ObservableObject {
             link.tearDown()
         }
         links.removeAll()
-        if !disconnectReasons.isEmpty { disconnectReasons = [:] }
         let complete = settings.printers.filter(\.isComplete)
+        let fresh = Dictionary(complete.map { ($0.serial, LinkStatus.connecting) }) { first, _ in first }
+        if linkStatus != fresh { linkStatus = fresh }
         guard !complete.isEmpty else {
             apply(GlanceContent(result: .needsSetup))
             return
@@ -241,6 +249,7 @@ final class GlanceModel: ObservableObject {
         link.connectedAt = nil
         // Keep `failed` through retries. Clearing it publishes `.connecting`,
         // remounts the extra as `printer` on Tahoe, and the icon flashes off.
+        if case .failed = linkStatus[id] {} else { setLink(id, .connecting) }
         let printer = link.printer
         log("connecting \(printer.ip):8883")
         link.mqtt.connect(
@@ -257,7 +266,7 @@ final class GlanceModel: ObservableObject {
             link.failed = true
             link.authRejected = false
             link.snapshot.connectionLost()
-            self.noteDisconnect(id, "connect timed out")
+            self.setLink(id, .failed(reason: "connect timed out"))
             self.log("connect timed out \(id)")
             link.mqtt.disconnect()
             self.publishSnapshot()
@@ -386,7 +395,7 @@ final class GlanceModel: ObservableObject {
         link.connectedAt = Date()
         link.authRejected = false
         commitCandidate(id)
-        noteDisconnect(id, nil)
+        setLink(id, .connected)
         log("connected \(id)")
         link.mqtt.subscribe("device/\(id)/report")
         let body = Data(#"{"pushing":{"command":"pushall","sequence_id":"0"}}"#.utf8)
@@ -396,7 +405,7 @@ final class GlanceModel: ObservableObject {
 
     private func didDisconnect(_ id: String, _ reason: String?) {
         guard let link = links[id] else { return }
-        noteDisconnect(id, reason)
+        setLink(id, .failed(reason: reason))
         log("disconnected \(id) \(reason ?? "")")
         link.handshake = false
         link.snapshot.connectionLost()
@@ -495,15 +504,19 @@ final class GlanceModel: ObservableObject {
         )
     }
 
-    private func noteDisconnect(_ id: String, _ reason: String?) {
-        if disconnectReasons[id] != reason {
-            disconnectReasons[id] = reason
+    private func setLink(_ id: String, _ status: LinkStatus) {
+        if linkStatus[id] != status {
+            linkStatus[id] = status
         }
     }
 
-    /// That printer's reason, else any printer's.
+    /// That printer's last failure reason, else any printer's.
     func disconnectReason(for id: String?) -> String? {
-        id.flatMap { disconnectReasons[$0] } ?? disconnectReasons.values.first
+        func reason(_ status: LinkStatus?) -> String? {
+            if case let .failed(reason) = status { return reason }
+            return nil
+        }
+        return id.flatMap { reason(linkStatus[$0]) } ?? linkStatus.values.lazy.compactMap(reason).first
     }
 
     private func apply(_ next: GlanceContent) {
