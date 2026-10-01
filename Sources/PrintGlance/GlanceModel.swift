@@ -192,10 +192,14 @@ final class GlanceModel: ObservableObject {
 
     func refreshNotificationStatus() {
         Task {
-            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            let off = status == .denied
+            let off = await Self.notificationsDenied()
             if notificationsOff != off { notificationsOff = off }
         }
+    }
+
+    /// Off the main actor: `UNNotificationSettings` is not Sendable in the macOS 15 SDK.
+    nonisolated private static func notificationsDenied() async -> Bool {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
     }
 
     func openUpdatePage() {
