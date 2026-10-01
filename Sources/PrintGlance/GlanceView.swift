@@ -40,6 +40,7 @@ struct GlanceView: View {
             selectedId = nil
             showHistory = false
             openAtLogin = LoginItem.isEnabled
+            model.refreshNotificationStatus()
         })
     }
 
@@ -117,13 +118,18 @@ struct GlanceView: View {
             Divider()
             Button("History") { showHistory = true }
             Menu("Notifications") {
+                if model.notificationsOff {
+                    Button("Notifications Are Off…") { NSWorkspace.shared.open(GlanceContent.notificationSettingsURL) }
+                    Divider()
+                }
                 Toggle("Print Paused", isOn: $model.notifyPrefs.pause)
                 Toggle("Print Failed", isOn: $model.notifyPrefs.fail)
                 Toggle("Print Finished", isOn: $model.notifyPrefs.finish)
                 Toggle("Print Finishing Soon", isOn: $model.notifyPrefs.comingOff)
-                Toggle("Printer Went Offline", isOn: $model.notifyPrefs.offline)
+                Toggle("Lost Connection", isOn: $model.notifyPrefs.offline)
+                Toggle("Low Filament", isOn: $model.notifyPrefs.lowFilament)
                 Divider()
-                Toggle("Quiet Hours", isOn: $model.notifyPrefs.quietHours)
+                Toggle(GlanceContent.quietHoursTitle(), isOn: $model.notifyPrefs.quietHours)
             }
             Toggle("Open at Login", isOn: $openAtLogin)
             Divider()

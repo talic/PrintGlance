@@ -49,7 +49,8 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertNil(down.alert, "do not notify on feedDown")
         let offline = n.observe(row("OFFLINE", jobId: "task-3"))
         XCTAssertEqual(offline.alert?.kind, .offline)
-        XCTAssertEqual(offline.alert?.title, "Printer went offline")
+        XCTAssertEqual(offline.alert?.title, "Lost connection to X2D")
+        XCTAssertEqual(offline.alert?.body, "Print in Parts was at 16%. PrintGlance keeps trying.")
         XCTAssertNil(n.observe(row("OFFLINE", jobId: "task-3")).alert, "feedDown then OFFLINE is one alert")
 
         var pauseOff = n
@@ -141,6 +142,47 @@ final class PrintNotifyTests: XCTestCase {
         prefs.pause = false
         prefs.save(d)
         XCTAssertFalse(PrintNotifyPrefs.load(d).pause, "turning it off after the migration sticks")
+    }
+
+    func testLostConnectionBodyWithoutJobOrPercent() {
+        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        _ = n.observe(row("RUNNING", jobId: "t1", job: nil))
+        XCTAssertEqual(n.observe(row("OFFLINE", jobId: "t1", job: nil)).alert?.body, "X2D was at 16%. PrintGlance keeps trying.")
+
+        var bare = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        let running = Printer(id: "x2d", name: "X2D", state: "RUNNING", percent: nil, job: "Benchy", jobId: "t1")
+        var offline = running
+        offline.state = "OFFLINE"
+        _ = bare.observe(GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [running]))))
+        let alert = bare.observe(GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [offline])))).alert
+        XCTAssertEqual(alert?.body, "PrintGlance keeps trying.")
+    }
+
+    func testLostConnectionSkippedWhenThisMacCausedIt() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        XCTAssertTrue(PrintNotify.offlineAlertAllowed(macOnline: true, networkChangedAt: nil, now: now))
+        XCTAssertFalse(PrintNotify.offlineAlertAllowed(macOnline: false, networkChangedAt: nil, now: now), "no network on this Mac")
+        XCTAssertFalse(
+            PrintNotify.offlineAlertAllowed(macOnline: true, networkChangedAt: now - 119, now: now),
+            "network changed under 2 minutes ago"
+        )
+        XCTAssertTrue(PrintNotify.offlineAlertAllowed(macOnline: true, networkChangedAt: now - 120, now: now))
+        XCTAssertFalse(PrintNotify.offlineAlertAllowed(macOnline: false, networkChangedAt: now - 3600, now: now))
+    }
+
+    func testLowFilamentPrefDefaultsOnAndSaves() throws {
+        XCTAssertTrue(PrintNotifyPrefs.default.lowFilament)
+        let name = "PrintGlance.lowFilament.\(UUID().uuidString)"
+        let d = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { d.removePersistentDomain(forName: name) }
+
+        XCTAssertTrue(PrintNotifyPrefs.load(d).lowFilament, "fresh install")
+        var prefs = PrintNotifyPrefs.load(d)
+        prefs.lowFilament = false
+        prefs.save(d)
+        XCTAssertEqual(d.object(forKey: "pg.notify.lowFilament") as? Bool, false)
+        XCTAssertFalse(PrintNotifyPrefs.load(d).lowFilament)
+        XCTAssertTrue(PrintNotifyPrefs.load(d).finish, "other prefs untouched")
     }
 
     func testPauseAndFailBodiesEndWithErrorCode() {

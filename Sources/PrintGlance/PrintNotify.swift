@@ -38,6 +38,7 @@ struct PrintNotifyPrefs: Equatable {
     var offline: Bool
     var comingOff: Bool
     var quietHours: Bool
+    var lowFilament: Bool = true
 
     static let `default` = PrintNotifyPrefs(
         finish: true,
@@ -67,7 +68,8 @@ struct PrintNotifyPrefs: Equatable {
             pause: flag("pg.notify.pause", fallback: true),
             offline: flag("pg.notify.offline", fallback: true),
             comingOff: flag("pg.notify.comingOff", fallback: true),
-            quietHours: flag("pg.notify.quietHours", fallback: false)
+            quietHours: flag("pg.notify.quietHours", fallback: false),
+            lowFilament: flag("pg.notify.lowFilament", fallback: true)
         )
     }
 
@@ -78,6 +80,7 @@ struct PrintNotifyPrefs: Equatable {
         d.set(offline, forKey: "pg.notify.offline")
         d.set(comingOff, forKey: "pg.notify.comingOff")
         d.set(quietHours, forKey: "pg.notify.quietHours")
+        d.set(lowFilament, forKey: "pg.notify.lowFilament")
     }
 }
 
@@ -250,6 +253,16 @@ struct PrintNotify {
         PrintNotifyStamp.saveAll(stamps, to: d)
     }
 
+    /// Mac network changes this long ago or less explain a lost connection.
+    static let networkSettle: TimeInterval = 120
+
+    /// False when this Mac caused the lost connection: it has no network, or its network just changed.
+    static func offlineAlertAllowed(macOnline: Bool, networkChangedAt: Date?, now: Date) -> Bool {
+        guard macOnline else { return false }
+        guard let networkChangedAt else { return true }
+        return now.timeIntervalSince(networkChangedAt) >= networkSettle
+    }
+
     private static func isPrepareOrRunning(_ prev: String?) -> Bool {
         prev == "RUNNING" || prev == "PREPARE"
     }
@@ -268,12 +281,8 @@ struct PrintNotify {
     private static func alert(_ kind: PrintNotifyKind, _ row: Printer?, serial: String) -> PrintNotifyAlert? {
         guard let row else { return nil }
         let name = row.name.isEmpty ? "Printer" : row.name
-        var body: String
-        if let job = row.job, !job.isEmpty {
-            body = "\(job) on \(name)"
-        } else {
-            body = name
-        }
+        let job = row.job.flatMap { $0.isEmpty ? nil : $0 }
+        var body = job.map { "\($0) on \(name)" } ?? name
         if kind == .fail || kind == .pause, let code = GlanceContent.errorCodes(row).first {
             body += " · Error \(code)"
         }
@@ -282,7 +291,9 @@ struct PrintNotify {
         case .finish: title = "Print finished"
         case .fail: title = "Print failed"
         case .pause: title = "Print paused"
-        case .offline: title = "Printer went offline"
+        case .offline:
+            title = "Lost connection to \(name)"
+            body = (row.percent.map { "\(job ?? name) was at \($0)%. " } ?? "") + "PrintGlance keeps trying."
         }
         return PrintNotifyAlert(kind: kind, title: title, body: body, serial: serial)
     }

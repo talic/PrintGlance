@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import Network
 import UserNotifications
 
 enum LinkStatus: Equatable {
@@ -23,6 +24,8 @@ final class GlanceModel: ObservableObject {
             notifyPrefs.save(.standard)
         }
     }
+    /// The user turned PrintGlance's notifications off in System Settings.
+    @Published private(set) var notificationsOff = false
     @Published private(set) var occupancyNow = Date()
     @Published private(set) var historyRows: [JobLogRow] = []
 
@@ -74,6 +77,10 @@ final class GlanceModel: ObservableObject {
     private let jobLogURL: URL
     private var occupancyTask: Task<Void, Never>?
     private var comingOff = ComingOff()
+    private let pathMonitor = NWPathMonitor()
+    private var pathSignature: String?
+    private var macOnline = true
+    private var networkChangedAt: Date?
 
     init(jobLogURL: URL = JobLog.fileURL()) {
         let settings = SavedPrinters.load()
@@ -138,6 +145,13 @@ final class GlanceModel: ObservableObject {
             self.availableUpdate = tag
         }
         updates.start()
+        refreshNotificationStatus()
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let online = path.status == .satisfied
+            let signature = "\(path.status) \(path.availableInterfaces.map(\.name)) \(path.gateways)"
+            MainActor.assumeIsolated { self?.notePath(online: online, signature: signature) }
+        }
+        pathMonitor.start(queue: .main)
         applySettingsAndConnect()
         staleTask = Task { @MainActor [weak self] in
             while let self, !Task.isCancelled {
@@ -164,6 +178,23 @@ final class GlanceModel: ObservableObject {
             MainActor.assumeIsolated {
                 self?.links.values.forEach { $0.snapshot.willSleep() }
             }
+        }
+    }
+
+    /// The first update is the starting state, not a change. Repeats with the same interfaces and gateways are ignored.
+    private func notePath(online: Bool, signature: String) {
+        defer { pathSignature = signature }
+        macOnline = online
+        guard let pathSignature, pathSignature != signature else { return }
+        networkChangedAt = Date()
+        log("mac network changed: \(signature)")
+    }
+
+    func refreshNotificationStatus() {
+        Task {
+            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            let off = status == .denied
+            if notificationsOff != off { notificationsOff = off }
         }
     }
 
@@ -464,7 +495,8 @@ final class GlanceModel: ObservableObject {
                     filament: fil.type,
                     tray: fil.tray,
                     remain: fil.remain,
-                    taskId: BambuPrint.jobIdentity(snap.printObj)
+                    taskId: BambuPrint.jobIdentity(snap.printObj),
+                    enabled: notifyPrefs.lowFilament
                 ) {
                     deliverFilament(notice)
                 }
@@ -557,6 +589,7 @@ final class GlanceModel: ObservableObject {
         Task {
             _ = try? await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound])
+            refreshNotificationStatus()
         }
     }
 
@@ -565,6 +598,14 @@ final class GlanceModel: ObservableObject {
             requestNotificationPermission()
         }
         for alert in outcome.alerts {
+            if alert.kind == .offline, !PrintNotify.offlineAlertAllowed(
+                macOnline: macOnline,
+                networkChangedAt: networkChangedAt,
+                now: Date()
+            ) {
+                log("skipped lost connection alert \(alert.serial): this Mac's network")
+                continue
+            }
             let id = alert.serial.isEmpty ? "printer" : alert.serial
             post(
                 id: "pg.\(alert.kind.rawValue).\(id)",

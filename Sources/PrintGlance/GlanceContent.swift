@@ -153,6 +153,22 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    /// Notifications for this app in System Settings. Undocumented: an unknown `id` opens the Notifications page.
+    static let notificationSettingsURL = URL(
+        string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "local.PrintGlance")"
+    )!
+
+    /// "Quiet Hours (10 PM–7 AM)", or "(22:00–07:00)" where the Mac uses a 24-hour clock.
+    static func quietHoursTitle(locale: Locale = .autoupdatingCurrent) -> String {
+        let pattern = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: locale) ?? "HH"
+        let unquoted = pattern.replacingOccurrences(of: "'[^']*'", with: "", options: .regularExpression)
+        let twelve = unquoted.contains("h") || unquoted.contains("K")
+        func hour(_ h: Int) -> String {
+            twelve ? "\(h % 12 == 0 ? 12 : h % 12) \(h < 12 ? "AM" : "PM")" : String(format: "%02d:00", h)
+        }
+        return "Quiet Hours (\(hour(QuietHours.startHour))–\(hour(QuietHours.endHour)))"
+    }
+
     /// A printer list row's right side: "52% · 4:25 PM" while printing, else the state word.
     static func listDetail(_ row: Printer) -> String {
         guard row.state.uppercased() == "RUNNING", let pct = row.percent else { return humanState(row.state) }
