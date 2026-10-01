@@ -17,6 +17,7 @@ struct GlanceView: View {
             if showHistory {
                 HistoryView(
                     rows: model.historyRows,
+                    now: Date(),
                     onExport: exportHistory,
                     onClose: { showHistory = false }
                 )
@@ -516,12 +517,20 @@ private struct FilamentDot: View {
 
 struct HistoryView: View {
     var rows: [JobLogRow]
+    var now: Date
     var onExport: () -> Void
     var onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 4) {
+                Button(action: onClose) {
+                    Image(systemName: "chevron.left")
+                        .frame(width: 16, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
                 Text("History")
                     .font(.headline)
                 Spacer()
@@ -534,30 +543,31 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(rows) { row in
-                        historyRow(row)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(rows) { row in
+                            historyRow(row)
+                        }
                     }
                 }
-            }
-            HStack {
-                Spacer()
-                Button("Back", action: onClose)
+                .frame(maxHeight: 360)
             }
         }
         .padding(14)
         .frame(width: 248, alignment: .leading)
+        .onExitCommand(perform: onClose)
     }
 
     private func historyRow(_ row: JobLogRow) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
+        let manyPrinters = Set(rows.map(\.serial)).count > 1
+        return VStack(alignment: .leading, spacing: 1) {
             Text(historyTitle(row))
                 .font(.subheadline)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(historyCaption(row))
+            Text(GlanceContent.historyCaption(row, showPrinter: manyPrinters, now: now))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(row.outcome == JobLog.outcomeFail ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 .monospacedDigit()
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -569,20 +579,6 @@ struct HistoryView: View {
     private func historyTitle(_ row: JobLogRow) -> String {
         if let job = row.job, !job.isEmpty { return job }
         return row.name
-    }
-
-    private func historyCaption(_ row: JobLogRow) -> String {
-        var parts = [row.name]
-        if let outcome = row.outcome {
-            parts.append(outcome == JobLog.outcomeFail ? "Failed" : "Finished")
-        } else {
-            parts.append("Printing")
-        }
-        if let end = row.endedAt {
-            let minutes = max(0, Int(end.timeIntervalSince(row.startAt) / 60))
-            parts.append("\(minutes) min")
-        }
-        return parts.joined(separator: " · ")
     }
 }
 

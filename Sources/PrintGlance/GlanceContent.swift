@@ -263,6 +263,23 @@ struct GlanceContent: Equatable, Sendable {
         return groups
     }
 
+    /// "X2D · 14:02 yesterday · 4h 43m · Finished". The printer name only when the log has several printers.
+    static func historyCaption(
+        _ row: JobLogRow,
+        showPrinter: Bool,
+        now: Date,
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        let outcome = row.outcome.map { $0 == JobLog.outcomeFail ? "Failed" : "Finished" } ?? "Printing"
+        return [
+            showPrinter ? row.name : nil,
+            dayTime(row.startAt, now: now, calendar: calendar, locale: locale),
+            row.endedAt.map { formatRemain(max(0, Int($0.timeIntervalSince(row.startAt)))) },
+            outcome,
+        ].compactMap { $0 }.joined(separator: " · ")
+    }
+
     static func trayLine(_ tray: AMSTray) -> String {
         let label = tray.label ?? tray.id
         let name = tray.name.map { "\(label) · \($0)" } ?? label

@@ -81,7 +81,7 @@ final class GlanceModel: ObservableObject {
         self.jobLogURL = jobLogURL
         let log = JobLog.load(from: jobLogURL)
         self.jobLog = log
-        self.historyRows = log.recent(20)
+        self.historyRows = log.recent(JobLog.cap)
         self.comingOff = ComingOff.load(.standard)
     }
 
@@ -444,7 +444,7 @@ final class GlanceModel: ObservableObject {
             jobLog.observe(printers: doc.printers)
             if jobLog.rows != rowsBefore {
                 jobLog.save(to: jobLogURL)
-                historyRows = jobLog.recent(20)
+                historyRows = jobLog.recent(JobLog.cap)
             }
             let comingOffBefore = comingOff
             for row in doc.printers {

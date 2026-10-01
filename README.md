@@ -88,9 +88,9 @@ To change or remove the printer on the card, click **…** and choose **Edit** f
 
 ## See recent prints
 
-To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac. The list shows job name, printer, **Finished** or **Failed**, and duration when PrintGlance saw the print start and finish.
+To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac, newest first. Each row shows the job name, when it started (such as **14:02 yesterday**), how long it took when PrintGlance saw it start and finish, and **Finished**, **Failed**, or **Printing**. Failed prints are red. With more than one printer, each row also names the printer.
 
-To save that list, click **Export CSV**. To return to the print card, click **Back**.
+To save the list, click **Export CSV**. To return to the print card, click the back arrow next to **History**, or press Esc.
 
 ## Turn on notifications
 

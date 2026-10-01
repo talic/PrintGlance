@@ -58,6 +58,28 @@ final class RenderStatesTests: XCTestCase {
         try write("list-four-printers", view, to: dir)
     }
 
+    func testRenderHistory() throws {
+        let dir = try renderDir()
+        func row(_ i: Int, serial: String) -> JobLogRow {
+            let start = Self.now - Double(i) * 7 * 3600
+            return JobLogRow(
+                serial: serial,
+                name: serial.uppercased(),
+                jobId: "t\(i)",
+                job: i % 4 == 3 ? nil : ["Benchy", "Print in Parts", "A very long job name that will not fit"][i % 3],
+                filament: "PLA",
+                startAt: start,
+                endedAt: i == 0 ? nil : start + Double(i % 5 + 1) * 3600 + 1200,
+                outcome: i == 0 ? nil : i % 6 == 2 ? JobLog.outcomeFail : JobLog.outcomeOK
+            )
+        }
+        let few = (0..<4).map { row($0, serial: "x2d") }
+        let many = (0..<JobLog.cap).map { row($0, serial: $0 % 2 == 0 ? "x2d" : "p1s") }
+        for (name, rows) in [("empty", [JobLogRow]()), ("few", few), ("many", many)] {
+            try write("history-\(name)", HistoryView(rows: rows, now: Self.now, onExport: {}, onClose: {}), to: dir)
+        }
+    }
+
     private func card(row: Printer, endedAt: Date?, reason: String?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             CardHeader(
