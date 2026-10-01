@@ -171,14 +171,6 @@ final class GlanceModel: ObservableObject {
         NSWorkspace.shared.open(AppUpdate.latestReleaseURL)
     }
 
-    func addPrinter(_ printer: PrinterSettings) {
-        saveSettings(settings.adding(printer))
-    }
-
-    func updatePrinter(_ printer: PrinterSettings, serial: String) {
-        saveSettings(settings.replacing(printer, serial: serial))
-    }
-
     func removePrinter(serial: String) {
         saveSettings(settings.removing(serial: serial))
     }
@@ -559,14 +551,18 @@ final class GlanceModel: ObservableObject {
         }
     }
 
+    func requestNotificationPermission() {
+        // The completion runs on Apple's notify queue. A MainActor
+        // closure traps (SIGTRAP) and the extra vanishes.
+        Task {
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound])
+        }
+    }
+
     private func deliver(_ outcome: PrintNotifyOutcome) {
         if outcome.requestPermission {
-            // The completion runs on Apple's notify queue. A MainActor
-            // closure traps (SIGTRAP) and the extra vanishes.
-            Task {
-                _ = try? await UNUserNotificationCenter.current()
-                    .requestAuthorization(options: [.alert, .sound])
-            }
+            requestNotificationPermission()
         }
         for alert in outcome.alerts {
             let id = alert.serial.isEmpty ? "printer" : alert.serial

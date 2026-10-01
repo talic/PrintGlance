@@ -196,6 +196,39 @@ final class RenderStatesTests: XCTestCase {
                 $0.draft = PrinterSettings(ip: "192.168.1.20", serial: "01P00A411800456", accessCode: "AB12cd34", name: "")
             }),
             ("edit", flow(.edit(serial: "00M09A350100123")) { $0.found = setupHits }),
+            ("connecting", flow {
+                $0.found = setupHits
+                $0.pick(setupHits[0])
+                $0.draft.accessCode = "12345678"
+                $0.phase = .connecting
+            }),
+            ("connected", flow {
+                $0.found = setupHits
+                $0.pick(setupHits[0])
+                $0.draft.accessCode = "12345678"
+                $0.phase = .connected
+            }),
+            ("failed-rejected", flow {
+                $0.found = setupHits
+                $0.pick(setupHits[0])
+                $0.draft.accessCode = "12345678"
+                $0.phase = .failed(SetupFlow.failureMessage("MQTT CONNACK 5", ip: "192.168.1.20"))
+            }),
+            ("failed-refused", flow {
+                $0.manual = true
+                $0.draft = PrinterSettings(ip: "192.168.1.20", serial: "01P00A411800456", accessCode: "12345678", name: "")
+                $0.phase = .failed(SetupFlow.failureMessage("ECONNREFUSED", ip: "192.168.1.20"))
+            }),
+            ("failed-no-answer", flow {
+                $0.manual = true
+                $0.draft = PrinterSettings(ip: "192.168.1.20", serial: "01P00A411800456", accessCode: "12345678", name: "")
+                $0.phase = .failed(SetupFlow.failureMessage(nil, ip: "192.168.1.20"))
+            }),
+            ("welcome", flow { $0.phase = .welcome }),
+            ("welcome-approval", flow {
+                $0.phase = .welcome
+                $0.loginNeedsApproval = true
+            }),
         ]
     }
 

@@ -39,6 +39,7 @@ struct GlanceView: View {
         .background(PanelOpened {
             selectedId = nil
             showHistory = false
+            openAtLogin = LoginItem.isEnabled
         })
     }
 
@@ -140,6 +141,7 @@ struct GlanceView: View {
         .menuStyle(.borderlessButton)
         .buttonStyle(.plain)
         .onChange(of: openAtLogin) { _, on in
+            guard on != LoginItem.isEnabled else { return }
             LoginItem.setEnabled(on)
             openAtLogin = LoginItem.isEnabled
         }

@@ -27,6 +27,25 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(SetupFlow.codeHint("123456789"), "Access codes are usually 8 characters.")
     }
 
+    func testConnectResultFromLinkStatus() {
+        let ip = "192.0.2.10"
+        XCTAssertEqual(SetupFlow.connectResult(nil, ip: ip), .waiting)
+        XCTAssertEqual(SetupFlow.connectResult(.connecting, ip: ip), .waiting)
+        XCTAssertEqual(SetupFlow.connectResult(.connected, ip: ip), .connected)
+        XCTAssertEqual(
+            SetupFlow.connectResult(.failed(reason: "MQTT CONNACK 5"), ip: ip),
+            .failed("The access code was rejected. Check it on the printer: Settings, then LAN or Network.")
+        )
+        XCTAssertEqual(
+            SetupFlow.connectResult(.failed(reason: "ECONNREFUSED"), ip: ip),
+            .failed(GlanceCopy.feedDownDetail(reason: "ECONNREFUSED"))
+        )
+        let noAnswer = "No answer from 192.0.2.10. Check that the printer is on and on the same Wi-Fi as this Mac."
+        XCTAssertEqual(SetupFlow.connectResult(.failed(reason: "connect timed out"), ip: ip), .failed(noAnswer))
+        XCTAssertEqual(SetupFlow.connectResult(.failed(reason: nil), ip: ip), .failed(noAnswer))
+        XCTAssertEqual(SetupFlow.failureMessage(nil, ip: ip), noAnswer, "the 20-second wait ends with the same text")
+    }
+
     private func hit(_ serial: String) -> PrinterDiscovery.Hit {
         PrinterDiscovery.Hit(ip: "192.0.2.20", serial: serial, name: "", model: "")
     }
