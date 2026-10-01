@@ -45,7 +45,6 @@ struct GlanceView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Download PrintGlance update")
                     }
-                    VersionLine()
                 }
                 .padding(14)
                 .frame(width: 248, alignment: .leading)
@@ -141,28 +140,34 @@ struct GlanceView: View {
     private var overflowMenu: some View {
         Menu {
             if model.settings.canAdd {
-                Button("Add printer") { openAdd() }
+                Button("Add Printer…") { openAdd() }
             }
-            if !model.settings.printers.isEmpty {
-                Button("Printer") { openEdit() }
-            }
-            Button("History") { showHistory = true }
-            Menu("Notifications") {
-                Toggle("Print finished", isOn: $model.notifyPrefs.finish)
-                Toggle("Print failed", isOn: $model.notifyPrefs.fail)
-                Toggle("Print paused", isOn: $model.notifyPrefs.pause)
-                Toggle("Printer went offline", isOn: $model.notifyPrefs.offline)
-                Toggle("Print finishing soon", isOn: $model.notifyPrefs.comingOff)
-                Toggle("Quiet hours", isOn: $model.notifyPrefs.quietHours)
-            }
-            Toggle("Open at Login", isOn: $openAtLogin)
-            if model.availableUpdate != nil {
-                Button("Download update") { model.openUpdatePage() }
+            if let target = editTarget {
+                Button("Edit \(target.displayName)…") { openEdit() }
             }
             Divider()
-            Button("Quit") {
+            Button("History") { showHistory = true }
+            Menu("Notifications") {
+                Toggle("Print Paused", isOn: $model.notifyPrefs.pause)
+                Toggle("Print Failed", isOn: $model.notifyPrefs.fail)
+                Toggle("Print Finished", isOn: $model.notifyPrefs.finish)
+                Toggle("Print Finishing Soon", isOn: $model.notifyPrefs.comingOff)
+                Toggle("Printer Went Offline", isOn: $model.notifyPrefs.offline)
+                Divider()
+                Toggle("Quiet Hours", isOn: $model.notifyPrefs.quietHours)
+            }
+            Toggle("Open at Login", isOn: $openAtLogin)
+            Divider()
+            Button("PrintGlance \(AppUpdate.bundledVersion)") {}
+                .disabled(true)
+            if let tag = model.availableUpdate {
+                Button(GlanceContent.downloadTitle(tag: tag)) { model.openUpdatePage() }
+            }
+            Divider()
+            Button("Quit PrintGlance") {
                 NSApp.terminate(nil)
             }
+            .keyboardShortcut("q")
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.body)
@@ -210,16 +215,19 @@ struct GlanceView: View {
         setPrinterForm(true)
     }
 
-    private func openEdit() {
-        let focused = model.settings.printers.first { $0.serial == model.settings.focusId }
+    private var editTarget: PrinterSettings? {
+        model.settings.printers.first { $0.serial == model.settings.focusId }
             ?? model.content.row.flatMap { row in model.settings.printers.first { $0.serial == row.id } }
             ?? model.settings.printers.first
-        guard let focused else {
+    }
+
+    private func openEdit() {
+        guard let target = editTarget else {
             openAdd()
             return
         }
-        draft = focused
-        editingSerial = focused.serial
+        draft = target
+        editingSerial = target.serial
         showHistory = false
         setPrinterForm(true)
     }
@@ -229,7 +237,7 @@ struct GlanceView: View {
             return GlanceContent.headline(row)
         }
         switch model.content.result {
-        case .feedDown: return "Can't update"
+        case .feedDown: return "Can't reach printer"
         case .needsSetup: return "Add your printer"
         case .connecting: return "Connecting"
         case .doc: return "No printer"
@@ -245,11 +253,11 @@ struct GlanceView: View {
         case .feedDown:
             return GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: model.settings.focusId))
         case .needsSetup:
-            return "Click … and choose Add printer. Enter the IP address, serial number, and access code from the printer's LAN or Network page."
+            return "Click … and choose Add Printer. Enter the IP address, serial number, and access code from the printer's LAN or Network page."
         case .connecting:
             return "Connecting to the printer."
         case .doc:
-            return "The feed has no printer."
+            return "No printer"
         }
     }
 }
@@ -314,7 +322,7 @@ struct PrinterDetail: View {
                 if let caption = printerCaption(row) {
                     Text(caption)
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
             }
             amsBlock(row)
@@ -327,7 +335,7 @@ struct PrinterDetail: View {
             if let caption = printerCaption(row) {
                 Text(caption)
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             }
             amsBlock(row)
         }
@@ -354,7 +362,7 @@ struct PrinterDetail: View {
                 if let h = row.humidity {
                     Text("Humidity \(h)/5")
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
                 ForEach(trays) { tray in
                     HStack(spacing: 6) {
@@ -363,7 +371,7 @@ struct PrinterDetail: View {
                         }
                         Text(amsLine(tray))
                             .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
@@ -407,7 +415,7 @@ struct PrinterDetail: View {
                 }
             }
             .font(.caption)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(.secondary)
         }
     }
 }
@@ -479,7 +487,6 @@ struct HistoryView: View {
                 Spacer()
                 Button("Back", action: onClose)
             }
-            VersionLine()
         }
         .padding(14)
         .frame(width: 248, alignment: .leading)
@@ -510,7 +517,7 @@ struct HistoryView: View {
     private func historyCaption(_ row: JobLogRow) -> String {
         var parts = [row.name]
         if let outcome = row.outcome {
-            parts.append(outcome == JobLog.outcomeFail ? "Failed" : "Done")
+            parts.append(outcome == JobLog.outcomeFail ? "Failed" : "Finished")
         } else {
             parts.append("Printing")
         }
@@ -519,15 +526,6 @@ struct HistoryView: View {
             parts.append("\(minutes) min")
         }
         return parts.joined(separator: " · ")
-    }
-}
-
-struct VersionLine: View {
-    var body: some View {
-        Text("PrintGlance \(AppUpdate.bundledVersion)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("PrintGlance version \(AppUpdate.bundledVersion)")
     }
 }
 

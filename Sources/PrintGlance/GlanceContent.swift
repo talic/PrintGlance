@@ -26,7 +26,7 @@ struct GlanceContent: Equatable, Sendable {
             return StripPresentation(
                 systemImage: "printer.slash",
                 title: "",
-                accessibilityLabel: "Print feed off"
+                accessibilityLabel: "Can't reach printer"
             )
         case .needsSetup:
             return StripPresentation(
@@ -115,7 +115,7 @@ struct GlanceContent: Equatable, Sendable {
         case "RUNNING": return "Printing"
         case "PREPARE": return "Starting"
         case "PAUSE": return "Paused"
-        case "FINISH": return "Done"
+        case "FINISH": return "Finished"
         case "FAILED": return "Failed"
         case "IDLE": return "Idle"
         case "OFFLINE": return "Offline"
@@ -133,6 +133,12 @@ struct GlanceContent: Equatable, Sendable {
             return stage
         }
         return humanState(row.state)
+    }
+
+    /// Release tags look like `v1.2.0`; the menu shows `Download PrintGlance 1.2.0`.
+    static func downloadTitle(tag: String) -> String {
+        let version = tag.first == "v" || tag.first == "V" ? String(tag.dropFirst()) : tag
+        return "Download PrintGlance \(version)"
     }
 
     static func formatRemain(_ seconds: Int) -> String {
@@ -170,7 +176,7 @@ struct GlanceContent: Equatable, Sendable {
             if let occupancyEndedAt {
                 return agoTitle(from: occupancyEndedAt, now: now)
             }
-            return "Done"
+            return "Finished"
         case "FAILED": return "Failed"
         case "IDLE": return "Idle"
         case "OFFLINE": return "Offline"

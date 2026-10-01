@@ -83,6 +83,14 @@ final class PrintDocTests: XCTestCase {
 
     func testFeedDownStrip() {
         XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "printer.slash")
+        XCTAssertEqual(GlanceContent.strip(.feedDown).accessibilityLabel, "Can't reach printer")
+    }
+
+    func testOneWordPerState() {
+        XCTAssertEqual(GlanceContent.humanState("FINISH"), "Finished")
+        XCTAssertEqual(GlanceContent.humanState("PREPARE"), "Starting")
+        XCTAssertEqual(GlanceContent.downloadTitle(tag: "v1.2.0"), "Download PrintGlance 1.2.0")
+        XCTAssertEqual(GlanceContent.downloadTitle(tag: "1.2.0"), "Download PrintGlance 1.2.0")
     }
 
     func testConnectingStripIsNotFeedDown() {
