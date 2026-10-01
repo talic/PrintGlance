@@ -46,13 +46,24 @@ final class RunoutTrackerTests: XCTestCase {
         XCTAssertEqual(GlanceContent.runoutLine(r), "PLA Matte in A2 runs out around 14:45.")
     }
 
-    func testNeedsEnoughDropsAndProgress() {
+    func testReachesOnlyThreeTimesWhatItMeasured() {
         var a = RunoutTracker()
-        XCTAssertNil(steady(to: 15, &a), "drops at 11.5 and 13.5: one step of rate")
+        XCTAssertNil(steady(to: 21, &a), "8% measured, 30% to go")
         var b = RunoutTracker()
-        XCTAssertNil(steady(to: 17, &b), "drops at 11.5, 13.5, 15.5: only 4% of progress apart")
-        var c = RunoutTracker()
-        XCTAssertNotNil(steady(to: 18, &c))
+        XCTAssertEqual(steady(to: 22, &b)?.percent, 49, "10% measured, 28% to go")
+    }
+
+    /// The X2D on 2026-10-01: a spool near empty whose reading fell, rose back, and fell again.
+    func testNearlyEmptyWobblingSpool() {
+        var t = RunoutTracker()
+        var last: Runout?
+        for (p, remain) in [(63, 5), (63, 4), (65, 4), (66, 5), (67, 4), (67, 3), (68, 3)] {
+            last = t.observe(row(p, remain))
+        }
+        XCTAssertNil(last, "one step measured over half a percent")
+        last = t.observe(row(69, 2))
+        // Measured from the second fall to 4 (66.5), not the first (63), which would say 74%.
+        XCTAssertEqual(last?.percent, 70)
     }
 
     func testEnoughFilamentShowsNothing() {

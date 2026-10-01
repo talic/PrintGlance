@@ -65,9 +65,10 @@ struct Runout: Codable, Equatable, Sendable {
 /// Progress, not the clock, so pauses and speed changes don't skew the rate.
 struct RunoutTracker: Codable, Equatable {
     static let defaultsKey = "pg.runout"
-    /// Drops and progress span needed before a guess. Fewer and the 1% steps swamp the rate.
-    static let minDrops = 2
-    static let minSpan = 5.0
+    /// Guess only this many times further ahead than the progress the drops were measured over.
+    /// Whole-percent progress puts each drop up to half a percent off, so a short measurement can
+    /// only see a short way, which is enough for a nearly empty spool.
+    static let maxReach = 3.0
     /// A rise this big is a new or refilled spool; smaller rises are the AMS estimate wobbling.
     static let swapRise = 3
 
@@ -84,6 +85,8 @@ struct RunoutTracker: Codable, Equatable {
         var firstAt: Double?
         /// Progress at the last reading. A drop lands halfway between this and the reading that shows it.
         var seenAt: Double
+        /// The last reading, to spot a fall back to `low` after the estimate wobbles up.
+        var last: Int?
     }
 
     struct Job: Codable, Equatable {
@@ -146,7 +149,13 @@ struct RunoutTracker: Codable, Equatable {
                 } else {
                     s = Spool(name: tray.name, color: tray.color, low: remain, seenAt: p)
                 }
+            } else if counting, remain == s.low, (s.last ?? remain) > remain, s.lowAt != nil {
+                // Back down after a wobble up: the AMS was near the step, so the latest fall places it better.
+                let at = (s.seenAt + p) / 2
+                if s.first == s.low { s.firstAt = at }
+                s.lowAt = at
             }
+            s.last = remain
             s.seenAt = p
             job.spools[tray.id] = s
         }
@@ -154,12 +163,14 @@ struct RunoutTracker: Codable, Equatable {
         var best: (out: Double, tray: AMSTray)?
         for tray in trays {
             guard let s = job.spools[tray.id], let first = s.first, let firstAt = s.firstAt, let lowAt = s.lowAt,
-                  first - s.low >= Self.minDrops, lowAt - firstAt >= Self.minSpan else { continue }
-            let rate = Double(first - s.low) / (lowAt - firstAt)
+                  first > s.low, lowAt - firstAt >= 1 else { continue }
+            let span = lowAt - firstAt
+            let rate = Double(first - s.low) / span
             // ponytail: treats the reading as empty at 0, so the guess can be up to one step early.
             // Early is the safe side; a per-model offset could tighten it once real runouts are logged.
-            let out = max(p, lowAt + Double(s.low) / rate)
-            if out < 100, out < best?.out ?? 100 {
+            let ahead = Double(s.low) / rate
+            let out = max(p, lowAt + ahead)
+            if ahead <= span * Self.maxReach, out < 100, out < best?.out ?? 100 {
                 best = (out, tray)
             }
         }
