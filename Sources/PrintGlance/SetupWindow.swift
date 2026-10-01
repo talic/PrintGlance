@@ -30,7 +30,10 @@ enum SetupWindow {
             flow.dismiss = { [weak window] in window?.close() }
             self.flow = flow
             window.title = flow.title
-            window.contentViewController = NSHostingController(rootView: SetupView(flow: flow))
+            let hosting = NSHostingController(rootView: SetupView(flow: flow))
+            window.contentViewController = hosting
+            // The hosting view sizes itself a run-loop turn later; center the real size, not 0×0.
+            window.setContentSize(hosting.view.fittingSize)
             window.center()
             flow.scan()
         }
