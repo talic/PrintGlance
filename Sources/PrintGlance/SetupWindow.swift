@@ -32,9 +32,20 @@ enum SetupWindow {
             window.title = flow.title
             window.contentViewController = NSHostingController(rootView: SetupView(flow: flow))
             window.center()
+            flow.scan()
         }
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
+    }
+
+    static func confirmRemove(name: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Remove \(name)?"
+        alert.informativeText = "PrintGlance stops watching this printer. To watch it again, add it and enter its access code."
+        alert.addButton(withTitle: "Remove").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate()
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private static func makeWindow() -> NSWindow {
@@ -76,75 +87,5 @@ private final class SetupNSWindow: NSWindow {
             return true
         }
         return super.performKeyEquivalent(with: event)
-    }
-}
-
-@MainActor
-final class SetupFlow: ObservableObject {
-    let mode: SetupWindow.Mode
-    let saved: SavedPrinters
-    @Published var draft: PrinterSettings
-    var dismiss: () -> Void = {}
-    private weak var model: GlanceModel?
-
-    /// `model` is nil when rendering in tests.
-    init(mode: SetupWindow.Mode, saved: SavedPrinters, model: GlanceModel? = nil) {
-        self.mode = mode
-        self.saved = saved
-        self.model = model
-        if case let .edit(serial) = mode, let printer = saved.printers.first(where: { $0.serial == serial }) {
-            draft = printer
-        } else {
-            draft = .empty
-        }
-        if case let .edit(serial) = mode {
-            model?.setRediscoverPausedSerial(serial)
-        }
-    }
-
-    var title: String {
-        switch mode {
-        case .add: return "Add Printer"
-        case .edit: return "Edit \(draft.displayName)"
-        }
-    }
-
-    var editingSerial: String? {
-        if case let .edit(serial) = mode { return serial }
-        return nil
-    }
-
-    func save() {
-        if let serial = editingSerial {
-            model?.updatePrinter(draft, serial: serial)
-        } else {
-            model?.addPrinter(draft)
-        }
-        dismiss()
-    }
-
-    func remove() {
-        guard let serial = editingSerial else { return }
-        model?.removePrinter(serial: serial)
-        dismiss()
-    }
-
-    func cancel() {}
-
-    func didClose() {
-        model?.setRediscoverPausedSerial(nil)
-    }
-}
-
-struct SetupView: View {
-    @ObservedObject var flow: SetupFlow
-
-    var body: some View {
-        PrinterSettingsView(
-            settings: $flow.draft,
-            onSave: { _ in flow.save() },
-            onRemove: flow.editingSerial != nil && flow.saved.printers.count > 1 ? { flow.remove() } : nil,
-            onClose: { flow.dismiss() }
-        )
     }
 }

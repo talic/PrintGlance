@@ -80,6 +80,13 @@ final class RenderStatesTests: XCTestCase {
         }
     }
 
+    func testRenderSetup() throws {
+        let dir = try renderDir()
+        for (name, flow) in Self.setupStates() {
+            try write("setup-\(name)", SetupView(flow: flow), to: dir)
+        }
+    }
+
     private func card(row: Printer, endedAt: Date?, reason: String?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             CardHeader(
@@ -156,6 +163,39 @@ final class RenderStatesTests: XCTestCase {
             ("offline-was-paused", offlinePaused, nil, "connect timed out"),
             ("offline-was-idle", offlineIdle, nil, "ECONNREFUSED"),
             ("offline-never", offlineNever, nil, "MQTT CONNACK 5"),
+        ]
+    }
+
+    private static let setupSaved = SavedPrinters(
+        printers: [PrinterSettings(ip: "192.168.1.21", serial: "00M09A350100123", accessCode: "12345678", name: "Office X1C")],
+        focusId: nil
+    )
+
+    private static let setupHits = [
+        PrinterDiscovery.Hit(ip: "192.168.1.20", serial: "01P00A411800456", name: "Garage P1S", model: "C12"),
+        PrinterDiscovery.Hit(ip: "192.168.1.21", serial: "00M09A350100123", name: "Office X1C", model: "BL-P001"),
+        PrinterDiscovery.Hit(ip: "192.168.1.22", serial: "0309DA123456789", name: "", model: "N1"),
+    ]
+
+    private static func setupStates() -> [(String, SetupFlow)] {
+        func flow(_ mode: SetupWindow.Mode = .add, _ configure: (SetupFlow) -> Void) -> SetupFlow {
+            let f = SetupFlow(mode: mode, saved: setupSaved)
+            configure(f)
+            return f
+        }
+        return [
+            ("searching", flow { $0.scanning = true }),
+            ("found", flow {
+                $0.found = setupHits
+                $0.pick(setupHits[0])
+                $0.draft.accessCode = "1234"
+            }),
+            ("nothing-found", flow { $0.manual = true }),
+            ("manual", flow {
+                $0.manual = true
+                $0.draft = PrinterSettings(ip: "192.168.1.20", serial: "01P00A411800456", accessCode: "AB12cd34", name: "")
+            }),
+            ("edit", flow(.edit(serial: "00M09A350100123")) { $0.found = setupHits }),
         ]
     }
 
