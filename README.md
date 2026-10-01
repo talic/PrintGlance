@@ -24,7 +24,7 @@ PrintGlance runs on your Mac. It talks to printers on your Wi-Fi. You can watch 
 2. Open the **LAN** or **Network** page (the name varies by model).
 3. Write down **Access code**.
 
-If **Find printers** does not list the printer, also write down **IP** and **Serial**. If **Serial** is not on that page, look in **Settings** for device info, or on the sticker on the printer.
+If PrintGlance does not find the printer, also write down **IP** and **Serial**. If **Serial** is not on that page, look in **Settings** for device info, or on the sticker on the printer.
 
 The Mac and the printer must be on the same Wi-Fi network. Guest Wi-Fi that isolates devices does not work.
 
@@ -35,20 +35,26 @@ The Mac and the printer must be on the same Wi-Fi network. Guest Wi-Fi that isol
 3. Drag **PrintGlance** into the **Applications** folder.
 4. Open **PrintGlance**. If macOS shows **"PrintGlance" Not Opened**, click **Done**.
 5. Open **System Settings > Privacy & Security**. In **Security**, click **Open Anyway**, then click **Open**. Enter your password if macOS asks.
-6. If you do not see a printer icon in the menu bar, turn PrintGlance on in **System Settings > Menu Bar**.
+6. The **Add Printer** window opens. Continue with [Connect to your printer](#connect-to-your-printer).
 
-PrintGlance has no Dock icon. If it is already running, click the printer icon in the menu bar.
+PrintGlance has no Dock icon. It lives in the menu bar as a printer icon. If you do not see the icon, turn PrintGlance on in **System Settings > Menu Bar**.
 
 ## Connect to your printer
 
-1. Click the printer icon in the menu bar.
-2. If the printer form is not already open, click **…** and choose **Add Printer…**.
-3. If macOS asks to use the local network, click **Allow**.
-4. Click your printer in the list.
-5. Enter the access code. Name is optional.
-6. Click **Save**.
+The **Add Printer** window opens the first time you open PrintGlance, and whenever you open the app while no printer is set up. To add another printer, click the printer icon in the menu bar, click **…**, and choose **Add Printer…**.
 
-If no printers appear, click **Find printers**. If the list is still empty, enter the IP address, serial number, and access code from the printer.
+1. If macOS asks to use the local network, click **Allow**.
+2. Under **Printers on this Wi-Fi**, click your printer. A printer you already added shows **Added**.
+3. Enter the **Access code** from the printer's screen. **Name** is optional.
+4. Click **Connect**.
+
+PrintGlance waits for the printer to answer. When the window shows **Connected**, the printer is set up. After your first printer, the window says PrintGlance is in your menu bar and offers **Open at login**, which starts turned on. Click **Done**. When macOS asks to send notifications, click **Allow**.
+
+If your printer is not in the list, click **Search Again**. If it still does not appear, click **Enter IP and serial instead**, then type the IP address and serial number from the printer.
+
+If the printer does not connect, the window says why, such as **The access code was rejected.** Fix the entry and click **Try Again**. To leave without adding the printer, click **Cancel**.
+
+To change a printer's access code or IP address later, click **…** and choose **Edit** followed by the printer's name. To remove it, click **Remove…** in that window. If the printer rejects its access code, the print card shows **Update Access Code…**, which opens the same window.
 
 The access code stays on this Mac. PrintGlance does not send it to the internet.
 
@@ -102,24 +108,29 @@ Click **…** and open **Notifications**. Turn on the events you want:
 - **Print Failed**
 - **Print Finished**
 - **Print Finishing Soon**
-- **Printer Went Offline**
-- **Quiet Hours**
+- **Lost Connection**
+- **Low Filament**
+- **Quiet Hours**, shown with its hours, such as **Quiet Hours (10 PM–7 AM)**
 
 **Quiet Hours** starts turned off. The others start turned on. **Print Paused** and **Print Failed** end with the error code when the printer sends one.
 
 **Print Finishing Soon** tells you about 10 minutes before the print ends, so you can be at the printer. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is cancelled.
 
-**Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM. **Print Finishing Soon** is skipped in that window. **Print Failed**, **Print Paused**, **Printer Went Offline**, and **Low filament** still appear.
+**Lost Connection** tells you when PrintGlance stops hearing from a printer during a print, such as **Lost connection to X2D** with **Benchy was at 52%. PrintGlance keeps trying.** It is not sent while this Mac has no network, or for 2 minutes after this Mac's network changes, because then the Mac lost the connection, not the printer.
 
-When macOS asks for notification permission, click **Allow**. PrintGlance asks the first time a print starts.
+**Low Filament** tells you when the spool in use drops below 20% while a print is starting or running.
 
-PrintGlance also sends a **Low filament** notice when the spool in use drops below 20% while a print is starting or running. That notice is not in the **Notifications** menu.
+**Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM. **Print Finishing Soon** is skipped in that window. **Print Failed**, **Print Paused**, **Lost Connection**, and **Low Filament** still appear.
+
+When macOS asks for notification permission, click **Allow**. PrintGlance asks when you finish adding your first printer, or the first time a print starts. If notifications for PrintGlance are turned off in System Settings, the **Notifications** menu starts with **Notifications Are Off…**. Choose it to open System Settings at PrintGlance.
 
 Notices stay on this Mac. They do not appear on iPhone.
 
 ## Start PrintGlance when you log in
 
-To start PrintGlance when you log in, click **…** and turn on **Open at Login**. To quit, click **…** and choose **Quit PrintGlance**.
+To start PrintGlance when you log in, click **…** and turn on **Open at Login**. PrintGlance also offers this after you add your first printer. If macOS needs your approval, allow PrintGlance in **System Settings > General > Login Items**.
+
+To quit, click **…** and choose **Quit PrintGlance**.
 
 ## Update PrintGlance
 
@@ -137,7 +148,7 @@ Your printer IP, serial, and access code stay on this Mac.
 
 - Mac and printer are on the same Wi-Fi
 - The printer is switched on and has finished starting up
-- Access code matches the printer's LAN or Network page
+- Access code matches the printer's LAN or Network page. If the print card shows **Update Access Code…**, click it to enter the code again
 - PrintGlance is turned on for the local network in **System Settings > Privacy & Security > Local Network**
 - If you entered the IP address, it matches the printer's LAN or Network page
 
