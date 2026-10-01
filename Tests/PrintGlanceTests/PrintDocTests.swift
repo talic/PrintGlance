@@ -26,7 +26,6 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.remainingLine(row), "4h 43m left")
         XCTAssertEqual(GlanceContent.layerLine(row), "Layer 32 / 230")
         XCTAssertEqual(GlanceContent.filamentLine(row), "PLA  42%")
-        XCTAssertEqual(GlanceContent(result: .doc(doc)).pollInterval, 5)
     }
 
     func testIdleNullsDecode() throws {
@@ -43,44 +42,14 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(strip.systemImage, "printer")
         XCTAssertEqual(strip.title, "")
         XCTAssertEqual(GlanceContent.hero(row), "Idle")
-        XCTAssertEqual(GlanceContent(result: .doc(doc)).pollInterval, 60)
     }
 
     func testEmptyPrintersIsSlashNotSubscript() throws {
-        let data = Data(#"{"v":1,"updated_at":null,"focus_id":null,"printers":[]}"#.utf8)
-        let result = PrintFeed.interpret(status: 200, data: data)
-        guard case let .doc(doc) = result else {
-            XCTFail("expected doc, got \(result)")
-            return
-        }
+        let doc = PrintDoc(v: 1, updatedAt: nil, focusId: nil, printers: [])
         XCTAssertNil(doc.focusRow())
-        let strip = GlanceContent.strip(result)
+        let strip = GlanceContent.strip(.doc(doc))
         XCTAssertEqual(strip.systemImage, "printer.slash")
         XCTAssertEqual(strip.title, "")
-    }
-
-    func testUnauthorizedBodyIsNotV1() {
-        let data = Data(#"{"error":"unauthorized"}"#.utf8)
-        XCTAssertEqual(PrintFeed.interpret(status: 401, data: data), .unauthorized)
-        let strip = GlanceContent.strip(.unauthorized)
-        XCTAssertEqual(strip.systemImage, "printer.slash")
-        XCTAssertEqual(GlanceContent(result: .unauthorized).footer, "Token required")
-    }
-
-    func testNotFoundBodyIsNotV1() {
-        let data = Data(#"{"error":"not found"}"#.utf8)
-        XCTAssertEqual(PrintFeed.interpret(status: 404, data: data), .http(404))
-    }
-
-    func testBadJsonIsInvalidNotHttp200() {
-        let garbage = Data(#"{"error":"not found"}"#.utf8)
-        XCTAssertEqual(PrintFeed.interpret(status: 200, data: garbage), .invalid)
-        let v2 = Data(#"{"v":2,"focus_id":null,"printers":[]}"#.utf8)
-        XCTAssertEqual(PrintFeed.interpret(status: 200, data: v2), .invalid)
-        XCTAssertEqual(PrintFeed.interpret(status: 200, data: Data(#"{"v":1"#.utf8)), .invalid)
-        XCTAssertEqual(GlanceContent.strip(.invalid).systemImage, "printer.slash")
-        XCTAssertEqual(GlanceContent(result: .invalid).pollInterval, 15)
-        XCTAssertEqual(GlanceContent(result: .invalid).footer, "Bad feed")
     }
 
     func testUpdatedAtIgnoredForEquality() throws {
@@ -91,26 +60,6 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent(result: .doc(a)), GlanceContent(result: .doc(b)))
         b.printers[0].percent = 1
         XCTAssertNotEqual(a, b)
-    }
-
-    func testPollIntervals() {
-        var row = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 9)
-        XCTAssertEqual(GlanceContent(result: .doc(doc(row))).pollInterval, 5)
-        row.state = "FINISH"
-        XCTAssertEqual(GlanceContent(result: .doc(doc(row))).pollInterval, 30)
-        row.state = "FAILED"
-        XCTAssertEqual(GlanceContent(result: .doc(doc(row))).pollInterval, 30)
-        XCTAssertEqual(GlanceContent(result: .http(500)).pollInterval, 15)
-        let empty = Data(#"{"v":1,"updated_at":null,"focus_id":null,"printers":[]}"#.utf8)
-        guard case let .doc(doc) = PrintFeed.interpret(status: 200, data: empty) else {
-            XCTFail("expected empty doc")
-            return
-        }
-        XCTAssertEqual(GlanceContent(result: .doc(doc)).pollInterval, 15)
-    }
-
-    private func doc(_ row: Printer) -> PrintDoc {
-        PrintDoc(v: 1, updatedAt: nil, focusId: row.id, printers: [row])
     }
 
     func testPauseAndFinishAndFailedStrip() {
@@ -132,8 +81,7 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.paddedPercent(100), "100%")
     }
 
-    func testFeedDownFooter() {
-        XCTAssertEqual(GlanceContent(result: .feedDown).footer, "Feed off")
+    func testFeedDownStrip() {
         XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "printer.slash")
     }
 
@@ -166,7 +114,6 @@ final class PrintDocTests: XCTestCase {
 
     func testNeedsSetupStrip() {
         XCTAssertEqual(GlanceContent.strip(.needsSetup).systemImage, "printer")
-        XCTAssertEqual(GlanceContent(result: .needsSetup).pollInterval, 60)
     }
 
     func testMigrateSingularSettings() throws {
@@ -223,7 +170,6 @@ final class PrintDocTests: XCTestCase {
     func testEmptyListIsNeedsSetup() throws {
         XCTAssertFalse(SavedPrinters.empty.isComplete)
         XCTAssertFalse(SavedPrinters(printers: [PrinterSettings.empty], focusId: nil).isComplete)
-        XCTAssertEqual(GlanceContent(result: .needsSetup).footer, "Add printer")
 
         let name = "PrintGlance.empty.\(UUID().uuidString)"
         let d = try XCTUnwrap(UserDefaults(suiteName: name))
@@ -359,6 +305,14 @@ final class PrintDocTests: XCTestCase {
         )
         return try JSONCoding.decoder.decode(PrintDoc.self, from: Data(contentsOf: url))
     }
+}
+
+enum JSONCoding {
+    static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.keyDecodingStrategy = .convertFromSnakeCase
+        return d
+    }()
 }
 
 extension Printer {

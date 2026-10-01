@@ -24,7 +24,6 @@ struct JobLog {
 
     var rows: [JobLogRow] = []
     /// Process-local. Not written to disk.
-    var lastState: [String: String] = [:]
     var hadTimed: [String: Bool] = [:]
 
     static func fileURL() -> URL {
@@ -143,7 +142,6 @@ struct JobLog {
         default:
             break
         }
-        lastState[printer.id] = next
     }
 
     private mutating func openOrUpdate(_ printer: Printer, jobId: String, now: Date) {

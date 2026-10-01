@@ -35,9 +35,6 @@ enum BambuJSON {
 enum BambuPrint {
     static let staleAfter: TimeInterval = 120
     static let offlineGrace: TimeInterval = 30
-    static let knownStates: Set<String> = [
-        "PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE",
-    ]
 
     static func merge(_ dst: inout [String: Any], incoming: [String: Any]) {
         guard !incoming.isEmpty else { return }
@@ -122,10 +119,6 @@ enum BambuPrint {
     static func remainPercent(_ raw: Any?) -> Int? {
         guard let r = BambuJSON.intValue(raw), r >= 0 else { return nil }
         return min(100, r)
-    }
-
-    static func taskId(_ printObj: [String: Any]) -> String? {
-        jobIdentity(printObj)
     }
 
     static func activeFilament(_ printObj: [String: Any]) -> (type: String?, remain: Int?, tray: Int?, color: String?) {
@@ -537,11 +530,6 @@ final class BambuSnapshot {
 
     func printer() -> Printer {
         BambuPrint.row(id: printerID, name: name.isEmpty ? "Printer" : name, printObj: printObj, online: isOnline())
-    }
-
-    func doc() -> PrintDoc {
-        let row = printer()
-        return PrintDoc(v: 1, updatedAt: nil, focusId: row.id, printers: [row])
     }
 
     static func fleetDoc(

@@ -113,12 +113,6 @@ struct PrintNotifyStamp: Equatable {
         return [:]
     }
 
-    func save(_ d: UserDefaults) {
-        d.set(serial, forKey: "pg.notify.stamp.serial")
-        d.set(state, forKey: "pg.notify.stamp.state")
-        d.set(jobId, forKey: "pg.notify.stamp.jobId")
-    }
-
     static func saveAll(_ stamps: [String: PrintNotifyStamp], to d: UserDefaults) {
         let arr: [[String: String]] = stamps.values.map {
             ["serial": $0.serial, "state": $0.state, "jobId": $0.jobId]

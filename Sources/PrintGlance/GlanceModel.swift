@@ -19,49 +19,6 @@ struct GlanceContent: Equatable, Sendable {
         return nil
     }
 
-    var strip: StripPresentation {
-        Self.strip(result)
-    }
-
-    var footer: String {
-        switch result {
-        case .feedDown:
-            return "Feed off"
-        case .unauthorized:
-            return "Token required"
-        case let .http(code):
-            return "HTTP \(code)"
-        case .invalid:
-            return "Bad feed"
-        case .needsSetup:
-            return "Add printer"
-        case .connecting:
-            return "Connecting"
-        case .doc:
-            guard let row else { return "No printer" }
-            return "\(row.name) · \(Self.humanState(row.state))"
-        }
-    }
-
-    var pollInterval: TimeInterval {
-        switch result {
-        case .feedDown, .unauthorized, .http, .invalid, .connecting:
-            return 15
-        case .needsSetup:
-            return 60
-        case .doc:
-            guard let row else { return 15 }
-            switch row.state.uppercased() {
-            case "RUNNING", "PREPARE", "PAUSE":
-                return 5
-            case "FINISH", "FAILED":
-                return 30
-            default:
-                return 60
-            }
-        }
-    }
-
     static func strip(_ result: FeedResult) -> StripPresentation {
         switch result {
         case .feedDown:
@@ -69,24 +26,6 @@ struct GlanceContent: Equatable, Sendable {
                 systemImage: "printer.slash",
                 title: "",
                 accessibilityLabel: "Print feed off"
-            )
-        case .unauthorized:
-            return StripPresentation(
-                systemImage: "printer.slash",
-                title: "",
-                accessibilityLabel: "Print feed token required"
-            )
-        case .http:
-            return StripPresentation(
-                systemImage: "printer.slash",
-                title: "",
-                accessibilityLabel: "Print feed error"
-            )
-        case .invalid:
-            return StripPresentation(
-                systemImage: "printer.slash",
-                title: "",
-                accessibilityLabel: "Print feed unreadable"
             )
         case .needsSetup:
             return StripPresentation(
@@ -323,7 +262,7 @@ final class GlanceModel: ObservableObject {
     /// Last disconnect reason per printer serial. A successful connect clears that printer's entry.
     @Published private(set) var disconnectReasons: [String: String] = [:]
     @Published private(set) var availableUpdate: String?
-    @Published var settings = SavedPrinters.load()
+    @Published var settings: SavedPrinters
     @Published var notifyPrefs: PrintNotifyPrefs {
         didSet {
             notify.prefs = notifyPrefs
@@ -774,7 +713,7 @@ final class GlanceModel: ObservableObject {
                     filament: fil.type,
                     tray: fil.tray,
                     remain: fil.remain,
-                    taskId: BambuPrint.taskId(snap.printObj)
+                    taskId: BambuPrint.jobIdentity(snap.printObj)
                 ) {
                     deliverFilament(notice)
                 }

@@ -353,9 +353,6 @@ struct GlanceView: View {
         }
         switch model.content.result {
         case .feedDown: return "Can't update"
-        case .unauthorized: return "Can't update"
-        case .http: return "Can't update"
-        case .invalid: return "Can't update"
         case .needsSetup: return "Add your printer"
         case .connecting: return "Connecting"
         case .doc: return "No printer"
@@ -376,12 +373,6 @@ struct GlanceView: View {
         switch model.content.result {
         case .feedDown:
             return GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: model.settings.focusId))
-        case .unauthorized:
-            return "This Mac needs the feed token."
-        case let .http(code):
-            return "The feed returned HTTP \(code)."
-        case .invalid:
-            return "Can't read the feed."
         case .needsSetup:
             return "Click … and choose Add printer. Enter the IP address, serial number, and access code from the printer's LAN or Network page."
         case .connecting:
