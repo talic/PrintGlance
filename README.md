@@ -120,7 +120,7 @@ Click **…** and open **Notifications**. Turn on the events you want:
 
 **Low Filament** tells you when the spool in use drops below 20% while a print is starting or running. It also tells you once per print when a spool looks set to run out before the print ends, and about when.
 
-PrintGlance estimates the runout from how fast the spool's remaining percent has dropped as the print progressed. It needs a Bambu spool with an RFID tag, **Update Remaining Capacity** turned on for the AMS, and a few percent of that spool used during this print. The estimate errs early. If another AMS slot holds the same filament and color, the line adds that the AMS may switch to it, which depends on the AMS backup setting on your printer.
+PrintGlance estimates the runout from the trend in the spool's remaining percent as the print progresses. It needs a Bambu spool with an RFID tag and **Update Remaining Capacity** turned on for the AMS, and it waits until the trend is clear. It ignores readings below 5%, where the AMS estimate swings by a couple of points and can read 0% with filament left, so a spool that starts the print nearly empty gets only the 20% warning. If another AMS slot holds the same filament and color, the line adds that the AMS may switch to it, which depends on the AMS backup setting on your printer.
 
 **Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM. **Print Finishing Soon** is skipped in that window. **Print Failed**, **Print Paused**, **Lost Connection**, and **Low Filament** still appear.
 

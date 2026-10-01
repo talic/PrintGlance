@@ -9,12 +9,21 @@ final class RunoutTrackerTests: XCTestCase {
         return c
     }
 
-    /// One spool at 20% that loses a point every 2% of progress from 10%, so it reads 0 at 50%.
-    /// Readings land on every whole percent, like `mc_percent`.
-    private func steady(to end: Int, _ tracker: inout RunoutTracker, extra: [AMSTray] = []) -> Runout? {
+    /// One spool at 30% that loses a point every 2% of progress, so it reads 0 at 60%.
+    private func steady(
+        _ range: ClosedRange<Int>,
+        _ tracker: inout RunoutTracker,
+        noise: [Int] = [0],
+        extra: [AMSTray] = []
+    ) -> Runout? {
         var last: Runout?
-        for p in 10...end {
-            last = tracker.observe(row(p, 20 - (p - 10) / 2, extra: extra), now: now, calendar: utc, locale: Locale(identifier: "en_GB"))
+        for p in range {
+            last = tracker.observe(
+                row(p, 30 - p / 2 + noise[p % noise.count], extra: extra),
+                now: now,
+                calendar: utc,
+                locale: Locale(identifier: "en_GB")
+            )
         }
         return last
     }
@@ -35,94 +44,108 @@ final class RunoutTrackerTests: XCTestCase {
         return p
     }
 
-    func testSteadyUseLandsJustBeforeEmpty() throws {
+    func testSteadyUse() throws {
         var t = RunoutTracker()
-        let r = try XCTUnwrap(steady(to: 30, &t))
-        // 9 drops over 18% of progress from 11.5%: empty at 49.5%, half a step early on purpose.
-        XCTAssertEqual(r.percent, 49)
-        // 70% left takes 7000 s, so 19.5% more is 1950 s: 14:45:50, rounded to 14:45.
-        XCTAssertEqual(r.at, "14:45")
+        let r = try XCTUnwrap(steady(1...30, &t))
+        XCTAssertEqual(r.percent, 60)
+        // 70% left takes 7000 s, so 30.5% more is 3052 s: 15:04:12, rounded to 15:05.
+        XCTAssertEqual(r.at, "15:05")
         XCTAssertEqual(r.tray, "A2")
-        XCTAssertEqual(GlanceContent.runoutLine(r), "PLA Matte in A2 runs out around 14:45.")
+        XCTAssertEqual(GlanceContent.runoutLine(r), "PLA Matte in A2 runs out around 15:05.")
     }
 
     func testReachesOnlyThreeTimesWhatItMeasured() {
         var a = RunoutTracker()
-        XCTAssertNil(steady(to: 21, &a), "8% measured, 30% to go")
+        XCTAssertNil(steady(1...16, &a), "readings cover 14%, 45% to go")
         var b = RunoutTracker()
-        XCTAssertEqual(steady(to: 22, &b)?.percent, 49, "10% measured, 28% to go")
+        XCTAssertEqual(steady(1...17, &b)?.percent, 59, "readings cover 15%, 44% to go")
     }
 
-    /// The X2D on 2026-10-01: a spool near empty whose reading fell, rose back, and fell again.
-    func testNearlyEmptyWobblingSpool() {
+    func testNoisyReadingsStayClose() throws {
         var t = RunoutTracker()
-        var last: Runout?
-        for (p, remain) in [(63, 5), (63, 4), (65, 4), (66, 5), (67, 4), (67, 3), (68, 3)] {
-            last = t.observe(row(p, remain))
+        let r = try XCTUnwrap(steady(1...30, &t, noise: [1, -1, 2, 0, -2, 1, 0, -1]))
+        XCTAssertTrue((58...62).contains(r.percent), "\(r.percent)")
+    }
+
+    /// The X2D on 2026-10-01: a spool that swung 3–5, then read 0–2 for the last 20% of the print
+    /// and never ran out. Counting drops said "about to run out" at 80%.
+    func testNearlyEmptyNoisySpoolGuessesNothing() {
+        let readings = [
+            (63, 5), (63, 4), (64, 4), (65, 4), (66, 4), (66, 5), (67, 5), (67, 4), (67, 3), (68, 3),
+            (69, 3), (69, 4), (70, 4), (70, 5), (71, 5), (71, 4), (72, 4), (73, 4), (73, 3), (74, 3),
+            (74, 5), (75, 5), (75, 3), (76, 3), (76, 4), (77, 4), (78, 4), (78, 3), (79, 3), (79, 2),
+            (80, 2), (80, 0), (81, 0), (81, 1), (82, 2), (82, 1), (83, 1), (84, 2), (84, 1), (85, 1),
+            (86, 1), (87, 1), (88, 1), (89, 1), (89, 2), (90, 2), (90, 1), (91, 0), (92, 1), (93, 2),
+            (93, 1), (94, 1), (95, 1), (95, 0), (96, 0), (97, 0), (98, 1), (99, 1),
+        ]
+        var t = RunoutTracker()
+        for (p, remain) in readings {
+            XCTAssertNil(t.observe(row(p, remain)), "\(p)% reading \(remain)")
         }
-        XCTAssertNil(last, "one step measured over half a percent")
-        last = t.observe(row(69, 2))
-        // Measured from the second fall to 4 (66.5), not the first (63), which would say 74%.
-        XCTAssertEqual(last?.percent, 70)
+    }
+
+    func testBelowFloorTheGuessHoldsThenGoes() throws {
+        var t = RunoutTracker()
+        XCTAssertEqual(steady(1...52, &t)?.percent, 60, "reads 4 at 52%: the fit stops there")
+        XCTAssertEqual(t.observe(row(53, 0))?.percent, 60, "a stray 0 doesn't move it")
+        XCTAssertTrue(try XCTUnwrap(t.observe(row(58, 3))).soon)
+        XCTAssertNil(t.observe(row(61, 2)), "past the guess and still printing: it was wrong")
     }
 
     func testEnoughFilamentShowsNothing() {
         var t = RunoutTracker()
         var last: Runout?
-        for p in 10...40 {
-            last = t.observe(row(p, 80 - (p - 10) / 2))
+        for p in 1...40 {
+            last = t.observe(row(p, 80 - p / 2))
         }
-        XCTAssertNil(last, "runs out at 169%")
+        XCTAssertNil(last, "runs out at 160%")
     }
 
-    func testWobbleIsIgnoredAndSwapStartsOver() {
+    func testSwingsKeepTheFitAndSwapsStartOver() {
         var t = RunoutTracker()
-        XCTAssertNotNil(steady(to: 30, &t))
-        XCTAssertNotNil(t.observe(row(31, 11)), "a one-point rise is the AMS estimate wobbling")
+        XCTAssertNotNil(steady(1...30, &t))
+        XCTAssertNotNil(t.observe(row(31, 17)), "two points up is the estimate swinging")
         XCTAssertNil(t.observe(row(32, 100)), "a fresh spool")
         XCTAssertNil(t.observe(row(33, 99, name: "PETG")), "another filament")
     }
 
-    func testStartSequenceAndPausesDontCount() {
+    func testStartSequenceAndPausesDontCount() throws {
         var t = RunoutTracker()
-        XCTAssertNil(t.observe(row(0, 23, state: "PREPARE", layer: 0)))
-        // Purging at 0% progress takes 3 points. Counted, the rate would put the runout at 56%.
-        for remain in [22, 21, 20] {
+        XCTAssertNil(t.observe(row(0, 34, state: "PREPARE", layer: 0)))
+        for remain in [33, 32, 31, 30] {
             XCTAssertNil(t.observe(row(0, remain, layer: 0)))
         }
-        XCTAssertEqual(steady(to: 30, &t)?.percent, 49)
+        var clean = RunoutTracker()
+        _ = clean.observe(row(0, 30))
+        XCTAssertEqual(steady(1...30, &t), steady(1...30, &clean), "purging at 0% leaves only where it ended")
 
-        let paused = t.observe(row(30, 10, state: "PAUSE"))
-        XCTAssertEqual(paused?.percent, 49)
-        XCTAssertNil(paused?.at)
-        XCTAssertEqual(paused.map(GlanceContent.runoutLine), "PLA Matte in A2 runs out at about 49%.")
+        let paused = try XCTUnwrap(t.observe(row(30, 13, state: "PAUSE")))
+        XCTAssertNil(paused.at)
+        XCTAssertEqual(GlanceContent.runoutLine(paused), "PLA Matte in A2 runs out at about \(paused.percent)%.")
+        XCTAssertEqual(t.observe(row(30, 15))?.percent, 60, "a paused reading adds nothing")
     }
 
-    func testBackupSlotAndSoon() throws {
+    func testBackupSlot() throws {
         var t = RunoutTracker()
         let twin = AMSTray(id: "2", name: "PLA Matte", remain: nil, color: "F5C6A0FF", label: "A3", unit: "A")
         let other = AMSTray(id: "3", name: "PLA Matte", remain: nil, color: "000000FF", label: "A4", unit: "A")
-        let r = try XCTUnwrap(steady(to: 30, &t, extra: [other, twin]))
+        let r = try XCTUnwrap(steady(1...30, &t, extra: [other, twin]))
         XCTAssertEqual(r.backup, "A3")
-        XCTAssertEqual(GlanceContent.runoutLine(r), "PLA Matte in A2 runs out around 14:45. AMS may switch to A3.")
-
-        let soon = try XCTUnwrap(steady(to: 48, &t))
-        XCTAssertTrue(soon.soon)
-        XCTAssertEqual(GlanceContent.runoutLine(soon), "PLA Matte in A2 is about to run out.")
+        XCTAssertEqual(GlanceContent.runoutLine(r), "PLA Matte in A2 runs out around 15:05. AMS may switch to A3.")
     }
 
     func testNewJobFinishAndNotifyOnce() throws {
         var t = RunoutTracker()
-        let r = try XCTUnwrap(steady(to: 30, &t))
+        let r = try XCTUnwrap(steady(1...30, &t))
         XCTAssertTrue(t.shouldNotify(serial: "x2d", runout: r))
         XCTAssertFalse(t.shouldNotify(serial: "x2d", runout: r))
 
         let saved = try JSONEncoder().encode(t)
         var restored = try JSONDecoder().decode(RunoutTracker.self, from: saved)
-        XCTAssertNotNil(restored.observe(row(31, 10)), "survives a relaunch")
+        XCTAssertNotNil(restored.observe(row(31, 15)), "survives a relaunch")
         XCTAssertFalse(restored.shouldNotify(serial: "x2d", runout: r))
 
-        XCTAssertNil(t.observe(row(31, 10, job: "t2")), "a new job starts over")
+        XCTAssertNil(t.observe(row(31, 15, job: "t2")), "a new job starts over")
         _ = t.observe(row(100, 0, state: "FINISH"))
         XCTAssertTrue(t.jobs.isEmpty)
     }
