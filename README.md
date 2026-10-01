@@ -1,16 +1,35 @@
 # PrintGlance
 
-PrintGlance is a small icon in the Mac menu bar. While your Bambu printer is printing, it shows how far the job has got and what time it should finish. You do not need Bambu Studio open.
-
-PrintGlance runs on your Mac. It talks to printers on your Wi-Fi. You can watch up to four printers. Once a day it checks GitHub for a newer PrintGlance version. It does not use Bambu's cloud. It does not pause, stop, or start prints. It only asks printers for status and shows it.
+See your Bambu Lab print's progress and finish time in the Mac menu bar. You do not need Bambu Studio, Bambu's cloud, or an account.
 
 <p align="center">
-  <img src="docs/menu-bar.png" alt="PrintGlance in the Mac menu bar, showing percent complete and a finish time" width="226">
+  <a href="https://github.com/talic/PrintGlance/releases/latest"><b>Download PrintGlance</b></a> · Free · macOS 14 or later
 </p>
 
 <p align="center">
-  <img src="docs/print-card.png" alt="PrintGlance print card for a running print, with remaining time, layer, and filament" width="496">
+  <img src="docs/menu-bar.png" alt="PrintGlance in the Mac menu bar, showing 52% and a finish time of 16:25" width="226">
 </p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/print-card-dark.png">
+    <img src="docs/print-card-light.png" alt="Print card for a running print: finish time 16:25, 1h 24m left, 52%, layer 18 of 29, PLA Matte. Below, three printers: X2D printing, P1S paused, A1 mini idle" width="248">
+  </picture>
+  &nbsp;&nbsp;
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/paused-card-dark.png">
+    <img src="docs/paused-card-light.png" alt="Print card for a paused print: 1h 24m left, Filament ran out in AMS A, slot 1, the error codes with Look up links, and the AMS slots" width="248">
+  </picture>
+</p>
+
+- **Glance at the menu bar.** It shows the percent and finish time. While a print starts, it shows the stage, such as **Heating** or **Leveling**.
+- **Know why a print stopped.** When a print pauses or fails, PrintGlance says why in plain words, such as **Filament ran out in AMS A, slot 2.** It also shows the error code, with a link to Bambu's page about it.
+- **Get notified.** When a print is finishing soon, finishes, pauses, or fails, when PrintGlance loses the printer, and when filament runs low. **Quiet Hours** holds the finish notice until morning.
+- **Watch up to four printers.** The menu bar shows the one that needs you. The print card lists them all.
+- **See your filament.** Each AMS slot shows its color, filament, and how much is left, plus the AMS humidity when the AMS reports it.
+- **Private and read-only.** PrintGlance talks to your printers on your Wi-Fi. It never pauses, stops, or starts a print. Your access code stays on your Mac. The only thing it fetches from the internet is a daily check on GitHub for a newer version.
+
+PrintGlance works with Bambu Lab printers that show an access code on their LAN or Network page, such as the A1, P1, P2S, X1, H2, and X2D.
 
 ## What you need
 
@@ -159,3 +178,5 @@ You do not need **LAN Only Mode** or **Developer Mode**. PrintGlance only reads 
 ## License
 
 MIT. See the `LICENSE` file.
+
+PrintGlance is not made by or affiliated with Bambu Lab.
