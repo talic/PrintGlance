@@ -203,6 +203,36 @@ final class JobLogTests: XCTestCase {
         XCTAssertEqual(loaded.rows[0].endedAt, t0.addingTimeInterval(60))
     }
 
+    func testClearForgetsEndedPrintsAndKeepsTheOneRunning() {
+        var log = JobLog()
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        log.observe(printers: [row("RUNNING", jobId: "t1")], now: t0)
+        log.observe(printers: [row("FAILED", jobId: "t1")], now: t0 + 60)
+        log.observe(printers: [row("RUNNING", jobId: "t2")], now: t0 + 120)
+        log.observe(printers: [row("FINISH", jobId: "t2")], now: t0 + 180)
+        var other = row("RUNNING", jobId: "p9")
+        other.id = "p1s"
+        log.observe(printers: [other], now: t0 + 200)
+        XCTAssertEqual(log.rows.count, 3)
+
+        log.clearEnded()
+        XCTAssertEqual(log.rows.map(\.jobId), ["p9"])
+        XCTAssertNil(log.occupancyEndedAt(serial: "x2d", state: "FINISH", jobId: "t2"), "no \"40m ago\" left to show")
+
+        other.state = "FINISH"
+        log.observe(printers: [other], now: t0 + 900)
+        XCTAssertEqual(log.rows.first?.startAt, t0 + 200, "the running print keeps its real start")
+        XCTAssertEqual(log.rows.first?.endedAt, t0 + 900)
+    }
+
+    func testClearHistoryMessage() {
+        XCTAssertEqual(GlanceContent.clearHistoryMessage(cleared: 12, running: 0),
+                       "PrintGlance forgets the 12 prints saved on this Mac. You can't undo this.")
+        XCTAssertEqual(GlanceContent.clearHistoryMessage(cleared: 1, running: 1),
+                       "PrintGlance forgets the print saved on this Mac. You can't undo this. The print in progress stays.")
+        XCTAssertTrue(GlanceContent.clearHistoryMessage(cleared: 3, running: 2).hasSuffix(" The prints in progress stay."))
+    }
+
     private func row(_ state: String, jobId: String?, job: String? = "Print in Parts") -> Printer {
         Printer(id: "x2d", name: "X2D", state: state, percent: 16, job: job, jobId: jobId)
     }

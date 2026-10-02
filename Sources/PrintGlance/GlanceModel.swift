@@ -176,6 +176,13 @@ final class GlanceModel: ObservableObject {
         try? jobLog.csv().write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Forgets ended prints, on disk too. A print in progress stays and is logged when it ends.
+    func clearHistory() {
+        jobLog.clearEnded()
+        jobLog.save(to: jobLogURL)
+        historyRows = jobLog.recent(JobLog.cap)
+    }
+
     func start() {
         // ponytail: crude 1 MB cap, wipes all history; rotate instead if old lines ever matter.
         if let size = try? logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 1_000_000 {

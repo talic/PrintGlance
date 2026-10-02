@@ -51,6 +51,16 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(JobLog.cap, 50)
     }
 
+    func testClearHistoryKeepsAPrintInProgress() throws {
+        try readme(contains: "To clear it, click **Clear History…** below the list, then click **Clear**. A print in progress stays.")
+        var log = JobLog(rows: [
+            JobLogRow(serial: "x2d", name: "X2D", jobId: "t1", startAt: Date(), outcome: nil),
+            JobLogRow(serial: "x2d", name: "X2D", jobId: "t0", startAt: Date(), outcome: JobLog.outcomeOK),
+        ])
+        log.clearEnded()
+        XCTAssertEqual(log.rows.map(\.jobId), ["t1"])
+    }
+
     func testLowFilamentThreshold() throws {
         try readme(contains: "drops below 20%")
         XCTAssertEqual(FilamentAlert.thresholdPercent, 20)

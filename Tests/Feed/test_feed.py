@@ -12,6 +12,8 @@ import io
 import json
 import os
 import re
+import socket
+import socketserver
 import sys
 import threading
 import time
@@ -114,6 +116,7 @@ class JobLabelTests(unittest.TestCase):
             "Benchy.gco": "Benchy",
             "Benchy.stl": "Benchy.stl",
             "  models/Benchy.gcode  ": "Benchy",
+            "/sdcard/Benchy.gcode.3mf": "Benchy",
         }
         for path, want in cases.items():
             with self.subTest(path=path):
@@ -131,6 +134,10 @@ class JobLabelTests(unittest.TestCase):
             "Benchy  0.08mm layer": "Benchy",
             "Benchy": "Benchy",
             "Benchy_0.2mm": "Benchy_0.2mm",
+            "Benchy .08mm": "Benchy",
+            "Spacer 20mm x4": "Spacer 20mm x4",
+            "Cable clip 1.5mm": "Cable clip 1.5mm",
+            "Spacer 20mm 0.2mm layer, 2 walls": "Spacer 20mm",
         }
         for raw, want in cases.items():
             with self.subTest(raw=raw):
@@ -227,11 +234,16 @@ class ActiveFilamentTests(unittest.TestCase):
             with self.subTest(obj=obj):
                 self.assertEqual(bambu.active_filament(obj), (None, None))
 
-    @unittest.expectedFailure
     def test_tray_now_is_global_across_ams_units(self):
-        """Known feed bug: tray_now is global (unit = idx // 4) but _find_ams_tray matches per-unit tray ids."""
+        """tray_now counts across units: AMS B slot 2 is 5. Same mapping as the app."""
         ams = {"tray_now": 5, "ams": [ams_unit(0, "PLA", "PLA", "PLA", "PLA"), ams_unit(1, "ABS", "PETG", "ASA", "TPU")]}
         self.assertEqual(bambu.active_filament({"ams": ams}), ("PETG", 50))
+        ams["tray_now"] = 1
+        self.assertEqual(bambu.active_filament({"ams": ams}), ("PLA", 50))
+
+    def test_units_without_ids_count_by_position(self):
+        ams = {"tray_now": 6, "ams": [{"tray": [{"id": "2", "tray_type": "PLA"}]}, {"tray": [{"id": "2", "tray_type": "ASA"}]}]}
+        self.assertEqual(bambu.active_filament({"ams": ams})[0], "ASA")
 
 
 class PrinterRowTests(unittest.TestCase):
@@ -260,6 +272,23 @@ class PrinterRowTests(unittest.TestCase):
         for raw, want in ((2, 120), ("5", 300), (-3, 0), (0, 0)):
             with self.subTest(raw=raw):
                 self.assertEqual(self.row({"gcode_state": "RUNNING", "mc_remaining_time": raw})["remaining_s"], want)
+
+    def test_infinite_and_huge_numbers_are_none_or_capped(self):
+        """json.loads turns Infinity and 1e999 into float('inf'); int() of that raises OverflowError."""
+        report = json.loads(
+            '{"gcode_state":"RUNNING","mc_percent":Infinity,"mc_remaining_time":1e999,"layer_num":-Infinity,'
+            '"total_layer_num":NaN,"ams":{"tray_now":Infinity,"ams":[{"id":"0","tray":[{"id":"0","remain":1e999}]}]}}'
+        )
+        row = self.row(report)
+        self.assertEqual((row["percent"], row["remaining_s"], row["layer"], row["layer_total"]), (None, None, None, None))
+        huge = self.row({"gcode_state": "RUNNING", "mc_remaining_time": 10**30})
+        self.assertEqual(huge["remaining_s"], bambu.MAX_REMAINING_MIN * 60, "30 days, like the app")
+        self.assertRegex(huge["eta"], r"^\d{2}:\d{2}$")
+
+    def test_hostile_report_still_serves_json(self):
+        snap = snapshot()
+        bambu._on_message_v2(None, {"snap": snap, "serial": SERIAL}, message(b'{"print":{"gcode_state":"RUNNING","mc_percent":1e999}}'))
+        self.assertEqual(json.loads(snap.print_json_bytes())["printers"][0]["state"], "RUNNING")
 
     def test_non_numeric_fields_are_none(self):
         row = self.row({
@@ -450,8 +479,10 @@ class MqttCallbackTests(unittest.TestCase):
 
     def test_message_ignores_bad_payloads(self):
         snap = snapshot()
-        for payload in (b"\xff\xfe\x00", b"{not json", b"[1, 2]", b'"RUNNING"', b"null", b"42"):
-            with self.subTest(payload=payload):
+        payloads = {p.decode("latin-1"): p for p in (b"\xff\xfe\x00", b"{not json", b"[1, 2]", b'"RUNNING"', b"null", b"42")}
+        payloads["100k nested arrays"] = b"[" * 100_000 + b"]" * 100_000  # RecursionError in json.loads
+        for label, payload in payloads.items():
+            with self.subTest(payload=label):
                 bambu._on_message_v2(None, {"snap": snap, "serial": SERIAL}, message(payload))
         self.assertFalse(snap.online())
         self.assertEqual(snap.copy_print(), {})
@@ -503,6 +534,16 @@ class MakeClientTests(unittest.TestCase):
     def test_username_is_bblp(self):
         self.assertEqual(self.make().username, "bblp")
 
+    def test_callback_errors_dont_stop_the_network_thread(self):
+        self.assertTrue(self.make().suppress_exceptions)
+
+
+class LoopbackServer(ThreadingHTTPServer):
+    def server_bind(self):
+        """Skips HTTPServer's reverse DNS lookup (socket.getfqdn), which takes seconds on CI runners."""
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+
 
 class HttpTests(unittest.TestCase):
     def setUp(self):
@@ -520,7 +561,7 @@ class HttpTests(unittest.TestCase):
         self.snap = snapshot({"gcode_state": "IDLE", "mc_percent": 100, "subtask_name": "Benchy"})
         self.set_snap(self.snap)
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), print_loop.Handler)
+        server = LoopbackServer(("127.0.0.1", 0), print_loop.Handler)
         thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         thread.start()
         self.addCleanup(server.server_close)
@@ -608,12 +649,18 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         self.assertTrue(json.loads(body)["token_required"])
 
-    def test_server_header_discloses_python_version(self):
-        """BaseHTTPRequestHandler appends sys_version to server_version; this pins that disclosure."""
+    def test_server_header_hides_the_python_version(self):
         resp, _ = self.get("/health")
-        server = resp.getheader("Server")
-        self.assertEqual(server, f"PrintGlance-feed/1.0 {print_loop.Handler.sys_version}")
-        self.assertIn("Python/", server)
+        self.assertEqual(resp.getheader("Server"), "PrintGlance-feed/1.0")
+
+    def test_idle_connection_is_closed(self):
+        """A keep-alive connection that sends nothing gives its thread back."""
+        self.assertIsNotNone(print_loop.Handler.timeout, "None waits forever")
+        self.assertLessEqual(print_loop.Handler.timeout, 30)
+        with mock.patch.object(print_loop.Handler, "timeout", 0.2):
+            sock = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+            self.addCleanup(sock.close)
+            self.assertEqual(sock.recv(1), b"", "the server hung up")
 
     def test_responses_never_leak_printer_secrets(self):
         with mock.patch.dict(os.environ, {**ENV, "BAMBU_NAME": "Workshop"}, clear=True):
@@ -638,6 +685,21 @@ class HttpTests(unittest.TestCase):
             for secret in (serial, serial[-6:], code, ip):
                 with self.subTest(path=path, secret=secret):
                     self.assertNotIn(secret.encode(), body)
+
+
+class BindTests(unittest.TestCase):
+    def test_serves_only_this_mac_by_default(self):
+        self.assertEqual(print_loop.bind_address({}), ("127.0.0.1", 8080))
+        self.assertEqual(print_loop.bind_address({"PRINT_HOST": "0.0.0.0", "PRINT_PORT": "9000"}), ("0.0.0.0", 9000))
+
+    def test_warns_when_the_lan_can_read_it_without_a_token(self):
+        for host in ("0.0.0.0", "192.0.2.5", "::", "mac.local"):
+            with self.subTest(host=host):
+                self.assertIn("STATS_TOKEN", print_loop.lan_warning(host, ""))
+                self.assertIsNone(print_loop.lan_warning(host, "s3cret"))
+        for host in ("127.0.0.1", "::1", "localhost"):
+            with self.subTest(host=host):
+                self.assertIsNone(print_loop.lan_warning(host, ""))
 
 
 class SelfTestTests(unittest.TestCase):

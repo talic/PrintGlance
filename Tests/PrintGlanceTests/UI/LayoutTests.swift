@@ -64,7 +64,7 @@ final class LayoutTests: XCTestCase {
         }
         let size = try Screen(HistoryView(rows: rows, now: Rows.now, onExport: {}, onClose: {})).size
         XCTAssertEqual(size.width, 248)
-        XCTAssertLessThanOrEqual(size.height, 360 + 80, "a 360 pt scroll area plus the title row and padding")
+        XCTAssertLessThanOrEqual(size.height, 360 + 110, "a 360 pt scroll area plus the title row, Clear History, and padding")
     }
 
     func testSetupWindowWrapsLongMessages() throws {

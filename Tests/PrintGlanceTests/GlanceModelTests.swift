@@ -437,6 +437,23 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(h.model.historyRows.first?.endedAt?.timeIntervalSince1970 ?? 0, row.endedAt!.timeIntervalSince1970, accuracy: 1)
     }
 
+    func testClearingHistoryForgetsPastPrintsOnDisk() throws {
+        let h = ModelHarness(self)
+        let links = h.add(x2d, p1s)
+        links.forEach { $0.accept() }
+        links[0].report(Report.running())
+        links[0].report(Report.state("FINISH"))
+        links[1].report(Report.running(job: "Gears", task: "t9"))
+        XCTAssertEqual(h.model.historyRows.count, 2)
+        XCTAssertEqual(h.model.strip.systemImage, "printer.fill", "the running printer has the menu bar")
+
+        h.model.clearHistory()
+        XCTAssertEqual(h.model.historyRows.map(\.job), ["Gears"], "the print in progress stays")
+        XCTAssertNil(h.model.occupancyEndedAt(for: try XCTUnwrap(h.row(x2d.serial))))
+        h.relaunch()
+        XCTAssertEqual(h.model.historyRows.map(\.job), ["Gears"])
+    }
+
     func testExportWritesCSV() throws {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)

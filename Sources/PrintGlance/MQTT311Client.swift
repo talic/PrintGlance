@@ -31,6 +31,10 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
     /// PINGREQ sent and nothing received since. Still set at the next tick means the link is dead.
     private var awaitingPong = false
 
+    /// The largest packet accepted. A full report is tens of KB; the length field allows 256 MB, which a
+    /// device impersonating the printer could use to make the app buffer that much.
+    static let maxPacketSize = 4 << 20
+
     /// 1s, 2s, 4s, 8s, 16s, then 30s. `attempt` is 1 after the first drop.
     static func reconnectDelaySeconds(attempt: Int) -> TimeInterval {
         let n = max(attempt, 1)
@@ -207,6 +211,10 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
                 return
             }
             let total = 1 + size + len
+            guard total <= Self.maxPacketSize else {
+                fail("packet too large", generation: generation)
+                return
+            }
             guard buffer.count >= total else { return }
             let packet = [UInt8](buffer.prefix(total))
             buffer.removeFirst(total)

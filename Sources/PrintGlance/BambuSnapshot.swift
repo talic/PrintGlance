@@ -83,9 +83,9 @@ enum BambuPrint {
         let low = s.lowercased()
         if low.hasPrefix("cache/") || low.contains("/cache/") { return nil }
         var stem = s.split(separator: "/").last.map(String.init) ?? s
-        for ext in [".gcode", ".3mf", ".gco"] where stem.lowercased().hasSuffix(ext) {
+        // Sliced files are "Benchy.gcode.3mf", so strip every known extension, not just the last.
+        while let ext = [".gcode", ".3mf", ".gco"].first(where: { stem.lowercased().hasSuffix($0) }) {
             stem = String(stem.dropLast(ext.count))
-            break
         }
         if stem.count < 2 { return nil }
         if stem.range(of: "^[0-9a-fA-F]{8,}$", options: .regularExpression) != nil { return nil }
@@ -93,8 +93,10 @@ enum BambuPrint {
         return stem
     }
 
+    /// Cuts a slicer suffix like " 0.16mm layer, 2 walls, 10% infill". Only layer heights (under 1 mm)
+    /// count, so a size in the name, like "Spacer 20mm", stays.
     static func stripProcessSuffix(_ name: String) -> String {
-        let pattern = #"\s+\d+(\.\d+)?mm\b.*"#
+        let pattern = #"\s+0?\.\d+\s*mm\b.*"#
         guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return name
         }
