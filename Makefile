@@ -1,5 +1,6 @@
 # Builds PrintGlance.app. `make install` copies it to ~/Applications.
-# `swift test` does not exercise Gatekeeper or the menu bar extra.
+# `make test` runs the Swift suite and the Python feed's suite; neither exercises Gatekeeper or
+# the real menu bar. docs/TESTING.md has the manual checks.
 #
 # `make app` signs ad-hoc. A release signs with a Developer ID and notarizes:
 #   make notarize SIGN_ID="Developer ID Application: …" NOTARY_PROFILE=<notarytool store-credentials profile>
@@ -14,6 +15,8 @@ APP      := dist/$(APP_NAME).app
 ZIP      := dist/$(APP_NAME).zip
 ICNS     := dist/AppIcon.icns
 SIGN_ID  ?= -
+# The feed's tests use the repo venv (paho-mqtt) when it exists; without paho two of them skip.
+PYTHON   := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
 # Notarization needs the hardened runtime and a secure timestamp; ad-hoc builds get neither.
 SIGN_FLAGS  := $(if $(filter-out -,$(SIGN_ID)),--options runtime --timestamp)
@@ -23,6 +26,7 @@ NOTARY_AUTH := $(if $(NOTARY_PROFILE),--keychain-profile "$(NOTARY_PROFILE)",--k
 
 test:
 	swift test
+	$(PYTHON) -m unittest discover -s Tests/Feed
 
 release:
 	swift build -c release
