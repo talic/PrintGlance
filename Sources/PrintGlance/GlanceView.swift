@@ -161,6 +161,8 @@ struct GlanceView: View {
         .menuIndicator(.hidden)
         .menuStyle(.borderlessButton)
         .buttonStyle(.plain)
+        // A borderless menu stretches to fill the row, which pulls the icon off the trailing edge.
+        .fixedSize()
         .onChange(of: openAtLogin) { _, on in
             guard on != LoginItem.isEnabled else { return }
             LoginItem.setEnabled(on)
