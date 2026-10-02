@@ -10,6 +10,8 @@ Read-only MQTT (no pause/stop/print).
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -23,8 +25,26 @@ from bambu import BambuSnapshot, config_from_env, make_client
 
 log = logging.getLogger("print-loop")
 
-HOST = os.environ.get("PRINT_HOST", os.environ.get("HOST", "0.0.0.0"))
-PORT = int(os.environ.get("PRINT_PORT", os.environ.get("PORT", "8080")))
+
+def bind_address(env: Any) -> tuple[str, int]:
+    """This Mac only unless PRINT_HOST says otherwise (0.0.0.0 serves the LAN)."""
+    host = env.get("PRINT_HOST", env.get("HOST", "127.0.0.1"))
+    return host, int(env.get("PRINT_PORT", env.get("PORT", "8080")))
+
+
+def lan_warning(host: str, token: str) -> str | None:
+    """Why serving `host` without a token is open to the LAN, or None when it isn't."""
+    if token:
+        return None
+    try:
+        if host == "localhost" or ipaddress.ip_address(host).is_loopback:
+            return None
+    except ValueError:
+        pass
+    return f"serving {host} without STATS_TOKEN: anyone on the network can read the printer's state and job names"
+
+
+HOST, PORT = bind_address(os.environ)
 STATS_TOKEN = (os.environ.get("STATS_TOKEN") or "").strip()
 
 _snap_obj: BambuSnapshot | None = None
@@ -42,6 +62,12 @@ def _snap() -> BambuSnapshot | None:
 class Handler(BaseHTTPRequestHandler):
     server_version = "PrintGlance-feed/1.0"
     protocol_version = "HTTP/1.1"
+    # Seconds an idle keep-alive connection may hold its thread.
+    timeout = 10
+
+    def version_string(self) -> str:
+        """Without the Python version BaseHTTPRequestHandler appends."""
+        return self.server_version
 
     def log_message(self, fmt: str, *args: Any) -> None:
         log.info("%s - %s", self.address_string(), fmt % args)
@@ -49,7 +75,8 @@ class Handler(BaseHTTPRequestHandler):
     def _token_ok(self) -> bool:
         if not STATS_TOKEN:
             return True
-        return self.headers.get("X-Stats-Token") == STATS_TOKEN
+        given = (self.headers.get("X-Stats-Token") or "").encode("utf-8")
+        return hmac.compare_digest(given, STATS_TOKEN.encode("utf-8"))
 
     def _send(self, code: int, body: bytes, content_type: str) -> None:
         self.send_response(code)
@@ -105,6 +132,9 @@ def main() -> int:
     client = make_client(ip, serial, code, snap)
     client.loop_start()
     log.info("mqtt starting ip=%s serial=...%s http=%s:%s", ip, serial[-6:], HOST, PORT)
+    warning = lan_warning(HOST, STATS_TOKEN)
+    if warning:
+        log.warning(warning)
 
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     try:

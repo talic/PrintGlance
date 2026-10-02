@@ -24,6 +24,7 @@ MQTT_PORT = 8883
 MQTT_USER = "bblp"
 STALE_AFTER_S = 120
 ACTIVE_STATES = ("PREPARE", "RUNNING")
+MAX_REMAINING_MIN = 43_200  # 30 days, like the app; a bigger value would overflow the ETA
 KNOWN_STATES = ("PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE")
 
 # paho-mqtt is optional until print_loop / --once runs.
@@ -80,7 +81,7 @@ def _int_or_none(v: Any) -> int | None:
         return None
     try:
         return int(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: Infinity or 1e999 in a report
         return None
 
 
@@ -91,12 +92,13 @@ def human_gcode_stem(gcode_file: Any) -> str | None:
     low = s.lower()
     if low.startswith("cache/") or "/cache/" in low:
         return None
-    base = s.rsplit("/", 1)[-1]
-    stem = base
-    for ext in (".gcode", ".3mf", ".gco"):
-        if stem.lower().endswith(ext):
-            stem = stem[: -len(ext)]
+    stem = s.rsplit("/", 1)[-1]
+    # Sliced files are "Benchy.gcode.3mf", so strip every known extension, not just the last.
+    while True:
+        ext = next((e for e in (".gcode", ".3mf", ".gco") if stem.lower().endswith(e)), None)
+        if ext is None:
             break
+        stem = stem[: -len(ext)]
     if len(stem) < 2:
         return None
     if re.fullmatch(r"[0-9a-fA-F]{8,}", stem) or re.fullmatch(r"\d{6,}", stem):
@@ -105,7 +107,8 @@ def human_gcode_stem(gcode_file: Any) -> str | None:
 
 
 def strip_process_suffix(name: str) -> str:
-    return re.sub(r"\s+\d+(\.\d+)?mm\b.*", "", name, flags=re.I).strip()
+    """Cut a slicer suffix like " 0.16mm layer, 2 walls". Only layer heights (under 1 mm) count, so "Spacer 20mm" stays."""
+    return re.sub(r"\s+0?\.\d+\s*mm\b.*", "", name, flags=re.I).strip()
 
 
 def job_label(print_obj: dict[str, Any]) -> str | None:
@@ -124,20 +127,27 @@ def job_label(print_obj: dict[str, Any]) -> str | None:
 
 
 def _find_ams_tray(ams: dict[str, Any], idx: int) -> dict[str, Any] | None:
+    """tray_now is global (AMS A is 0-3, AMS B 4-7); each unit's tray ids are 0-3. Same as the app."""
     units = ams.get("ams")
     if not isinstance(units, list):
         return None
-    for unit in units:
+    tray = _match_ams_tray(units, idx // 4, idx % 4)
+    return tray if tray is not None else _match_ams_tray(units, None, idx)
+
+
+def _match_ams_tray(units: list[Any], unit_id: int | None, tray_id: int) -> dict[str, Any] | None:
+    for i, unit in enumerate(units):
         if not isinstance(unit, dict):
             continue
+        if unit_id is not None:
+            uid = _int_or_none(unit.get("id"))
+            if (i if uid is None else uid) != unit_id:
+                continue
         trays = unit.get("tray")
         if not isinstance(trays, list):
             continue
         for tray in trays:
-            if not isinstance(tray, dict):
-                continue
-            tid = _int_or_none(tray.get("id"))
-            if tid == idx:
+            if isinstance(tray, dict) and _int_or_none(tray.get("id")) == tray_id:
                 return tray
     return None
 
@@ -204,21 +214,14 @@ def printer_row(
     else:
         state = "OFFLINE"
 
-    percent = print_obj.get("mc_percent")
-    try:
-        percent_i = int(percent) if percent is not None else None
-    except (TypeError, ValueError):
-        percent_i = None
+    percent_i = _int_or_none(print_obj.get("mc_percent"))
     if percent_i is not None:
         percent_i = max(0, min(100, percent_i))
 
-    remaining_min = print_obj.get("mc_remaining_time")
+    remaining_min = _int_or_none(print_obj.get("mc_remaining_time"))
     remaining_s = None
-    try:
-        if remaining_min is not None:
-            remaining_s = max(0, int(remaining_min) * 60)
-    except (TypeError, ValueError):
-        remaining_s = None
+    if remaining_min is not None:
+        remaining_s = max(0, min(remaining_min, MAX_REMAINING_MIN)) * 60
 
     job = job_label(print_obj)
     filament, filament_remain = active_filament(print_obj)
@@ -384,7 +387,7 @@ def _on_message_v2(client, userdata, message) -> None:  # noqa: ANN001, ARG001
     snap: BambuSnapshot = userdata["snap"]
     try:
         payload = json.loads(message.payload.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, RecursionError):  # RecursionError: deeply nested JSON
         return
     if isinstance(payload, dict):
         snap.ingest(payload)
@@ -399,6 +402,9 @@ def make_client(ip: str, serial: str, access_code: str, snap: BambuSnapshot):
         protocol=mqtt.MQTTv311,
     )
     client.user_data_set({"snap": snap, "serial": serial})
+    # Log a callback's exception instead of letting it end paho's network thread, which would
+    # leave the feed serving OFFLINE until the LaunchAgent restarts it.
+    client.suppress_exceptions = True
     client.username_pw_set(MQTT_USER, access_code)
     client.tls_set(cert_reqs=ssl.CERT_NONE)
     client.tls_insecure_set(True)
