@@ -19,7 +19,7 @@ A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu La
 - **LAN only.** The app's only internet request is the daily GitHub release check.
 - **Secrets.** Never log, print, or commit an access code. Never print `.env`. Mask serials and IPs in logs you share.
 - No new dependencies. Keep `Printer`, `PrintDoc`, `AMSTray` (and friends) `Codable`; add only optional fields with `= nil`.
-- Don't edit `bambu.py`, `print_loop.*`, `.env*`, or launchd: the feed runs as a LaunchAgent on the owner's Mac.
+- Don't edit `bambu.py`, `print_loop.*`, or `.env.example` unless the owner asks, and never `.env` or launchd: the feed runs as a LaunchAgent on the owner's Mac.
 - Don't restructure the load-bearing macOS workarounds listed in ARCHITECTURE.md (`PinMenuBarExtra`, `hugMenuBarPanel`, `PanelOpened`, no `.id(strip)`, "keep `failed` through retries", `Notifier`).
 - Reach Notification Center only through `Notifier`. It traps in tests, and a MainActor permission completion traps in the app.
 - Presentation decisions go in pure `static` functions on `GlanceContent` (report parsing on `BambuPrint`), each tested. Views stay thin.

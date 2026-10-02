@@ -39,7 +39,7 @@ These are product promises (README, "Private and read-only") or hard-won constra
 | **The access code stays on this Mac**, and only ever travels as the MQTT password to the printer's own IP. Never log it, never put it in a notification or a URL. | Privacy promise; the code grants LAN control of the printer. | `SecurityTests.testAccessCodeIsOnlyEverTheMQTTPassword` |
 | **No dependencies.** The package has none; system frameworks only. | Simplicity and supply chain. | Review |
 | `Printer`, `PrintDoc`, `AMSTray`, `AMSUnit`, `Temp`, `Runout` stay `Codable`; only add optional fields with `= nil` defaults. | The JSON fixtures pin the Python feed's format (`PrintDocTests`). | `PrintDocTests` |
-| Don't edit `bambu.py`, `print_loop.*`, `.env*`, or launchd. | The feed runs as a LaunchAgent on the owner's Mac and may feed another device. | Review; `Tests/Feed` covers its behavior |
+| Don't edit `bambu.py`, `print_loop.*`, or `.env.example` unless the owner asks; never `.env` or launchd. | The feed runs as a LaunchAgent on the owner's Mac and may feed another device. | Review; `Tests/Feed` covers its behavior |
 | Don't restructure the [load-bearing workarounds](#macos-integration-and-load-bearing-workarounds). | Each one fixes a macOS 26/27 menu bar bug that only shows with real clicks. | Manual checks in TESTING.md |
 | Presentation decisions live in pure `static` functions on `GlanceContent` (report parsing on `BambuPrint`), each with tests. Views stay thin. | Every state can be tested and rendered without a printer. | `PrintDocTests`, `PrepareAmsHmsTests`, UI tests |
 | Copy is English, short plain sentences. Menu items use title case ("Add Printer…"); everything else sentence case. States are **Starting, Printing, Paused, Finished, Failed, Idle, Offline**; no connection at all is **Can't reach printer**; slots are **A1…D4**, **HT-A**, **External**; codes are **Error 0700-2000-0002-0001**. | Consistent vocabulary across menu bar, card, notifications, README. | UI and shipping tests |
@@ -52,7 +52,7 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`.
 |---|---|
 | `PrintGlanceApp.swift` | `@main` app. Builds one `GlanceModel`, calls `start()`, declares the `MenuBarExtra` (window style) with `StripLabel` as the menu bar label and `GlanceView` as the panel. `AppDelegate` shows setup on reopen and keeps the app alive when the setup window closes. `PinMenuBarExtra` workaround. |
 | `GlanceModel.swift` | The orchestrator (`@MainActor ObservableObject`). Owns one `Link` (MQTT client + `BambuSnapshot`) per complete saved printer, the connection state machine, rediscovery, and the pipeline that turns snapshots into `content` and side effects (notifications, history, runout, finishing-soon). Also `Notifier`, the Notification Center seam, and `PrintNotifyPresenter`, the notification delegate. |
-| `MQTT311Client.swift` | `MQTTSession` protocol and `MQTT311Client`, a minimal MQTT 3.1.1 client on `Network.framework` over TLS: CONNECT, SUBSCRIBE (QoS 0), PUBLISH (QoS 0), PINGREQ every 20 s with a 30 s keep-alive, frame reassembly, a generation counter so a replaced socket can't fire callbacks. Backoff schedule. |
+| `MQTT311Client.swift` | `MQTTSession` protocol and `MQTT311Client`, a minimal MQTT 3.1.1 client on `Network.framework` over TLS: CONNECT, SUBSCRIBE (QoS 0), PUBLISH (QoS 0), PINGREQ every 20 s with a 30 s keep-alive, frame reassembly (packets over 4 MB drop the connection), a generation counter so a replaced socket can't fire callbacks. Backoff schedule. |
 | `BambuSnapshot.swift` | `BambuJSON` (lenient number/string reading), `BambuPrint` (pure parsing of a merged report into a `Printer` row: state, progress, job label, filament, AMS trays and units, temperatures, error codes, stage), `BambuSnapshot` (one printer's merged report and its online/offline clock), `fleetDoc`. |
 | `PrintDoc.swift` | The value types: `PrintDoc` (all printers), `Printer` (one row), `AMSTray`, `AMSUnit`, `Temp`, `FeedResult` (`.doc`, `.feedDown`, `.needsSetup`, `.connecting`). `PrintDoc.displayRow()` ranks printers for the menu bar. |
 | `GlanceContent.swift` | Pure presentation: the menu bar strip (`StripPresentation`), headline, subtitle, hero, remaining line, layer line, filament line, heat line, offline lines, error reasons and lookup URLs, AMS grouping, history captions, time formatting (`dayTime`, `formatRemain`). `GlanceCopy` holds the can't-connect sentences. |
@@ -229,6 +229,8 @@ Only paused and failed printers show codes (`print_error` can linger after the p
 
 `JobLog` opens a row when a printer starts a job (Starting or Printing) and closes it when it finishes (ok), fails (fail), or goes idle (ok, no end time). A new job ID while a row is open closes the old row. `endedAt` is set only if PrintGlance saw the job running, so "took 4h 43m" is never a guess. Up to 50 rows are kept (the oldest closed rows go first; an open row never does) in `~/Library/Application Support/PrintGlance/jobs.json`; History shows them newest first and exports CSV (`started,ended,duration_min,printer,job,filament,outcome`, RFC 4180 quoting). The newest successful row's `endedAt` gives the menu bar's "40m ago".
 
+**Clear History…** under the list (shown when there is an ended print) asks first, then drops every ended row from memory and `jobs.json` (`JobLog.clearEnded`, `GlanceModel.clearHistory`). A print in progress stays: dropping its open row would make the next report reopen it with the wrong start time. Clearing also clears a finished printer's "40m ago", which comes from the same rows.
+
 ## Setup window
 
 `SetupWindow` hosts `SetupView` in its own `NSWindow` (the menu bar panel closes when the user walks to the printer to read the code). It opens on first launch, on reopen while nothing is set up, from **Add Printer…** and **Edit …** in the panel's menu, and from **Update Access Code…**.
@@ -290,7 +292,7 @@ Live testing notes: on macOS 27 `NSStatusBarButton.performClick` doesn't open a 
 
 ## The Python feed
 
-`bambu.py` and `print_loop.py` predate the Swift app's direct MQTT client. The app no longer reads them, but the owner runs `print_loop.sh` as the LaunchAgent `local.PrintGlance.feed`, and another device may read it. It connects to one printer from `.env` (`BAMBU_IP`, `BAMBU_SERIAL`, `BAMBU_ACCESS_CODE`, `BAMBU_NAME`) with client ID `pg-feed-…`, merges reports like the app, and serves `GET /print.json` (and `/print`, `/health`, `/`) on `PRINT_HOST:PRINT_PORT` (default `0.0.0.0:8080`), optionally requiring the `X-Stats-Token` header when `STATS_TOKEN` is set. The JSON is the `PrintDoc` shape in snake_case; `Tests/PrintGlanceTests/Fixtures/*.json` pin it. Leave these files alone unless the owner asks.
+`bambu.py` and `print_loop.py` predate the Swift app's direct MQTT client. The app no longer reads them, but the owner runs `print_loop.sh` as the LaunchAgent `local.PrintGlance.feed`, and another device may read it. It connects to one printer from `.env` (`BAMBU_IP`, `BAMBU_SERIAL`, `BAMBU_ACCESS_CODE`, `BAMBU_NAME`) with client ID `pg-feed-…`, merges reports like the app, and serves `GET /print.json` (and `/print`, `/health`, `/`) on `PRINT_HOST:PRINT_PORT`. The default is `127.0.0.1:8080`, this Mac only; `PRINT_HOST=0.0.0.0` serves the LAN, and the feed logs a warning at start when it does that without `STATS_TOKEN`. With a token, `/print.json` requires a matching `X-Stats-Token` header (compared in constant time). Idle connections close after 10 s, and the `Server` header leaves out the Python version. A report with `Infinity`, huge numbers, or deeply nested JSON can't break it, and paho's thread logs callback errors instead of dying. The JSON is the `PrintDoc` shape in snake_case; `Tests/PrintGlanceTests/Fixtures/*.json` pin it. Leave these files alone unless the owner asks.
 
 ## Build, sign, release
 
@@ -313,7 +315,7 @@ Deliberate shortcuts carry a `ponytail:` comment in the code naming the ceiling 
 - **The log** is wiped at 1 MB rather than rotated.
 - **Release signing** falls back to ad-hoc without secrets.
 
-Open findings from building the test suite (not fixed; see TESTING.md for detail): CSV export doesn't neutralize cells starting with `=`, `+`, `-`, `@` (spreadsheet formula injection from a crafted job name); the MQTT client buffers a frame up to the 256 MB the length field allows; the keep-alive ping (20 s) isn't covered by automated tests; several Python feed issues (a report with `Infinity` or deep nesting can break it; it serves the LAN without a token by default; `tray_now` across several AMS units is read wrong).
+Accepted by the owner, not fixed: CSV export doesn't neutralize cells starting with `=`, `+`, `-`, `@` (spreadsheet formula injection from a crafted job name). Not automated: the 20 s keep-alive ping. See TESTING.md.
 
 ## Changing things safely
 
@@ -336,7 +338,7 @@ All under the report's `print` object.
 | `mc_percent`, `mc_remaining_time` | Progress %, minutes left | Bar, hero, ETA, runout x-axis |
 | `layer_num`, `total_layer_num` | Layer progress | Layer line, Starting detection |
 | `task_id`, `subtask_id` | Job identity | Job changes, history, dedupe |
-| `subtask_name`, `gcode_file` | Job name, file path | Job label (cache paths and hex names ignored, process suffix like "0.2mm layer" cut, 40 chars) |
+| `subtask_name`, `gcode_file` | Job name, file path | Job label (cache paths and hex names ignored, every `.gcode`/`.3mf`/`.gco` extension dropped, a layer-height suffix like " 0.2mm layer, 2 walls" cut but sizes like "20mm" kept, 40 chars) |
 | `ams.tray_now` / `tray_tar` | Active slot (255 none, 254 external) | Active filament |
 | `ams.ams[].id`, `.humidity`, `.humidity_raw`, `.info`, `.tray[]` | AMS units (HT from id 128) and slots | Trays, humidity, runout |
 | `tray[].tray_type`, `tray_sub_brands`, `tray_info_idx`, `remain`, `tray_color`, `cols` | Slot contents | Filament name, %, color dot |

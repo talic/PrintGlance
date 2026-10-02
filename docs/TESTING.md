@@ -1,6 +1,6 @@
 # Testing PrintGlance
 
-The suite has two parts: **291 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **64 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
+The suite has two parts: **298 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **71 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Running
 
@@ -38,12 +38,12 @@ PG_RENDER_DIR=/tmp/pg-renders make test
 |---|---|---|---|
 | **Parsing and presentation** (pure functions) | `PrintDocTests`, `PrepareAmsHmsTests`, `BambuSnapshotTests`, `FilamentAlertTests`, `RunoutTrackerTests`, `ComingOffTests`, `PrintNotifyTests`, `JobLogTests`, `AppUpdateTests`, `PrinterDiscoveryTests`, `SetupFlowTests`, `MenuBarHugTests`, `MQTT311ClientTests`, `AccessCodeStoreTests`, `SavedPrintersTests` | Each report field becomes the right row; each row becomes the right words; each rule (ranking, notifications, runout, history, quiet hours, backoff) decides right, with fixed `now`, `Calendar`, and `Locale`. | ms |
 | **Workflows** (`GlanceModel` with fakes) | `GlanceModelTests`, `SetupWorkflowTests` | The app as a whole: adding a printer dials it with the code, a report becomes the card and menu bar, a rejected code retries without searching, a printer that moved is found and its new IP saved only once it answers, removing and editing printers, every notification and its identifier, history files, the setup window's connect/fail/retry/cancel/edit. | ms; a few wait for the real 1 s backoff |
-| **Wire** (real `MQTT311Client`, real TLS on loopback) | `MQTTWireTests` | The exact bytes of CONNECT, SUBSCRIBE, PUBLISH; CONNACK codes; refused ports; frame reassembly across reads and in one read; 150 KB reports; QoS 1; hostile frames (garbage lengths, topics longer than their packet, truncated packets, non-UTF-8 topics, unknown packet types); a disconnect or replaced socket staying silent. | ~1.5 s |
+| **Wire** (real `MQTT311Client`, real TLS on loopback) | `MQTTWireTests` | The exact bytes of CONNECT, SUBSCRIBE, PUBLISH; CONNACK codes; refused ports; frame reassembly across reads and in one read; 150 KB reports; QoS 1; hostile frames (garbage lengths, packets over 4 MB, topics longer than their packet, truncated packets, non-UTF-8 topics, unknown packet types); a disconnect or replaced socket staying silent. | ~1.5 s |
 | **UI** (SwiftUI read through accessibility) | `UI/CardScreenTests`, `UI/PanelScreenTests`, `UI/SetupScreenTests`, `UI/LayoutTests` | What a person sees and can do in each state: exact text in reading order, which buttons exist and are enabled, VoiceOver names for every control, no `Optional(…)` leaking into text, pressing buttons and typing into fields, the full setup flow driven through the window, size limits for small displays and long names. | ~4 s |
 | **Security and privacy** | `SecurityTests`, `UpdateCheckTests`, parts of `MQTTWireTests` | The access code only ever travels as the MQTT password (never in the log, client ID, notifications, or publishes); the app only ever publishes `pushall`; outbound URLs carry no serial; updates download only from `https://github.com`; seeded fuzzing of reports, error codes, and discovery packets never crashes or prints an optional. | ~0.5 s |
 | **Shipping** | `ShippingTests` | `Info.plist` keys the app relies on; README promises (four printers, 50 jobs, 20%, 5%, Quiet Hours 10 PM–7 AM, lead times, 2-minute network settle, stage words, the paused example, the lost-connection wording, "only fetches GitHub") checked against the constants and functions that keep them. | ms |
 | **Renders** | `RenderStatesTests` | PNGs of every state, skipped unless `PG_RENDER_DIR` is set. | — |
-| **Python feed** | `Tests/Feed/test_feed.py` | Merging, rows, AMS, the snapshot cache under threads, the read-only MQTT callbacks, the HTTP endpoints and token, `/print.json` never carrying the serial, IP, or code, `bambu.self_test()`. | ~0.6 s |
+| **Python feed** | `Tests/Feed/test_feed.py` | Merging, rows, AMS across units, job names, hostile numbers and nesting, the snapshot cache under threads, the read-only MQTT callbacks, the HTTP endpoints and token, the localhost default and LAN warning, idle timeouts, `/print.json` never carrying the serial, IP, or code, `bambu.self_test()`. | ~0.8 s |
 
 ## Test doubles and helpers
 
@@ -99,12 +99,14 @@ All in `Tests/PrintGlanceTests/Support`.
 | Finishing soon | `ComingOffTests`, `GlanceModelTests.testFinishingSoon…`, `…testLeadTime…` |
 | Low filament and runout | `FilamentAlertTests`, `RunoutTrackerTests`, `GlanceModelTests.testLowFilament…`, `…testFallingSpool…`, `CardScreenTests.testRunoutLineUnderTheBar` |
 | Error codes, reasons, lookup URLs | `PrepareAmsHmsTests`, `CardScreenTests.testPaused…`, `…testFailed`, `SecurityTests.testErrorLookupSendsOnlyTheModelPrefix`, `SecurityTests.testRandomErrorCodesNeverCrash` |
-| History and CSV | `JobLogTests`, `GlanceModelTests.testFinishedPrintIsLogged…`, `…testExportWritesCSV`, `PanelScreenTests` (History), `LayoutTests.testHistoryScrollsInsteadOfGrowing` |
+| History, CSV, Clear History | `JobLogTests`, `GlanceModelTests.testFinishedPrintIsLogged…`, `…testClearingHistoryForgetsPastPrintsOnDisk`, `…testExportWritesCSV`, `PanelScreenTests` (History), `ShippingTests.testClearHistoryKeepsAPrintInProgress`, `LayoutTests.testHistoryScrollsInsteadOfGrowing` |
 | Update check | `AppUpdateTests`, `UpdateCheckTests`, `SecurityTests.testUpdate…` |
 | Panel sizing math | `MenuBarHugTests`, `LayoutTests` |
 | Accessibility | Every `UI/` test via `assertReadsWell`; `CardScreenTests.testPrinterListRowsSayStateAndProgress` |
 | README and Info.plist | `ShippingTests` |
-| Hostile input | `SecurityTests` (fuzzing), `MQTTWireTests` (frames), `GlanceModelTests.testGarbageMessagesChangeNothing`, `PrepareAmsHmsTests.testHostileNumbersDoNotTrap`, Python `ActiveFilamentTests.test_garbage_shapes_do_not_raise` |
+| Hostile input | `SecurityTests` (fuzzing), `MQTTWireTests` (frames, oversized packets), `GlanceModelTests.testGarbageMessagesChangeNothing`, `PrepareAmsHmsTests.testHostileNumbersDoNotTrap`, Python `ActiveFilamentTests.test_garbage_shapes_do_not_raise`, `PrinterRowTests.test_infinite_and_huge_numbers…`, `MqttCallbackTests.test_message_ignores_bad_payloads` |
+| Job names (extensions, slicer suffixes) | `PrintDocTests.testJobLabel…`, Python `JobLabelTests` |
+| Feed exposure: bind address, token, idle timeout, `Server` header, no secrets in responses | Python `BindTests`, `HttpTests` |
 
 ## What isn't automated
 
@@ -123,6 +125,7 @@ Run these by hand before a release, or when touching the area. Ask the owner bef
 | `PrinterDiscovery.scan` on a real Wi-Fi, including while Bambu Studio holds UDP 2021 | Real multicast sockets. |
 | **Update available** and **Download PrintGlance x.y.z** | `GlanceModel.availableUpdate` is set only from `start()`. `UpdateCheckTests` covers the checker itself. |
 | Gatekeeper on the downloaded zip, notarization | `release.yml` checks this for signed builds. |
+| **Clear History…** asks first, and **Cancel** keeps the list | The confirmation is a modal `NSAlert`. `PanelScreenTests` presses the button with a stand-in action; `GlanceModelTests` covers the clearing. |
 
 To watch the running app from the shell without UI automation, a temporary `DistributedNotificationCenter` observer in `PrintGlanceApp.init` can run commands and write to `~/Library/Logs/PrintGlance.log`; remove it before committing. Mask serials and IPs when sharing the log.
 
@@ -134,17 +137,21 @@ Fixed in the same change, each with a test that fails without the fix:
 - **VoiceOver read the setup window's text fields as just "text field"** (`SetupScreenTests`, via `assertReadsWell`).
 - **A long printer name wrapped the finished/failed caption** onto several lines and grew the panel (`LayoutTests.testLongNamesTruncateInsteadOfGrowingTheCard`).
 
-Open, for the owner to decide:
+Fixed in the follow-up, each with a test that fails on the old code:
 
-- **CSV formula injection** (low): `JobLog.csv()` quotes commas, quotes, and newlines but leaves cells starting with `=`, `+`, `-`, or `@` as they are. A job name crafted by someone who can send prints to the printer could run a formula when the export is opened in a spreadsheet. The usual fix prefixes such cells with `'`.
-- **Unbounded MQTT frame buffer** (low): `MQTT311Client` waits for as many bytes as a frame's length field claims (up to 256 MB) before parsing. Only the printer, or something impersonating it (TLS trusts any certificate), can send that.
-- **Python feed** (`bambu.py`, `print_loop.py`; left unchanged by policy):
-  - A report with `Infinity` or a huge number in `mc_percent`, `mc_remaining_time`, `layer_num`, `remain`, or `tray_now` raises `OverflowError`; every `/print.json` request then fails until the printer overwrites the field.
-  - Deeply nested JSON raises `RecursionError` in the MQTT callback, which kills paho's network thread; the feed then serves OFFLINE forever. Catching `Exception` in `_on_message_v2` (or `client.suppress_exceptions = True`) fixes it.
-  - It listens on `0.0.0.0:8080` with no token by default, so anything on the LAN can read printer state and job names.
-  - The token is compared with `==` (use `hmac.compare_digest`), idle HTTP/1.1 connections hold a thread with no timeout, and the `Server` header discloses the Python version.
-  - `tray_now` across several AMS units is matched by slot id only, so AMS B's spools are read wrong (`test_tray_now_is_global_across_ams_units`, marked expected failure).
-- Both the app and the feed strip only one file extension (`Benchy.gcode.3mf` shows as `Benchy.gcode`) and cut real sizes like "20mm" from job names as if they were layer heights.
+- **MQTT packets were buffered up to the 256 MB their length field allows.** Anything over 4 MB now drops the connection before buffering (`MQTTWireTests.testOversizedPacketDropsTheConnectionBeforeBuffering`).
+- **Job names:** `Benchy.gcode.3mf` showed as `Benchy.gcode`, and sizes like "Spacer 20mm" were cut as if they were layer heights. Every known extension is dropped now, and only a layer height under 1 mm counts as a slicer suffix (app and feed).
+- **Python feed:**
+  - `Infinity` or huge numbers in a report raised `OverflowError` on every `/print.json` request. They now read as missing, and remaining time is capped at 30 days like the app.
+  - Deeply nested JSON raised `RecursionError` in the MQTT callback and ended paho's network thread for good. It's ignored now, and `suppress_exceptions` keeps any callback error from ending the thread.
+  - It served `0.0.0.0` with no token by default. It now binds `127.0.0.1` unless `PRINT_HOST` says otherwise, and warns at start when it serves the LAN without `STATS_TOKEN`.
+  - The token is compared in constant time, idle connections close after 10 s, and the `Server` header leaves out the Python version.
+  - `tray_now` across several AMS units read the wrong spool. It now maps like the app.
+- **Feed tests took 36 s on CI** because each test server did a reverse DNS lookup; the tests skip it now.
+
+Accepted by the owner, not fixed:
+
+- **CSV formula injection** (low): `JobLog.csv()` quotes commas, quotes, and newlines but leaves cells starting with `=`, `+`, `-`, or `@` as they are. A job name crafted by someone who can send prints to the printer could run a formula when the export is opened in a spreadsheet.
 
 ## Adding a test
 
