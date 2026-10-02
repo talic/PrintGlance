@@ -158,6 +158,15 @@ final class MQTTWireTests: XCTestCase {
         XCTAssertTrue(events.messages.isEmpty)
     }
 
+    func testOversizedPacketDropsTheConnectionBeforeBuffering() throws {
+        let broker = try connected()
+        // Remaining length 6 MB; the body never comes, and the client mustn't wait to hold it.
+        broker.send([0x30, 0x80, 0x80, 0x80, 0x03])
+        XCTAssertTrue(events.wait { !self.events.disconnects.isEmpty })
+        XCTAssertEqual(events.disconnects, ["packet too large"])
+        XCTAssertGreaterThan(6 << 20, MQTT311Client.maxPacketSize)
+    }
+
     func testTopicLongerThanItsPacketIsSkipped() throws {
         let broker = try connected()
         // Remaining length 4, but the topic claims 0x7FFF bytes.
