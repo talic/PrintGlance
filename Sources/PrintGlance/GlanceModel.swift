@@ -409,7 +409,8 @@ final class GlanceModel: ObservableObject {
             adopted.insert(serial)
         }
         for id in waiting where !adopted.contains(id) {
-            guard links[id] != nil else { continue }
+            // Reconnected during the scan (after wake, say): redialing would drop a healthy link.
+            guard let link = links[id], link.failed else { continue }
             scheduleReconnect(id)
         }
     }
