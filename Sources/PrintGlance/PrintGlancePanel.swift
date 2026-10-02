@@ -84,6 +84,7 @@ private struct MenuBarPanelHost: NSViewRepresentable {
     }
 }
 
+/// Sits behind the fixed-size card, so its size is the card's size.
 private final class HugWindowView: NSView {
     private var hugging = false
 
@@ -97,27 +98,17 @@ private final class HugWindowView: NSView {
             name: NSWindow.didResizeNotification,
             object: window
         )
-        hugSoon(0)
-    }
-
-    /// The card's minimum size arrives a few turns after the window is shown.
-    private func hugSoon(_ attempt: Int) {
         hug()
-        guard attempt < 8, let window else { return }
-        let fitting = window.frameRect(forContentRect: NSRect(origin: .zero, size: window.contentMinSize)).size
-        let waiting = fitting.height < 40 || window.frame.height - fitting.height > 1
-        guard waiting else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.hugSoon(attempt + 1)
-        }
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
 
-    override func layout() {
-        super.layout()
+    /// The card grew or shrank. The window's minimum size catches up a turn later, and only
+    /// growing forces a resize, so a shrink would leave the panel tall.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
         hug()
     }
 
@@ -128,8 +119,7 @@ private final class HugWindowView: NSView {
     fileprivate func hug() {
         guard !hugging, let window else { return }
         style(window)
-        let min = window.contentMinSize
-        let fitting = window.frameRect(forContentRect: NSRect(origin: .zero, size: min)).size
+        let fitting = window.frameRect(forContentRect: NSRect(origin: .zero, size: bounds.size)).size
         guard let frame = MenuBarHug.frame(current: window.frame, fitting: fitting) else { return }
         guard NSScreen.screens.contains(where: { $0.frame.intersects(frame) }) else { return }
         hugging = true
