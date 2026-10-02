@@ -4,6 +4,22 @@ import Foundation
 import Network
 import UserNotifications
 
+/// Notification Center behind closures, because it traps outside an app bundle. Tests record instead.
+struct Notifier {
+    var add: (UNNotificationRequest) -> Void = { UNUserNotificationCenter.current().add($0) }
+    var removePending: ([String]) -> Void = {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: $0)
+    }
+    /// Nonisolated: the completion runs on Apple's notify queue, and a MainActor closure traps (SIGTRAP).
+    var requestAuthorization: @Sendable () async -> Void = {
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+    }
+    /// Nonisolated: `UNNotificationSettings` is not Sendable in the macOS 15 SDK.
+    var isDenied: @Sendable () async -> Bool = {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+    }
+}
+
 enum LinkStatus: Equatable {
     case connecting
     case connected
@@ -21,7 +37,7 @@ final class GlanceModel: ObservableObject {
     @Published var notifyPrefs: PrintNotifyPrefs {
         didSet {
             notify.prefs = notifyPrefs
-            notifyPrefs.save(.standard)
+            notifyPrefs.save(defaults)
         }
     }
     /// The user turned PrintGlance's notifications off in System Settings.
@@ -30,7 +46,7 @@ final class GlanceModel: ObservableObject {
     @Published private(set) var historyRows: [JobLogRow] = []
 
     private final class Link {
-        let mqtt = MQTT311Client()
+        let mqtt: any MQTTSession
         let snapshot: BambuSnapshot
         var printer: PrinterSettings
         var timeout: Task<Void, Never>?
@@ -45,8 +61,9 @@ final class GlanceModel: ObservableObject {
         /// The saved IP answered and rejected the access code.
         var authRejected = false
 
-        init(printer: PrinterSettings) {
+        init(printer: PrinterSettings, mqtt: any MQTTSession) {
             self.printer = printer
+            self.mqtt = mqtt
             snapshot = BambuSnapshot(printerID: printer.serial, name: printer.displayName)
         }
 
@@ -70,7 +87,7 @@ final class GlanceModel: ObservableObject {
     private static let instanceTag = String(UInt16.random(in: .min ... .max), radix: 16)
     private let updates = AppUpdateChecker()
     private var filament = FilamentAlert()
-    private var runout = RunoutTracker.load(.standard)
+    private var runout: RunoutTracker
     private var staleTask: Task<Void, Never>?
     private var notify: PrintNotify
     private let notifyPresenter = PrintNotifyPresenter()
@@ -83,30 +100,53 @@ final class GlanceModel: ObservableObject {
     private var pathSignature: String?
     private var macOnline = true
     private var networkChangedAt: Date?
+    private let defaults: UserDefaults
+    private let logURL: URL
+    private let notifier: Notifier
+    private let makeClient: () -> any MQTTSession
+    private let scan: @Sendable () async -> [PrinterDiscovery.Hit]
+    private let connectTimeout: Duration
 
-    init(jobLogURL: URL = JobLog.fileURL()) {
-        let settings = SavedPrinters.load()
-        let prefs = PrintNotifyPrefs.load(.standard)
+    /// The defaults are the app. Tests pass their own so nothing reaches the network, Notification
+    /// Center, or this Mac's real preferences and log.
+    init(
+        jobLogURL: URL = JobLog.fileURL(),
+        defaults: UserDefaults = .standard,
+        logURL: URL = GlanceModel.defaultLogURL,
+        notifier: Notifier = Notifier(),
+        makeClient: @escaping () -> any MQTTSession = { MQTT311Client() },
+        scan: @escaping @Sendable () async -> [PrinterDiscovery.Hit] = { await PrinterDiscovery.scan() },
+        connectTimeout: Duration = .seconds(8)
+    ) {
+        self.defaults = defaults
+        self.logURL = logURL
+        self.notifier = notifier
+        self.makeClient = makeClient
+        self.scan = scan
+        self.connectTimeout = connectTimeout
+        let settings = SavedPrinters.load(from: defaults)
+        let prefs = PrintNotifyPrefs.load(defaults)
         self.settings = settings
         self.notifyPrefs = prefs
         self.notify = PrintNotify(
             serial: settings.focusId ?? settings.printers.first?.serial ?? "",
             prefs: prefs,
-            stamps: PrintNotifyStamp.loadAll(.standard)
+            stamps: PrintNotifyStamp.loadAll(defaults)
         )
         self.jobLogURL = jobLogURL
         let log = JobLog.load(from: jobLogURL)
         self.jobLog = log
         self.historyRows = log.recent(JobLog.cap)
-        self.comingOff = ComingOff.load(.standard)
+        self.comingOff = ComingOff.load(defaults)
+        self.runout = RunoutTracker.load(defaults)
     }
 
-    private static let logURL = FileManager.default.homeDirectoryForCurrentUser
+    nonisolated static let defaultLogURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/PrintGlance.log")
 
     private func log(_ msg: String) {
         let line = "\(Date().ISO8601Format()) \(msg)\n"
-        let url = Self.logURL
+        let url = logURL
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
@@ -138,8 +178,8 @@ final class GlanceModel: ObservableObject {
 
     func start() {
         // ponytail: crude 1 MB cap, wipes all history; rotate instead if old lines ever matter.
-        if let size = try? Self.logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 1_000_000 {
-            try? FileManager.default.removeItem(at: Self.logURL)
+        if let size = try? logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 1_000_000 {
+            try? FileManager.default.removeItem(at: logURL)
         }
         notifyPresenter.model = self
         UNUserNotificationCenter.current().delegate = notifyPresenter
@@ -194,15 +234,11 @@ final class GlanceModel: ObservableObject {
     }
 
     func refreshNotificationStatus() {
+        let isDenied = notifier.isDenied
         Task {
-            let off = await Self.notificationsDenied()
+            let off = await isDenied()
             if notificationsOff != off { notificationsOff = off }
         }
-    }
-
-    /// Off the main actor: `UNNotificationSettings` is not Sendable in the macOS 15 SDK.
-    nonisolated private static func notificationsDenied() async -> Bool {
-        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
     }
 
     /// The card's printer for this panel open: a clicked notification's printer, once. Nil means the menu bar's printer.
@@ -210,7 +246,7 @@ final class GlanceModel: ObservableObject {
         pendingSelection.take()
     }
 
-    fileprivate func notificationClicked(serial: String) {
+    func notificationClicked(serial: String) {
         pendingSelection.serial = serial
     }
 
@@ -224,7 +260,7 @@ final class GlanceModel: ObservableObject {
 
     func focusPrinter(_ id: String) {
         let next = settings.focusing(id)
-        next.save()
+        next.save(to: defaults)
         settings = next
         publishSnapshot()
     }
@@ -234,7 +270,7 @@ final class GlanceModel: ObservableObject {
     }
 
     func saveSettings(_ next: SavedPrinters) {
-        next.save()
+        next.save(to: defaults)
         settings = next
         applySettingsAndConnect()
     }
@@ -255,7 +291,7 @@ final class GlanceModel: ObservableObject {
         apply(GlanceContent(result: .connecting))
         for printer in complete {
             let id = printer.serial
-            let link = Link(printer: printer)
+            let link = Link(printer: printer, mqtt: makeClient())
             link.mqtt.onConnect = { [weak self] in self?.didConnect(id) }
             link.mqtt.onDisconnect = { [weak self] reason in self?.didDisconnect(id, reason) }
             link.mqtt.onMessage = { [weak self] _, data in self?.didMessage(id, data) }
@@ -298,8 +334,8 @@ final class GlanceModel: ObservableObject {
             username: "bblp",
             password: printer.accessCode
         )
-        link.timeout = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 8_000_000_000)
+        link.timeout = Task { @MainActor [weak self, connectTimeout] in
+            try? await Task.sleep(for: connectTimeout)
             guard let self, !Task.isCancelled else { return }
             guard let link = self.links[id], !link.handshake else { return }
             link.failed = true
@@ -346,8 +382,8 @@ final class GlanceModel: ObservableObject {
         adoptGeneration &+= 1
         let generation = adoptGeneration
         lastAdoptScanAt = Date()
-        adoptScan = Task { @MainActor [weak self] in
-            let hits = await PrinterDiscovery.scan()
+        adoptScan = Task { @MainActor [weak self, scan] in
+            let hits = await scan()
             guard let self, !Task.isCancelled, generation == self.adoptGeneration else { return }
             self.adoptScan = nil
             self.finishAdoptScan(hits: hits)
@@ -373,7 +409,8 @@ final class GlanceModel: ObservableObject {
             adopted.insert(serial)
         }
         for id in waiting where !adopted.contains(id) {
-            guard links[id] != nil else { continue }
+            // Reconnected during the scan (after wake, say): redialing would drop a healthy link.
+            guard let link = links[id], link.failed else { continue }
             scheduleReconnect(id)
         }
     }
@@ -417,7 +454,7 @@ final class GlanceModel: ObservableObject {
         guard let old = savedPrinter(serial: id)?.ip,
               let next = settings.changingIP(serial: id, to: candidate)
         else { return }
-        next.save()
+        next.save(to: defaults)
         settings = next
         log("ip \(id) \(old) -> \(candidate)")
     }
@@ -501,7 +538,7 @@ final class GlanceModel: ObservableObject {
                 }
             }
             if comingOff != comingOffBefore {
-                comingOff.save(.standard)
+                comingOff.save(defaults)
             }
             apply(GlanceContent(result: .doc(doc)))
             syncOccupancyClock()
@@ -530,7 +567,7 @@ final class GlanceModel: ObservableObject {
                 }
             }
             if runout != runoutBefore {
-                runout.save(.standard)
+                runout.save(defaults)
             }
             return
         }
@@ -547,9 +584,7 @@ final class GlanceModel: ObservableObject {
         content.body = body
         content.sound = .default
         content.userInfo = [PendingSelection.serialKey: serial]
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-        )
+        notifier.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
 
     private func setLink(_ id: String, _ status: LinkStatus) {
@@ -572,7 +607,7 @@ final class GlanceModel: ObservableObject {
             let stampsBefore = notify.stamps
             let outcome = notify.observe(next)
             if notify.stamps != stampsBefore {
-                notify.persistStamp(.standard)
+                notify.persistStamp(defaults)
             }
             deliver(outcome)
             content = next
@@ -612,11 +647,9 @@ final class GlanceModel: ObservableObject {
     }
 
     func requestNotificationPermission() {
-        // The completion runs on Apple's notify queue. A MainActor
-        // closure traps (SIGTRAP) and the extra vanishes.
+        let requestAuthorization = notifier.requestAuthorization
         Task {
-            _ = try? await UNUserNotificationCenter.current()
-                .requestAuthorization(options: [.alert, .sound])
+            await requestAuthorization()
             refreshNotificationStatus()
         }
     }
@@ -658,9 +691,8 @@ final class GlanceModel: ObservableObject {
     }
 
     private func deliverComingOff(_ action: ComingOffAction, serial: String) {
-        let center = UNUserNotificationCenter.current()
         if !action.cancelIds.isEmpty {
-            center.removePendingNotificationRequests(withIdentifiers: action.cancelIds)
+            notifier.removePending(action.cancelIds)
         }
         guard action.immediate || action.interval != nil else { return }
         let trigger: UNNotificationTrigger?

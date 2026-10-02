@@ -1,8 +1,20 @@
 import Foundation
 import Network
 
+/// What `GlanceModel` needs from a printer connection. `MQTT311Client` is the real one; tests drive a fake.
+/// Callbacks arrive on the main queue.
+protocol MQTTSession: AnyObject {
+    var onConnect: (() -> Void)? { get set }
+    var onDisconnect: ((String?) -> Void)? { get set }
+    var onMessage: ((String, Data) -> Void)? { get set }
+    func connect(host: String, port: UInt16, clientID: String, username: String, password: String)
+    func subscribe(_ topic: String)
+    func publish(topic: String, payload: Data)
+    func disconnect()
+}
+
 /// Minimal MQTT 3.1.1 client (connect, subscribe QoS 0, publish QoS 0, ping).
-final class MQTT311Client: @unchecked Sendable {
+final class MQTT311Client: MQTTSession, @unchecked Sendable {
     var onConnect: (() -> Void)?
     var onDisconnect: ((String?) -> Void)?
     var onMessage: ((String, Data) -> Void)?
