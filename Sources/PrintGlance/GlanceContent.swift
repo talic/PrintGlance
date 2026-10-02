@@ -380,6 +380,16 @@ struct GlanceContent: Equatable, Sendable {
         ].compactMap { $0 }.joined(separator: " · ")
     }
 
+    /// The Clear History alert's text, for `cleared` ended prints and `running` ones that stay.
+    static func clearHistoryMessage(cleared: Int, running: Int) -> String {
+        let what = cleared == 1 ? "the print" : "the \(cleared) prints"
+        var text = "PrintGlance forgets \(what) saved on this Mac. You can't undo this."
+        if running > 0 {
+            text += running == 1 ? " The print in progress stays." : " The prints in progress stay."
+        }
+        return text
+    }
+
     static func trayLine(_ tray: AMSTray) -> String {
         let label = tray.label ?? tray.id
         let name = tray.name.map { "\(label) · \($0)" } ?? label

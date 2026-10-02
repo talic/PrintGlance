@@ -110,6 +110,21 @@ final class PanelScreenTests: XCTestCase {
         XCTAssertEqual(exported, 1)
     }
 
+    func testClearHistoryIsOfferedOnlyWhenThereIsSomethingToClear() throws {
+        var cleared = 0
+        let s = try Screen(HistoryView(rows: [historyRow(0, outcome: nil), historyRow(1)], now: Rows.now,
+                                       onExport: {}, onClose: {}, onClear: { cleared += 1 }))
+        assertReadsWell(s)
+        XCTAssertEqual(s.controls.map(\.label), ["Back", "Export CSV", "Clear History…"])
+        try s.press("Clear History…")
+        XCTAssertEqual(cleared, 1)
+
+        let running = try Screen(HistoryView(rows: [historyRow(0, outcome: nil)], now: Rows.now, onExport: {}, onClose: {}))
+        XCTAssertNil(running.find("Clear History…"), "a print in progress isn't cleared")
+        let empty = try Screen(HistoryView(rows: [], now: Rows.now, onExport: {}, onClose: {}))
+        XCTAssertNil(empty.find("Clear History…"))
+    }
+
     func testHistoryNamesThePrinterWhenThereAreSeveral() throws {
         let s = try Screen(HistoryView(rows: [historyRow(0), historyRow(1, serial: "p1s")], now: Rows.now, onExport: {}, onClose: {}))
         XCTAssertTrue(s.texts.contains { $0.hasPrefix("Benchy, X2D · ") }, "\(s.texts)")

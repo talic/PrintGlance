@@ -59,6 +59,12 @@ struct JobLog {
         trim()
     }
 
+    /// Forgets ended prints. An open row stays: dropping it would make the next report reopen the
+    /// print with the wrong start time.
+    mutating func clearEnded() {
+        rows.removeAll { !$0.isOpen }
+    }
+
     func recent(_ n: Int) -> [JobLogRow] {
         Array(rows.prefix(n))
     }

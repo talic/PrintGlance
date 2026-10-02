@@ -42,10 +42,19 @@ enum SetupWindow {
     }
 
     static func confirmRemove(name: String) -> Bool {
+        confirm(
+            "Remove \(name)?",
+            "PrintGlance stops watching this printer. To watch it again, add it and enter its access code.",
+            button: "Remove"
+        )
+    }
+
+    /// Asks before something that can't be undone. True when the person chose `button`.
+    static func confirm(_ title: String, _ message: String, button: String) -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Remove \(name)?"
-        alert.informativeText = "PrintGlance stops watching this printer. To watch it again, add it and enter its access code."
-        alert.addButton(withTitle: "Remove").hasDestructiveAction = true
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: button).hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
         NSApp.activate()
         return alert.runModal() == .alertFirstButtonReturn

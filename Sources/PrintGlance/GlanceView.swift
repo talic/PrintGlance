@@ -17,7 +17,8 @@ struct GlanceView: View {
                     rows: model.historyRows,
                     now: Date(),
                     onExport: exportHistory,
-                    onClose: { showHistory = false }
+                    onClose: { showHistory = false },
+                    onClear: clearHistory
                 )
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -178,6 +179,13 @@ struct GlanceView: View {
             guard response == .OK, let url = panel.url else { return }
             model.exportHistory(to: url)
         }
+    }
+
+    private func clearHistory() {
+        let ended = model.historyRows.filter { !$0.isOpen }.count
+        let message = GlanceContent.clearHistoryMessage(cleared: ended, running: model.historyRows.count - ended)
+        guard SetupWindow.confirm("Clear history?", message, button: "Clear") else { return }
+        model.clearHistory()
     }
 
     /// The card's printer, or the first saved one before any printer has reported.
@@ -558,6 +566,7 @@ struct HistoryView: View {
     var now: Date
     var onExport: () -> Void
     var onClose: () -> Void
+    var onClear: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -589,6 +598,10 @@ struct HistoryView: View {
                     }
                 }
                 .frame(maxHeight: 360)
+                // Only ended prints are cleared, so a lone print in progress offers nothing to clear.
+                if rows.contains(where: { !$0.isOpen }) {
+                    Button("Clear History…", action: onClear)
+                }
             }
         }
         .padding(14)
