@@ -378,6 +378,19 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(BambuPrint.humanGcodeStem("models/stomp-t-rex.gcode"), "stomp-t-rex")
     }
 
+    func testJobLabelKeepsSizesAndDropsEveryExtension() {
+        XCTAssertEqual(BambuPrint.humanGcodeStem("/sdcard/Benchy.gcode.3mf"), "Benchy")
+        XCTAssertEqual(BambuPrint.humanGcodeStem("Benchy.3MF"), "Benchy")
+        XCTAssertEqual(BambuPrint.humanGcodeStem("Benchy.stl"), "Benchy.stl")
+        XCTAssertNil(BambuPrint.humanGcodeStem(".gcode.3mf"))
+        XCTAssertEqual(BambuPrint.stripProcessSuffix("Spacer 20mm x4"), "Spacer 20mm x4")
+        XCTAssertEqual(BambuPrint.stripProcessSuffix("Cable clip 1.5mm"), "Cable clip 1.5mm")
+        XCTAssertEqual(BambuPrint.stripProcessSuffix("Benchy 0.2MM"), "Benchy")
+        XCTAssertEqual(BambuPrint.stripProcessSuffix("Benchy .08mm"), "Benchy")
+        XCTAssertEqual(BambuPrint.stripProcessSuffix("Spacer 20mm 0.2mm layer, 2 walls"), "Spacer 20mm")
+        XCTAssertEqual(BambuPrint.stripProcessSuffix("Benchy_0.2mm"), "Benchy_0.2mm", "no space, not a suffix")
+    }
+
     func testMergeClearsLayerOnNewJob() {
         var dst: [String: Any] = [
             "subtask_name": "old",
