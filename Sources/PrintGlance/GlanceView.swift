@@ -344,6 +344,8 @@ struct PrinterDetail: View {
                     Text(caption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
         }

@@ -413,6 +413,8 @@ struct SetupView: View {
                 .accessibilityHidden(true)
             TextField(title, text: text, prompt: Text(prompt ?? ""))
                 .labelsHidden()
+                // With a prompt, the hidden title no longer names the field for VoiceOver.
+                .accessibilityLabel(title)
                 .textFieldStyle(.roundedBorder)
                 .font(monospaced ? .body.monospaced() : .body)
                 .autocorrectionDisabled()
