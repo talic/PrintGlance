@@ -130,12 +130,19 @@ final class SecurityTests: XCTestCase {
             link.report(Fuzz.report(&rng))
             if i % 50 == 49 { link.drop(rng.pick(["closed", "MQTT CONNACK 5", "ECONNREFUSED", nil])) ; link.accept() }
             for row in h.doc?.printers ?? [] {
-                let strings = [GlanceContent.headline(row), GlanceContent.subtitle(row), GlanceContent.listDetail(row)]
-                    + [GlanceContent.hero(row), GlanceContent.remainingLine(row), GlanceContent.layerLine(row),
-                       GlanceContent.filamentLine(row), GlanceContent.heatLine(row), GlanceContent.errorReason(row)].compactMap { $0 }
-                    + GlanceContent.offlineLines(row, now: Date()) + GlanceContent.errorCodes(row)
-                    + GlanceContent.amsGroups(row).flatMap { [$0.header].compactMap { $0 } + $0.trays.map(GlanceContent.trayLine) }
-                    + [GlanceContent.strip(row: row).title, GlanceContent.strip(row: row).accessibilityLabel]
+                // Separate statements: one long expression times out Swift 6.1's type checker in CI.
+                let strip = GlanceContent.strip(row: row)
+                var strings: [String] = [GlanceContent.headline(row), GlanceContent.subtitle(row), GlanceContent.listDetail(row)]
+                let optionals: [String?] = [GlanceContent.hero(row), GlanceContent.remainingLine(row), GlanceContent.layerLine(row),
+                                            GlanceContent.filamentLine(row), GlanceContent.heatLine(row), GlanceContent.errorReason(row)]
+                strings += optionals.compactMap { $0 }
+                strings += GlanceContent.offlineLines(row, now: Date())
+                strings += GlanceContent.errorCodes(row)
+                for group in GlanceContent.amsGroups(row) {
+                    strings += [group.header].compactMap { $0 }
+                    strings += group.trays.map(GlanceContent.trayLine)
+                }
+                strings += [strip.title, strip.accessibilityLabel]
                 for s in strings {
                     XCTAssertFalse(s.contains("Optional("), s)
                 }

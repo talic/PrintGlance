@@ -92,7 +92,7 @@ final class Screen {
         let element = try control(label, file: file, line: line)
         XCTAssertTrue(element.enabled, "\"\(label)\" is disabled", file: file, line: line)
         // Returns a BOOL, so the result must not be read as an object.
-        _ = element.object.perform(Selector(("accessibilityPerformPress")))
+        _ = element.object.perform(NSSelectorFromString("accessibilityPerformPress"))
         settle()
     }
 
@@ -119,14 +119,14 @@ final class Screen {
     }
 
     private static func call(_ o: NSObject, _ name: String) -> Any? {
-        let selector = Selector((name))
+        let selector = NSSelectorFromString(name)
         guard o.responds(to: selector) else { return nil }
         return o.perform(selector)?.takeUnretainedValue()
     }
 
     private static func enableAccessibility() throws {
         let app = NSApplication.shared
-        let setter = Selector(("accessibilitySetEnhancedUserInterfaceAttribute:"))
+        let setter = NSSelectorFromString("accessibilitySetEnhancedUserInterfaceAttribute:")
         guard app.responds(to: setter) else {
             throw XCTSkip("This macOS has no AXEnhancedUserInterface setter, so SwiftUI's tree stays empty")
         }
