@@ -33,6 +33,7 @@ final class SetupFlow: ObservableObject {
     @Published var loginNeedsApproval = false
     var dismiss: () -> Void = {}
     private weak var model: GlanceModel?
+    private let discover: @Sendable () async -> [PrinterDiscovery.Hit]
     private var scanTask: Task<Void, Never>?
     /// The printers before the first Connect. Cancel puts them back.
     private var original: SavedPrinters?
@@ -40,10 +41,16 @@ final class SetupFlow: ObservableObject {
     private var deadline: Task<Void, Never>?
 
     /// `model` is nil when rendering in tests.
-    init(mode: SetupWindow.Mode, saved: SavedPrinters, model: GlanceModel? = nil) {
+    init(
+        mode: SetupWindow.Mode,
+        saved: SavedPrinters,
+        model: GlanceModel? = nil,
+        discover: @escaping @Sendable () async -> [PrinterDiscovery.Hit] = { await PrinterDiscovery.scan() }
+    ) {
         self.mode = mode
         self.saved = saved
         self.model = model
+        self.discover = discover
         var draft = PrinterSettings.empty
         if case let .edit(serial) = mode {
             draft = saved.printers.first { $0.serial == serial } ?? draft
@@ -66,8 +73,8 @@ final class SetupFlow: ObservableObject {
         scanTask?.cancel()
         scanning = true
         found = []
-        scanTask = Task { [weak self] in
-            let hits = await PrinterDiscovery.scan()
+        scanTask = Task { [weak self, discover] in
+            let hits = await discover()
             guard let self, !Task.isCancelled else { return }
             found = hits
             scanning = false
