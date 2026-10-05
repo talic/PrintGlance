@@ -1,5 +1,7 @@
 # P1: Setup and several printers
 
+> **Done.** Shipped in [#56](https://github.com/talic/PrintGlance/pull/56). Kept as a record of the scope and the decisions behind it. Don't execute it again; the code has moved on.
+
 **Goal:** a first run that works without reading the README, a setup flow that proves the printer connects before it says "done", a printer list you can scan at a glance, and notifications that say when they can't reach you.
 
 **Size:** 7 tasks, one commit each. Mostly medium.

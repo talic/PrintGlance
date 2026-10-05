@@ -1,5 +1,7 @@
 # P0: Attention and honesty
 
+> **Done.** Shipped in [#55](https://github.com/talic/PrintGlance/pull/55). Kept as a record of the scope and the decisions behind it. Don't execute it again; the code has moved on.
+
 **Goal:** the menu bar and the print card answer "Does it need me?" and "When is it done?" correctly in every state and with several printers, and never show stale or misleading information. This phase is presentation, copy, and small model additions. No new windows.
 
 **Size:** 11 tasks, one commit each. About half small, half medium.
