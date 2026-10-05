@@ -1,5 +1,7 @@
 # P2: Distribution and depth
 
+> **Done.** Shipped in [#57](https://github.com/talic/PrintGlance/pull/57). Kept as a record of the scope and the decisions behind it. Don't execute it again; the code has moved on. Still open from Task 1: the signing secrets don't exist yet, so releases ship ad-hoc (the `ponytail:` fallback in `release.yml`) and the README keeps its "Open Anyway" steps.
+
 **Goal:** remove the Gatekeeper steps from every install and update, and add the details that make a glance enough: temperatures while heating, plain-language reasons, notifications that lead somewhere, and a decision on a camera view.
 
 **Size:** 7 tasks. Task 1 needs the user's Apple Developer account. Task 6 is a research spike with no shipped UI.
