@@ -27,3 +27,7 @@ A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu La
 - CI builds with Xcode 16.4 (Swift 6.1), older than a current Mac. Concurrency errors can pass locally and fail in CI; keep non-Sendable framework values inside nonisolated helpers.
 - Copy: English, short plain sentences; title case for menu items, sentence case elsewhere. States are Starting, Printing, Paused, Finished, Failed, Idle, Offline.
 - Commits: `type: short imperative summary`, lower case (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `build:`, `chore:`). Mark deliberate shortcuts with a `ponytail:` comment naming the limit and the upgrade path.
+
+## Verifying a UI change
+
+Use `.cursor/skills/verify-printglance/SKILL.md` to drive the print card, the printer list, History, and Add Printer. Attach that run's proof to a UI pull request. When those screens change, keep the map honest with `/maintain-verification-skill`.
