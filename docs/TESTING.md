@@ -106,6 +106,7 @@ All in `Tests/PrintGlanceTests/Support`.
 | README and Info.plist | `ShippingTests` |
 | Hostile input | `SecurityTests` (fuzzing), `MQTTWireTests` (frames, oversized packets), `GlanceModelTests.testGarbageMessagesChangeNothing`, `PrepareAmsHmsTests.testHostileNumbersDoNotTrap`, Python `ActiveFilamentTests.test_garbage_shapes_do_not_raise`, `PrinterRowTests.test_infinite_and_huge_numbers…`, `MqttCallbackTests.test_message_ignores_bad_payloads` |
 | Job names (extensions, slicer suffixes) | `PrintDocTests.testJobLabel…`, Python `JobLabelTests` |
+| Feed parser matches the app (job label, second AMS tray, 30-day remaining cap) | `ParserParityTests`, Python `ParserParityTests` in `test_parser_parity.py`, fixture `Tests/PrintGlanceTests/Fixtures/parser-parity.json` |
 | Feed exposure: bind address, token, idle timeout, `Server` header, no secrets in responses | Python `BindTests`, `HttpTests` |
 
 ## What isn't automated

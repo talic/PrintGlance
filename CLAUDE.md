@@ -27,3 +27,9 @@ A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu La
 - CI builds with Xcode 16.4 (Swift 6.1), older than a current Mac. Concurrency errors can pass locally and fail in CI; keep non-Sendable framework values inside nonisolated helpers.
 - Copy: English, short plain sentences; title case for menu items, sentence case elsewhere. States are Starting, Printing, Paused, Finished, Failed, Idle, Offline.
 - Commits: `type: short imperative summary`, lower case (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `build:`, `chore:`). Mark deliberate shortcuts with a `ponytail:` comment naming the limit and the upgrade path.
+
+## Rules that are checked
+
+| Rule | What enforces it |
+|---|---|
+| The feed's job label, second-AMS tray, and 30-day remaining cap match `BambuPrint` | `Tests/PrintGlanceTests/Fixtures/parser-parity.json`, read by `ParserParityTests` and `Tests/Feed/test_parser_parity.py`. A failure names the `BambuPrint` function in `Sources/PrintGlance/BambuSnapshot.swift` to copy into `bambu.py`. |
