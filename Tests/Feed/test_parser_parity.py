@@ -1,8 +1,3 @@
-"""The feed's copy of the report parser must match BambuPrint.
-
-The fixture is the contract. A failure names the Swift function to copy.
-"""
-
 from __future__ import annotations
 
 import json

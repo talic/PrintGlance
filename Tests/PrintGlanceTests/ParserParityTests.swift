@@ -2,7 +2,6 @@ import Foundation
 import XCTest
 @testable import PrintGlance
 
-/// The shared fixture is the contract between `BambuPrint` and `bambu.py`.
 final class ParserParityTests: XCTestCase {
     func testAppMatchesTheSharedParserFixture() throws {
         let url = try XCTUnwrap(
@@ -29,7 +28,7 @@ final class ParserParityTests: XCTestCase {
                     "\(id): BambuPrint.activeFilament is the source of truth. Update bambu.active_filament and bambu._find_ams_tray to match it."
                 )
             }
-            if let remaining = jsonInt(item["remainingS"]) {
+            if let remaining = BambuJSON.intValue(item["remainingS"]) {
                 let row = BambuPrint.row(id: "x", name: "X", printObj: printObj, online: true)
                 XCTAssertEqual(
                     row.remainingS,
@@ -38,16 +37,5 @@ final class ParserParityTests: XCTestCase {
                 )
             }
         }
-    }
-}
-
-private func jsonInt(_ any: Any?) -> Int? {
-    switch any {
-    case let n as Int:
-        return n
-    case let n as NSNumber:
-        return n.intValue
-    default:
-        return nil
     }
 }
