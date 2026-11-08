@@ -13,6 +13,11 @@ struct PrintDoc: Codable, Equatable, Sendable {
     /// The printer that needs you: Paused, then Printing or Starting (finishing soonest),
     /// then Failed, then Finished, then the rest. Focus breaks ties, then saved order.
     func displayRow() -> Printer? {
+        ranked().first
+    }
+
+    /// Every printer in `displayRow` order.
+    func ranked() -> [Printer] {
         func key(_ i: Int, _ p: Printer) -> (Int, Int, Int, Int) {
             let tier: Int
             switch p.state.uppercased() {
@@ -25,7 +30,7 @@ struct PrintDoc: Codable, Equatable, Sendable {
             let soonest = tier == 1 ? p.remainingS ?? .max : 0
             return (tier, p.id == focusId ? 0 : 1, soonest, i)
         }
-        return printers.enumerated().min { key($0.offset, $0.element) < key($1.offset, $1.element) }?.element
+        return printers.enumerated().sorted { key($0.offset, $0.element) < key($1.offset, $1.element) }.map(\.element)
     }
 }
 

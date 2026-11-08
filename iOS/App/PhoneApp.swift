@@ -8,14 +8,15 @@ struct PrintGlancePhone: App {
     }
 }
 
-/// The printer, what it last said, and how to add the widget. Asking the printer here also gets the
+/// The printers, what each last said, and how to add the widget. Asking the printers here also gets the
 /// Local Network prompt out of the way, which the widget can't show.
 struct PhoneScreen: View {
     private let store = PhoneStore.shared
     @State private var form = PrinterSettings.empty
-    @State private var saved: PrinterSettings?
-    @State private var status: PhoneStatus?
-    @State private var failure: String?
+    @State private var printers: [PrinterSettings] = []
+    @State private var statuses: [PhoneStatus] = []
+    /// Why each printer didn't answer the last look, by serial.
+    @State private var failures: [String: String] = [:]
     @State private var busy = false
     /// Nil until the first search ends.
     @State private var found: [PrinterSettings]?
@@ -31,12 +32,28 @@ struct PhoneScreen: View {
                         Text("The widget can't read what this app saves. In Xcode, give both targets the App Group \(PhoneStore.appGroup ?? "in PGAppGroup"), then build again.")
                     }
                 }
-                if saved != nil {
+                if !printers.isEmpty {
                     Section {
-                        PhoneCard(lines: GlanceContent.phone(status, hasPrinter: true, now: Date()), showsExtra: true)
+                        ForEach(printers, id: \.serial) { printer in
+                            VStack(alignment: .leading, spacing: 6) {
+                                PhoneCard(lines: GlanceContent.phone(status(printer), printer: printer, now: Date()), showsExtra: true)
+                                if let failure = failures[printer.serial] {
+                                    Text(failure)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                            .onTapGesture { form = printer }
+                            .swipeActions {
+                                Button("Remove", role: .destructive) { remove(printer) }
+                            }
+                        }
+                    } header: {
+                        Text("Your printers")
                     } footer: {
-                        if let failure { Text(failure) }
+                        Text("Tap a printer to change its details. Swipe left to remove it.")
                     }
                 }
                 Section {
@@ -50,7 +67,7 @@ struct PhoneScreen: View {
                     }
                     ForEach(found ?? [], id: \.serial) { hit in
                         Button {
-                            form = form.picking(hit, saved: saved)
+                            form = form.picking(hit, saved: printers)
                         } label: {
                             HStack {
                                 LabeledContent(hit.serial, value: hit.ip)
@@ -66,7 +83,7 @@ struct PhoneScreen: View {
                 } header: {
                     Text("Printers on this Wi-Fi")
                 } footer: {
-                    Text("Tap your printer, then enter its access code below.")
+                    Text("Tap a printer, then enter its access code below.")
                 }
                 Section {
                     field("Name", $form.name, prompt: "Optional")
@@ -84,20 +101,15 @@ struct PhoneScreen: View {
                     Text("On the printer screen, open Settings, then the LAN or Network page. It shows the IP address and access code. The serial number is there, in device info, or on the sticker on the printer.")
                 }
                 Section {
-                    Button(busy ? "Connecting…" : "Connect") {
-                        store?.save(form)
-                        saved = store?.printer
-                        status = store?.status
-                        Task { await refresh(announce: true) }
-                    }
-                    .disabled(busy || store == nil || !form.trimmed.isComplete)
+                    Button(busy ? "Connecting…" : "Connect") { connect() }
+                        .disabled(busy || store == nil || !form.trimmed.isComplete)
                 }
                 Section("Widget") {
-                    Text("Touch and hold the Home Screen or Lock Screen, tap Edit, then Add Widget, and choose PrintGlance. It updates about every 15 minutes while this iPhone is on the printer's Wi-Fi.")
+                    Text("Touch and hold the Home Screen or Lock Screen, tap Edit, then Add Widget, and choose PrintGlance. It shows the printer that needs you. The medium size shows two. It updates about every 15 minutes while this iPhone is on the printers' Wi-Fi.")
                 }
             }
             .navigationTitle("PrintGlance")
-            .refreshable { await refresh() }
+            .refreshable { await look(at: printers) }
             .alert(
                 alert?.title ?? "",
                 isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } })
@@ -108,17 +120,15 @@ struct PhoneScreen: View {
             }
         }
         .onAppear {
-            saved = store?.printer
-            form = saved ?? .empty
-            status = store?.status
-            if saved == nil { Task { await search() } }
+            load()
+            if printers.isEmpty { Task { await search() } }
         }
         .onChange(of: phase) {
             guard phase == .active else { return }
-            Task { await refresh() }
+            Task { await look(at: printers) }
             // The first search runs under iOS's Local Network question and finds nothing until it is
             // answered; answering makes the app active again, so look once more.
-            if saved == nil, found?.isEmpty == true { Task { await search() } }
+            if printers.isEmpty, found?.isEmpty == true { Task { await search() } }
         }
     }
 
@@ -130,6 +140,36 @@ struct PhoneScreen: View {
         }
     }
 
+    private func status(_ printer: PrinterSettings) -> PhoneStatus? {
+        statuses.first { $0.printer.id == printer.serial }
+    }
+
+    private func load() {
+        printers = store?.printers ?? []
+        statuses = store?.statuses ?? []
+    }
+
+    /// Adds the printer in the form, or updates the saved one with its serial, then asks it.
+    private func connect() {
+        guard let store else { return }
+        let printer = form.trimmed
+        let next = SavedPrinters(printers: printers, focusId: nil).adding(printer)
+        guard next.printers.contains(where: { $0.serial == printer.serial }) else {
+            alert = GlanceCopy.phoneTooMany(name: printer.displayName)
+            return
+        }
+        store.save(next.printers)
+        load()
+        Task { await look(at: [printer], announce: true) }
+    }
+
+    private func remove(_ printer: PrinterSettings) {
+        store?.save(printers.filter { $0.serial != printer.serial })
+        failures[printer.serial] = nil
+        load()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     /// One printer found and nothing typed yet: fill it in.
     private func search() async {
         guard !searching else { return }
@@ -138,25 +178,28 @@ struct PhoneScreen: View {
         found = hits
         searching = false
         if hits.count == 1, form.trimmed.serial.isEmpty, let hit = hits.first {
-            form = form.picking(hit, saved: saved)
+            form = form.picking(hit, saved: printers)
         }
     }
 
-    /// `announce`: after **Connect**, say how it went in an alert, not just in the card at the top.
-    private func refresh(announce: Bool = false) async {
-        guard let store, let printer = store.printer, !busy else { return }
+    /// Asks the printers at once. `announce`: after **Connect**, say how it went in an alert, not just in
+    /// the printer's card.
+    private func look(at targets: [PrinterSettings], announce: Bool = false) async {
+        guard let store, !targets.isEmpty, !busy else { return }
         busy = true
         defer { busy = false }
-        let outcome = await PrinterFetch.fetch(printer)
-        if announce { alert = GlanceCopy.phoneConnected(outcome, name: printer.displayName) }
-        switch outcome {
-        case let .printer(row):
-            let fresh = PhoneStatus(printer: row, at: Date())
-            store.save(fresh)
-            status = fresh
-            failure = nil
-        case let .failed(reason):
-            failure = GlanceCopy.phoneFetchFailed(reason: reason)
+        let outcomes = await PrinterFetch.fetchAll(targets)
+        store.record(outcomes, at: Date())
+        statuses = store.statuses
+        for (serial, outcome) in outcomes {
+            if case let .failed(reason) = outcome {
+                failures[serial] = GlanceCopy.phoneFetchFailed(reason: reason)
+            } else {
+                failures[serial] = nil
+            }
+        }
+        if announce, let printer = targets.first, let outcome = outcomes[printer.trimmed.serial] {
+            alert = GlanceCopy.phoneConnected(outcome, name: printer.displayName)
         }
         WidgetCenter.shared.reloadAllTimelines()
     }

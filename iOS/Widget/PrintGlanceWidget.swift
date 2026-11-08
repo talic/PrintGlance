@@ -15,43 +15,45 @@ struct PrintGlanceWidget: Widget {
     }
 }
 
-/// Nothing to choose: the widget shows the iPhone's printer. The async provider needs an intent.
+/// Nothing to choose: the widget shows the printer that needs you. The async provider needs an intent.
 struct PrinterIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "PrintGlance"
 }
 
 struct Entry: TimelineEntry {
     var date: Date
-    var lines: PhoneLines
+    /// Every printer's card, the one that needs you first.
+    var cards: [PhoneLines]
 }
 
-/// Asks the printer each time iOS reloads the widget. Off the printer's Wi-Fi the ask fails fast and the
-/// widget keeps the last status, which the app also saves when it asks.
+/// Asks the printers each time iOS reloads the widget. Off their Wi-Fi the asks fail fast and the widget
+/// keeps the last statuses, which the app also saves when it asks.
 struct Provider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> Entry {
-        Entry(date: Date(), lines: GlanceContent.phone(PhoneStatus(printer: Self.sample, at: Date()), hasPrinter: true, now: Date()))
+        let x2d = PrinterSettings(ip: "", serial: "", accessCode: "", name: "X2D")
+        return Entry(date: Date(), cards: [GlanceContent.phone(PhoneStatus(printer: Self.sample, at: Date()), printer: x2d, now: Date())])
     }
 
     /// The gallery shows the sample until there is a real status; anywhere else, only what is true.
     func snapshot(for configuration: PrinterIntent, in context: Context) async -> Entry {
         let store = PhoneStore.shared
-        if context.isPreview, store?.status == nil { return placeholder(in: context) }
-        return Entry(date: Date(), lines: GlanceContent.phone(store?.status, hasPrinter: store?.printer != nil, now: Date()))
+        let statuses = store?.statuses ?? []
+        if context.isPreview, statuses.isEmpty { return placeholder(in: context) }
+        return Entry(date: Date(), cards: GlanceContent.phoneCards(store?.printers ?? [], statuses: statuses, now: Date()))
     }
 
     func timeline(for configuration: PrinterIntent, in context: Context) async -> Timeline<Entry> {
         let store = PhoneStore.shared
-        let printer = store?.printer
-        var status = store?.status
-        if let store, let printer, case let .printer(row) = await PrinterFetch.fetch(printer) {
-            status = PhoneStatus(printer: row, at: Date())
-            store.save(status)
+        let printers = store?.printers ?? []
+        if let store, !printers.isEmpty {
+            store.record(await PrinterFetch.fetchAll(printers), at: Date())
         }
+        let statuses = store?.statuses ?? []
         let now = Date()
-        let entries = GlanceContent.phoneEntryDates(status, now: now).map {
-            Entry(date: $0, lines: GlanceContent.phone(status, hasPrinter: printer != nil, now: $0))
+        let entries = GlanceContent.phoneEntryDates(statuses, now: now).map {
+            Entry(date: $0, cards: GlanceContent.phoneCards(printers, statuses: statuses, now: $0))
         }
-        return Timeline(entries: entries, policy: .after(GlanceContent.phoneNextFetch(status, now: now)))
+        return Timeline(entries: entries, policy: .after(GlanceContent.phoneNextFetch(statuses, now: now)))
     }
 
     /// The widget gallery's example.
@@ -70,7 +72,7 @@ struct EntryView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        let lines = entry.lines
+        let lines = entry.cards.first ?? GlanceContent.phone(nil, printer: nil, now: entry.date)
         switch family {
         case .accessoryCircular:
             Group {
@@ -103,6 +105,12 @@ struct EntryView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         case .accessoryInline:
             Label(lines.short, systemImage: lines.systemImage)
+        case .systemMedium where entry.cards.count > 1:
+            HStack(spacing: 16) {
+                PhoneCard(lines: entry.cards[0])
+                Divider()
+                PhoneCard(lines: entry.cards[1])
+            }
         case .systemMedium:
             PhoneCard(lines: lines, showsExtra: true)
         default:

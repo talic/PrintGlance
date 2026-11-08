@@ -4,17 +4,18 @@ import Network
 // The iPhone app and widget (`iOS/`) compile this file with the Foundation-only files it needs from this
 // target. It lives here so `make test` covers it; the Mac app doesn't call it.
 
-/// The iPhone's last look at its printer: the row as the printer reported it, and when.
+/// The iPhone's last look at a printer: the row as the printer reported it, and when.
 struct PhoneStatus: Codable, Equatable, Sendable {
     var printer: Printer
     var at: Date
 }
 
-/// The printer and its last status, shared by the iPhone app and widget through their App Group.
+/// The printers (up to four, like the Mac) and their last statuses, shared by the iPhone app and widget
+/// through their App Group.
 struct PhoneStore {
     let defaults: UserDefaults
 
-    static let statusKey = "pg.phone.status"
+    static let statusesKey = "pg.phone.statuses"
 
     /// The App Group that Info.plist names in `PGAppGroup`. Nil where there is none (the Mac app, tests), and
     /// when signing left the entitlement out: then iOS would hand each process its own private defaults.
@@ -30,23 +31,32 @@ struct PhoneStore {
         Bundle.main.object(forInfoDictionaryKey: "PGAppGroup") as? String
     }
 
-    // ponytail: one printer on the iPhone. SavedPrinters holds four; add a list when someone has two.
-    var printer: PrinterSettings? {
-        SavedPrinters.load(from: defaults).printers.first
+    var printers: [PrinterSettings] {
+        SavedPrinters.load(from: defaults).printers
     }
 
-    /// Saving a different printer forgets the old one's status.
-    func save(_ printer: PrinterSettings) {
-        if self.printer?.serial != printer.trimmed.serial { save(nil) }
-        SavedPrinters(printers: [printer.trimmed], focusId: nil).save(to: defaults)
+    /// The statuses of printers no longer in the list go too.
+    func save(_ printers: [PrinterSettings]) {
+        let list = printers.map(\.trimmed)
+        SavedPrinters(printers: list, focusId: nil).save(to: defaults)
+        save(statuses.filter { status in list.contains { $0.serial == status.printer.id } })
     }
 
-    var status: PhoneStatus? {
-        defaults.data(forKey: Self.statusKey).flatMap { try? JSONDecoder().decode(PhoneStatus.self, from: $0) }
+    var statuses: [PhoneStatus] {
+        defaults.data(forKey: Self.statusesKey).flatMap { try? JSONDecoder().decode([PhoneStatus].self, from: $0) } ?? []
     }
 
-    func save(_ status: PhoneStatus?) {
-        defaults.set(status.flatMap { try? JSONEncoder().encode($0) }, forKey: Self.statusKey)
+    func save(_ statuses: [PhoneStatus]) {
+        defaults.set(try? JSONEncoder().encode(statuses), forKey: Self.statusesKey)
+    }
+
+    /// Each printer that answered replaces its last status; the rest keep theirs.
+    // ponytail: read, change, write. The app and widget saving at the same moment can lose one status until
+    // the next look; a file with a lock is the upgrade if that ever shows.
+    func record(_ outcomes: [String: PrinterFetch.Outcome], at date: Date) {
+        var fresh: [PhoneStatus] = []
+        for case let .printer(row) in outcomes.values { fresh.append(PhoneStatus(printer: row, at: date)) }
+        save(statuses.filter { old in !fresh.contains { $0.printer.id == old.printer.id } } + fresh)
     }
 }
 
@@ -105,6 +115,22 @@ enum PrinterFetch {
         client.onDisconnect = nil
         client.disconnect()
         return outcome
+    }
+
+    /// Every printer at once, by serial, so a widget reload takes one timeout at most.
+    @MainActor
+    static func fetchAll(
+        _ printers: [PrinterSettings],
+        makeClient: () -> any MQTTSession = { MQTT311Client() },
+        timeout: Duration = .seconds(8)
+    ) async -> [String: Outcome] {
+        let looks = printers.map { printer in
+            let client = makeClient()
+            return (printer.trimmed.serial, Task { await fetch(printer, client: client, timeout: timeout) })
+        }
+        var outcomes: [String: Outcome] = [:]
+        for (serial, look) in looks { outcomes[serial] = await look.value }
+        return outcomes
     }
 
     /// Resumes the fetch with whichever of report, drop, or timeout comes first.
@@ -247,8 +273,10 @@ enum PrinterSearch {
 
 /// What the iPhone widget and app show. Every string comes from here.
 struct PhoneLines: Equatable, Sendable {
+    /// The printer's serial; empty before one is added.
+    var id = ""
     var title: String
-    /// Printing, the stage while starting, Paused, …
+    /// Printing, the stage while starting, Paused, …, after the printer's name when a job is the title.
     var state: String
     /// The finish time, or time left while paused.
     var hero: String? = nil
@@ -269,21 +297,47 @@ struct PhoneLines: Equatable, Sendable {
 }
 
 extension GlanceContent {
-    /// The iPhone has no live link, so times count from the moment the printer answered (`status.at`).
+    /// Every saved printer's card, the one that needs you first, ranked like the Mac's menu bar. A printer
+    /// never reached counts as offline. With no printers, one card says to add one.
+    static func phoneCards(
+        _ printers: [PrinterSettings],
+        statuses: [PhoneStatus],
+        now: Date,
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> [PhoneLines] {
+        guard !printers.isEmpty else { return [phone(nil, printer: nil, now: now)] }
+        func status(_ p: PrinterSettings) -> PhoneStatus? { statuses.first { $0.printer.id == p.trimmed.serial } }
+        let rows = printers.map { p in
+            status(p)?.printer ?? Printer(
+                id: p.trimmed.serial, name: p.displayName, state: "OFFLINE", percent: nil, remainingS: nil,
+                job: nil, layer: nil, layerTotal: nil, eta: nil, filament: nil, filamentRemain: nil
+            )
+        }
+        return PrintDoc(v: 1, printers: rows).ranked().compactMap { row in
+            printers.first { $0.trimmed.serial == row.id }.map {
+                phone(status($0), printer: $0, now: now, calendar: calendar, locale: locale)
+            }
+        }
+    }
+
+    /// One printer's card. The iPhone has no live link, so times count from the moment the printer
+    /// answered (`status.at`). Nil `printer` is the card that asks to add one.
     static func phone(
         _ status: PhoneStatus?,
-        hasPrinter: Bool,
+        printer: PrinterSettings?,
         now: Date,
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> PhoneLines {
-        guard hasPrinter else {
+        guard let printer else {
             return PhoneLines(title: "Add your printer", state: "", detail: "Open PrintGlance to set it up.", short: "Add your printer")
         }
         guard let status else {
             return PhoneLines(
-                title: "Can't reach printer",
-                state: "",
+                id: printer.trimmed.serial,
+                title: printer.displayName,
+                state: "Can't reach printer",
                 detail: "PrintGlance updates when this iPhone is on the printer's Wi-Fi.",
                 short: "Can't reach printer",
                 systemImage: offlineImage
@@ -292,9 +346,12 @@ extension GlanceContent {
         func at(_ date: Date) -> String { dayTime(date, now: now, calendar: calendar, locale: locale) }
         let row = status.printer
         let st = row.state.uppercased()
+        let title = headline(row)
         var lines = PhoneLines(
-            title: headline(row),
-            state: subtitle(row),
+            id: row.id,
+            title: title,
+            // With a job in the title, name the printer, so two printers' cards tell apart.
+            state: title == row.name ? subtitle(row) : "\(row.name) · \(subtitle(row))",
             footer: "Updated \(at(status.at))",
             short: humanState(st),
             systemImage: strip(row: row).systemImage,
@@ -314,8 +371,6 @@ extension GlanceContent {
             lines.detail = errorReason(row)
         case "FAILED":
             lines.detail = errorReason(row)
-        case "FINISH":
-            lines.detail = caption(row)
         default:
             break
         }
@@ -333,32 +388,36 @@ extension GlanceContent {
         return lines
     }
 
-    /// When the widget redraws: each minute while a finish time counts down, for up to two hours.
-    static func phoneEntryDates(_ status: PhoneStatus?, now: Date) -> [Date] {
-        guard let status, ["RUNNING", "PREPARE"].contains(status.printer.state.uppercased()),
-              let s = status.printer.remainingS, s > 0
-        else { return [now] }
-        let left = status.at.timeIntervalSince(now) + TimeInterval(s)
-        let minutes = min(120, max(0, Int(left / 60) + 1))
+    /// When the widget redraws: each minute while any finish time counts down, for up to two hours.
+    static func phoneEntryDates(_ statuses: [PhoneStatus], now: Date) -> [Date] {
+        let minutes = statuses.map { status -> Int in
+            guard ["RUNNING", "PREPARE"].contains(status.printer.state.uppercased()),
+                  let s = status.printer.remainingS, s > 0
+            else { return 0 }
+            let left = status.at.timeIntervalSince(now) + TimeInterval(s)
+            return min(120, max(0, Int(left / 60) + 1))
+        }.max() ?? 0
         return (0 ... minutes).map { now + TimeInterval($0 * 60) }
     }
 
-    /// When the widget asks the printer again: every 15 minutes during a print (or just after its finish
-    /// time, if sooner), else hourly. iOS decides when it really does.
-    static func phoneNextFetch(_ status: PhoneStatus?, now: Date) -> Date {
-        guard let status, isTimed(status.printer.state) else { return now + 3600 }
-        let soon = now + 15 * 60
-        guard status.printer.state.uppercased() != "PAUSE", let s = status.printer.remainingS, s > 0 else { return soon }
-        let end = status.at + TimeInterval(s) + 60
-        return end > now ? min(soon, end) : soon
+    /// When the widget asks the printers again: every 15 minutes while any prints (or just after the first
+    /// finish time, if sooner), else hourly. iOS decides when it really does.
+    static func phoneNextFetch(_ statuses: [PhoneStatus], now: Date) -> Date {
+        statuses.map { status -> Date in
+            guard isTimed(status.printer.state) else { return now + 3600 }
+            let soon = now + 15 * 60
+            guard status.printer.state.uppercased() != "PAUSE", let s = status.printer.remainingS, s > 0 else { return soon }
+            let end = status.at + TimeInterval(s) + 60
+            return end > now ? min(soon, end) : soon
+        }.min() ?? now + 3600
     }
 }
 
 extension PrinterSettings {
     /// The iPhone form after tapping a printer the search found: its IP and serial, and a code and name only
     /// if they belong to it. Keeping another printer's code would send it to this one, which rejects it.
-    func picking(_ hit: PrinterSettings, saved: PrinterSettings?) -> PrinterSettings {
-        let own = trimmed.serial == hit.serial ? self : saved?.serial == hit.serial ? saved : nil
+    func picking(_ hit: PrinterSettings, saved: [PrinterSettings]) -> PrinterSettings {
+        let own = trimmed.serial == hit.serial ? self : saved.first { $0.serial == hit.serial }
         return PrinterSettings(ip: hit.ip, serial: hit.serial, accessCode: own?.accessCode ?? "", name: own?.name ?? "")
     }
 }
@@ -381,6 +440,14 @@ extension GlanceCopy {
         case let .failed(reason):
             return PhoneAlert(title: "Can't connect to \(name)", message: phoneFetchFailed(reason: reason))
         }
+    }
+
+    /// **Connect** with four printers saved already, the Mac's limit too.
+    static func phoneTooMany(name: String) -> PhoneAlert {
+        PhoneAlert(
+            title: "Can't add \(name)",
+            message: "PrintGlance watches up to four printers. To add this one, swipe left on another and remove it."
+        )
     }
 
     /// The iPhone also needs Local Network access, which iOS asks for once and Settings can turn off.

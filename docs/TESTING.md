@@ -1,6 +1,6 @@
 # Testing PrintGlance
 
-The suite has two parts: **320 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **71 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
+The suite has two parts: **322 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **71 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Running
 
@@ -107,7 +107,7 @@ All in `Tests/PrintGlanceTests/Support`.
 | Hostile input | `SecurityTests` (fuzzing), `MQTTWireTests` (frames, oversized packets), `GlanceModelTests.testGarbageMessagesChangeNothing`, `PrepareAmsHmsTests.testHostileNumbersDoNotTrap`, Python `ActiveFilamentTests.test_garbage_shapes_do_not_raise`, `PrinterRowTests.test_infinite_and_huge_numbers…`, `MqttCallbackTests.test_message_ignores_bad_payloads` |
 | Job names (extensions, slicer suffixes) | `PrintDocTests.testJobLabel…`, Python `JobLabelTests` |
 | Feed exposure: bind address, token, idle timeout, `Server` header, no secrets in responses | Python `BindTests`, `HttpTests` |
-| iPhone app and widget: one look (pushall only, own client ID, timeout, rejected code), the search (subnet, serial-shaped names, certificate read over real TLS with nothing sent, picking a printer drops another's code), the Connect alert, App Group status, widget words, timeline, card | `PhoneGlanceTests`; CI builds `iOS/` for the simulator |
+| iPhone app and widget: one look (pushall only, own client ID, timeout, rejected code), the search (subnet, serial-shaped names, certificate read over real TLS with nothing sent, picking a printer drops another's code), the Connect alert, asking every printer at once, App Group statuses for several printers, ranking cards like the menu bar, widget words, timeline, card | `PhoneGlanceTests`; CI builds `iOS/` for the simulator |
 
 ## What isn't automated
 
@@ -128,7 +128,7 @@ Run these by hand before a release, or when touching the area. Ask the owner bef
 | Gatekeeper on the downloaded zip, notarization | `release.yml` checks this for signed builds. |
 | **Clear History…** asks first, and **Cancel** keeps the list | The confirmation is a modal `NSAlert`. `PanelScreenTests` presses the button with a stand-in action; `GlanceModelTests` covers the clearing. |
 
-**iPhone app and widget.** `make test` covers the shared logic, and CI builds the Xcode project. To see them, run `python3 scripts/fake-printer.py` (a pretend printer on `127.0.0.1:8883`; pass `PAUSE`, `PREPARE`, `FAILED`, `FINISH`, or `IDLE` for other states), build the `PrintGlance` target for a simulator, and in the app enter IP `127.0.0.1` with any serial and code. The simulator reaches the Mac's localhost, so no real printer is involved. Checked that way: Connect, the card, small and medium widgets fetching on their own, Paused and Finished, light and dark. A build signed with a free Personal Team keeps the App Group on both targets and installs and opens on an iPhone. The search, run in the simulator on the owner's Wi-Fi, found exactly the two printers the Mac app watches. Not checked yet:
+**iPhone app and widget.** `make test` covers the shared logic, and CI builds the Xcode project. To see them, run `python3 scripts/fake-printer.py` (a pretend printer on `127.0.0.1:8883`; pass `PAUSE`, `PREPARE`, `FAILED`, `FINISH`, or `IDLE` for other states), build the `PrintGlance` target for a simulator, and in the app enter IP `127.0.0.1` with any serial and code. The simulator reaches the Mac's localhost, so no real printer is involved. Checked that way: Connect, the card, small and medium widgets fetching on their own, Paused and Finished, light and dark. A build signed with a free Personal Team keeps the App Group on both targets and installs and opens on an iPhone. The search, run in the simulator on the owner's Wi-Fi, found exactly the two printers the Mac app watches. With both saved, the app and a medium widget showed both, live, ranked like the menu bar. Not checked yet:
 
 | Check | Why it can't be automated here |
 |---|---|

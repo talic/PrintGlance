@@ -179,7 +179,7 @@ You do not need **LAN Only Mode** or **Developer Mode**. PrintGlance only reads 
 
 ## iPhone widget (build it yourself)
 
-The `iOS` folder has a small iPhone app with a Home Screen and Lock Screen widget. It shows one printer's progress, finish time, and why a print paused. There is no download. You build it with Xcode onto your own iPhone.
+The `iOS` folder has a small iPhone app with a Home Screen and Lock Screen widget. It watches up to four printers, like the Mac app, and shows their progress, finish times, and why a print paused. The widget shows the printer that needs you, the same one the menu bar picks. The medium size shows two printers side by side. There is no download. You build it with Xcode onto your own iPhone.
 
 The iPhone talks to the printer on your Wi-Fi, the same way the Mac does. It does not need the Mac. It reads the printer when you open the app and about every 15 minutes in the widget, when iOS allows. Away from that Wi-Fi, the widget shows what the printer last said and when, and counts down to the finish time.
 
@@ -191,7 +191,7 @@ The iPhone talks to the printer on your Wi-Fi, the same way the Mac does. It doe
    ```
 
 2. Open `iOS/PrintGlance.xcodeproj`, choose your iPhone, and click **Run**.
-3. Open the app. When iOS asks to find devices on your local network, tap **Allow**. Under **Printers on this Wi-Fi**, tap your printer, enter its access code, then tap **Connect**. If your printer is not listed, tap **Search Again**, or type its IP address and serial number.
+3. Open the app. When iOS asks to find devices on your local network, tap **Allow**. Under **Printers on this Wi-Fi**, tap your printer, enter its access code, then tap **Connect**. If your printer is not listed, tap **Search Again**, or type its IP address and serial number. To add another printer, tap it in the list, enter its access code, and tap **Connect** again. To remove one, swipe left on it under **Your printers**.
 4. Touch and hold the Home Screen or Lock Screen, tap **Edit**, then **Add Widget**, and choose **PrintGlance**.
 
 The access code you enter stays on that iPhone. Like the Mac app, the iPhone app only reads status and never pauses, stops, or starts a print. With a free Apple account, an app you build yourself stops opening after 7 days. Run it from Xcode again to renew it.
