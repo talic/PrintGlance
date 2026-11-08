@@ -1,6 +1,6 @@
 # PrintGlance
 
-A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu Lab 3D printers' progress by talking MQTT over TLS to each printer on the LAN. Up to four printers, notifications, AMS filament, history. `iOS/` is a build-it-yourself iPhone app and widget that reads one printer the same way.
+A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu Lab 3D printers' progress by talking MQTT over TLS to each printer on the LAN. Up to four printers, notifications, AMS filament, history. `iOS/` is a build-it-yourself iPhone app and widget that reads up to four printers the same way.
 
 - **How it works:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Read it before changing behavior.
 - **How it's tested:** [docs/TESTING.md](docs/TESTING.md). Read it before writing tests.
