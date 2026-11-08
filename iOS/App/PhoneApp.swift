@@ -106,7 +106,11 @@ struct PhoneScreen: View {
             if saved == nil { Task { await search() } }
         }
         .onChange(of: phase) {
-            if phase == .active { Task { await refresh() } }
+            guard phase == .active else { return }
+            Task { await refresh() }
+            // The first search runs under iOS's Local Network question and finds nothing until it is
+            // answered; answering makes the app active again, so look once more.
+            if saved == nil, found?.isEmpty == true { Task { await search() } }
         }
     }
 
