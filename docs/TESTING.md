@@ -128,12 +128,11 @@ Run these by hand before a release, or when touching the area. Ask the owner bef
 | Gatekeeper on the downloaded zip, notarization | `release.yml` checks this for signed builds. |
 | **Clear History…** asks first, and **Cancel** keeps the list | The confirmation is a modal `NSAlert`. `PanelScreenTests` presses the button with a stand-in action; `GlanceModelTests` covers the clearing. |
 
-**iPhone app and widget.** `make test` covers the shared logic, and CI builds the Xcode project. To see them, run `python3 scripts/fake-printer.py` (a pretend printer on `127.0.0.1:8883`; pass `PAUSE`, `PREPARE`, `FAILED`, `FINISH`, or `IDLE` for other states), build the `PrintGlance` target for a simulator, and in the app enter IP `127.0.0.1` with any serial and code. The simulator reaches the Mac's localhost, so no real printer is involved. Checked that way: Connect, the card, small and medium widgets fetching on their own, Paused and Finished, light and dark. Not checked yet:
+**iPhone app and widget.** `make test` covers the shared logic, and CI builds the Xcode project. To see them, run `python3 scripts/fake-printer.py` (a pretend printer on `127.0.0.1:8883`; pass `PAUSE`, `PREPARE`, `FAILED`, `FINISH`, or `IDLE` for other states), build the `PrintGlance` target for a simulator, and in the app enter IP `127.0.0.1` with any serial and code. The simulator reaches the Mac's localhost, so no real printer is involved. Checked that way: Connect, the card, small and medium widgets fetching on their own, Paused and Finished, light and dark. A build signed with a free Personal Team keeps the App Group on both targets and installs and opens on an iPhone. Not checked yet:
 
 | Check | Why it can't be automated here |
 |---|---|
 | A real iPhone: the Local Network prompt on Connect, and the widget reaching the printer on its own afterwards | Simulators skip Local Network privacy; extensions usually share the app's grant, but Apple doesn't document it for widgets. If the widget only ever shows what the app last saved, this is why. |
-| Signing with a free Apple account, including the App Group | Needs the owner's team. If the App Group is missing, the app says so. |
 | Lock Screen sizes (circular, rectangular, inline) | The simulator's Lock Screen editor didn't open from a tap; they build but haven't been seen. |
 | How often iOS really reloads the widget | WidgetKit's budget only shows on a device over a day. |
 
