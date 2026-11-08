@@ -69,7 +69,7 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`. The iPhone
 | `SetupWindow.swift` | The `NSWindow` that hosts setup, its show/close/cancel wiring, and the Remove confirmation alert. |
 | `LoginItem.swift` | Open at Login via `SMAppService.mainApp`. |
 | `AppUpdate.swift` | Version comparison and GitHub release parsing (`AppUpdate`), the daily checker (`AppUpdateChecker`). |
-| `PhoneGlance.swift` | iPhone only, but built and tested here: `PhoneStatus` (the last row and when), `PhoneStore` (App Group defaults), `PrinterFetch` (one connect, `pushall`, one report, hang up), and the widget's words (`GlanceContent.phone`, `phoneEntryDates`, `phoneNextFetch`, `GlanceCopy.phoneFetchFailed`). The Mac app never calls it. |
+| `PhoneGlance.swift` | iPhone only, but built and tested here: `PhoneStatus` (the last row and when), `PhoneStore` (App Group defaults), `PrinterFetch` (one connect, `pushall`, one report, hang up), `PrinterSearch` (finds printers without multicast), and the widget's words (`GlanceContent.phone`, `phoneEntryDates`, `phoneNextFetch`, `GlanceCopy.phoneFetchFailed`). The Mac app never calls it. |
 | `PhoneCard.swift` | The iPhone widget's card (small and medium) and the iPhone app's status card. |
 
 Outside `Sources`:
@@ -250,7 +250,7 @@ Only paused and failed printers show codes (`print_error` can linger after the p
 
 ## Discovery
 
-`PrinterDiscovery.scan` sends an SSDP `M-SEARCH` for `urn:bambulab-com:device:3dprinter:1` to `239.255.255.250` on UDP ports 1990 and 2021 from sockets bound to those ports (with `SO_REUSEPORT`, so it works while Bambu Studio holds them) and to an ephemeral port, and collects replies for 4 s. `parse` accepts a reply only if it looks like Bambu's (NT/ST mention bambulab, or it has `DevName`/`DevModel`), and only if `Location` is a plain IPv4 address that isn't multicast, broadcast, or `0.0.0.0`. The serial comes from `USN`; model codes map to marketing names ("N6" → "X2D"). Access codes are never in the packets. macOS asks for Local Network permission the first time (the string is in `Info.plist`).
+`PrinterDiscovery.scan` sends an SSDP `M-SEARCH` for `urn:bambulab-com:device:3dprinter:1` to `239.255.255.250` on UDP ports 1990 and 2021 from sockets bound to those ports (with `SO_REUSEPORT`, so it works while Bambu Studio holds them) and to an ephemeral port, and collects replies for 4 s. `parse` accepts a reply only if it looks like Bambu's (NT/ST mention bambulab, or it has `DevName`/`DevModel`), and only if `Location` is a plain IPv4 address that isn't multicast, broadcast, or `0.0.0.0`. The serial comes from `USN`; model codes map to marketing names ("N6" → "X2D"). Access codes are never in the packets. macOS asks for Local Network permission the first time (the string is in `Info.plist`). The iPhone app can't use SSDP; it reads serials from certificates instead (see [iPhone app and widget](#iphone-app-and-widget)).
 
 ## What is stored where
 
@@ -302,6 +302,7 @@ Live testing notes: on macOS 27 `NSStatusBarButton.performClick` doesn't open a 
 
 - **Shared code.** Both targets compile these files from `Sources/PrintGlance` as they are: `BambuSnapshot`, `ComingOff`, `FilamentAlert`, `GlanceContent`, `JobLog`, `MQTT311Client`, `PhoneCard`, `PhoneGlance`, `PrintDoc`, `PrinterSettings`, `PrintNotify`. A Mac-only type in one of them breaks the iPhone build, which CI runs.
 - **One look.** The iPhone can't hold a connection open, so `PrinterFetch.fetch` connects (client ID `pg-phone-<last 6>-<random>`), subscribes, publishes the same `pushall`, waits for the first report with a `gcode_state`, and hangs up. Eight seconds without one is `connect timed out`; a drop passes the client's reason through. The app asks on **Connect**, on pull to refresh, and each time it comes to the front. The widget asks each time iOS reloads it.
+- **Search.** iOS allows the Mac's SSDP multicast only with an entitlement Apple must approve, so `PrinterSearch` opens TLS to port 8883 on every other address in the iPhone's subnet (at most the /24 around it), all at once with a 3 s limit. A Bambu printer's certificate names its serial, so a common name of 8–20 uppercase letters and digits counts as a printer; anything else there (a home MQTT broker) has a host name. It never logs in, so the access code is still typed. The app searches on launch until a printer is saved; one result fills the form.
 - **Shared status.** Both save a `PhoneStatus` (the row, and when the printer sent it) in the App Group's defaults through `PhoneStore`. When the widget can't reach the printer (away from home, or Local Network turned off), it shows the last status. `PhoneStore.shared` is nil when signing left out the App Group, because iOS would then give each process its own defaults; the app says so.
 - **Timeline.** `phoneEntryDates` makes one entry a minute while a finish time counts down, for up to two hours, so "1h 24m left" moves without asking the printer. `phoneNextFetch` asks again in 15 minutes during a print (or just after its finish time, if sooner) and hourly otherwise. iOS decides when it really reloads.
 - **Words.** `GlanceContent.phone` turns a status into `PhoneLines`. Times count from when the printer answered: the hero is the finish time, the detail the minutes left rounded up ("Should be done" once it passes), and "Updated 14:02" closes the card. The percent is what the printer said, never a guess. Paused shows time left and the reason, like the Mac card. `short` is the Lock Screen line ("52% · 16:25").
@@ -335,6 +336,7 @@ Deliberate shortcuts carry a `ponytail:` comment in the code naming the ceiling 
 - **Release signing** falls back to ad-hoc without secrets.
 - **iPhone: one printer.** `PhoneStore.printer` is the first saved one. Upgrade: a list in the app and a widget intent to pick a printer.
 - **iPhone: the full report** is taken to be the first report with a `gcode_state`, which `pushall` sends at once. A delta carrying the state first would leave fields out until the next look.
+- **iPhone: search covers a /24.** A bigger subnet searches only the 253 addresses around the iPhone; the IP can still be typed.
 - **iPhone: LAN only.** Away from the printer's Wi-Fi the widget shows the last status. Reaching it from anywhere would need the cloud, which the app promises not to use.
 
 Accepted by the owner, not fixed: CSV export doesn't neutralize cells starting with `=`, `+`, `-`, `@` (spreadsheet formula injection from a crafted job name). Not automated: the 20 s keep-alive ping. See TESTING.md.

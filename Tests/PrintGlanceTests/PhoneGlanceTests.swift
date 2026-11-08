@@ -220,6 +220,46 @@ final class PhoneGlanceTests: XCTestCase {
         XCTAssertEqual(GlanceCopy.phoneFetchFailed(reason: "ECONNREFUSED"), GlanceCopy.feedDownDetail(reason: "ECONNREFUSED"))
     }
 
+    // MARK: Finding printers
+
+    func testSearchCoversTheSubnetButNotTheIPhone() {
+        let home = PrinterSearch.neighbors(ip: "192.168.1.37", netmask: "255.255.255.0")
+        XCTAssertEqual(home.count, 253)
+        XCTAssertEqual(home.first, "192.168.1.1")
+        XCTAssertEqual(home.last, "192.168.1.254")
+        XCTAssertFalse(home.contains("192.168.1.37"))
+
+        let big = PrinterSearch.neighbors(ip: "10.0.5.9", netmask: "255.255.0.0")
+        XCTAssertEqual(big.count, 253, "a /16 searches only the /24 around the iPhone")
+        XCTAssertEqual([big.first, big.last], ["10.0.5.1", "10.0.5.254"])
+        XCTAssertEqual(PrinterSearch.neighbors(ip: "192.168.1.1", netmask: "255.255.255.252"), ["192.168.1.2"])
+        XCTAssertEqual(PrinterSearch.neighbors(ip: "192.168.1.1", netmask: "255.255.255.255"), [])
+        XCTAssertEqual(PrinterSearch.neighbors(ip: "not an address", netmask: "255.255.255.0"), [])
+        XCTAssertEqual(PrinterSearch.neighbors(ip: "192.168.1.300", netmask: "255.255.255.0"), [])
+    }
+
+    func testOnlyASerialCountsAsAPrinter() {
+        XCTAssertEqual(PrinterSearch.serial(fromCommonName: "20P9AJ5B0700123"), "20P9AJ5B0700123")
+        XCTAssertEqual(PrinterSearch.serial(fromCommonName: "01P00A123456789"), "01P00A123456789")
+        for other in ["localhost", "mqtt.home.lan", "Home Assistant", "ABC", "20p9aj5b0700123", "", nil] as [String?] {
+            XCTAssertNil(PrinterSearch.serial(fromCommonName: other), "\(other ?? "nil")")
+        }
+    }
+
+    func testProbeReadsTheSerialFromTheCertificateAndSendsNothing() async throws {
+        let broker = try FakeBroker(commonName: "20P9AJ5B0700123")
+        let name = await PrinterSearch.commonName(host: "127.0.0.1", port: broker.port, timeout: 5)
+        XCTAssertEqual(name, "20P9AJ5B0700123")
+        XCTAssertTrue(broker.packets.isEmpty, "no MQTT login, no access code, no publish")
+    }
+
+    func testProbeGivesUpOnAClosedPort() async {
+        let started = Date()
+        let name = await PrinterSearch.commonName(host: "127.0.0.1", port: 1, timeout: 0.3)
+        XCTAssertNil(name)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+    }
+
     // MARK: The card
 
     func testCardReadsInOrder() throws {

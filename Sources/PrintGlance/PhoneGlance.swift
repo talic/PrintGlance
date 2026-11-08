@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 // The iPhone app and widget (`iOS/`) compile this file with the Foundation-only files it needs from this
 // target. It lives here so `make test` covers it; the Mac app doesn't call it.
@@ -115,6 +116,130 @@ enum PrinterFetch {
         func finish(_ outcome: Outcome) {
             timer?.cancel()
             done?.resume(returning: outcome)
+            done = nil
+        }
+    }
+}
+
+/// Finds printers on the iPhone's Wi-Fi. iOS allows the Mac's SSDP multicast only with Apple's approval,
+/// so this tries the MQTT port on each neighbor and reads the serial from the printer's certificate, whose
+/// common name is the serial. It never logs in and sends nothing; the access code is still typed.
+enum PrinterSearch {
+    /// Printers that answered, by IP, with only `ip` and `serial` set. Every probe runs at once, so a search
+    /// takes about `timeout`.
+    static func scan(timeout: TimeInterval = 3) async -> [PrinterSettings] {
+        guard let wifi = wifi() else { return [] }
+        return await withTaskGroup(of: PrinterSettings?.self) { group in
+            for host in neighbors(ip: wifi.ip, netmask: wifi.netmask) {
+                group.addTask {
+                    serial(fromCommonName: await commonName(host: host, timeout: timeout))
+                        .map { PrinterSettings(ip: host, serial: $0, accessCode: "", name: "") }
+                }
+            }
+            var found: [PrinterSettings] = []
+            for await hit in group {
+                if let hit { found.append(hit) }
+            }
+            return found.sorted { (ipv4($0.ip) ?? 0) < (ipv4($1.ip) ?? 0) }
+        }
+    }
+
+    /// Every other host in the iPhone's subnet.
+    static func neighbors(ip: String, netmask: String) -> [String] {
+        guard let address = ipv4(ip), let given = ipv4(netmask) else { return [] }
+        // ponytail: at most the /24 around the iPhone, not a /16's 65,000 hosts. Bigger home networks
+        // keep typing the IP address.
+        let mask = max(given, 0xFFFF_FF00)
+        let network = address & mask
+        let broadcast = network | ~mask
+        guard broadcast > network + 1 else { return [] }
+        return (network + 1 ..< broadcast).filter { $0 != address }.map(dotted)
+    }
+
+    /// A Bambu serial such as 01P00A123456789. Anything else on the MQTT port, like a home MQTT broker,
+    /// has a host name in its certificate instead.
+    static func serial(fromCommonName name: String?) -> String? {
+        guard let name, (8 ... 20).contains(name.count),
+              name.allSatisfy({ $0.isASCII && ($0.isNumber || $0.isUppercase) })
+        else { return nil }
+        return name
+    }
+
+    /// Opens TLS to one host and returns its certificate's common name. Nil when nothing answers in time.
+    static func commonName(host: String, port: UInt16 = 8883, timeout: TimeInterval = 3) async -> String? {
+        await withCheckedContinuation { (done: CheckedContinuation<String?, Never>) in
+            let probe = Probe(done)
+            let tls = NWProtocolTLS.Options()
+            sec_protocol_options_set_verify_block(
+                tls.securityProtocolOptions,
+                { _, trust, complete in
+                    probe.name = leafCommonName(sec_trust_copy_ref(trust).takeRetainedValue())
+                    complete(true)
+                },
+                probe.queue
+            )
+            let conn = NWConnection(
+                host: NWEndpoint.Host(host),
+                port: NWEndpoint.Port(rawValue: port) ?? 8883,
+                using: NWParameters(tls: tls)
+            )
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready, .failed, .cancelled: probe.finish(conn)
+                default: break // .waiting covers a refused port and the Local Network prompt; the timeout ends it
+                }
+            }
+            conn.start(queue: probe.queue)
+            probe.queue.asyncAfter(deadline: .now() + timeout) { probe.finish(conn) }
+        }
+    }
+
+    private static func leafCommonName(_ trust: SecTrust) -> String? {
+        guard let leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first else { return nil }
+        var name: CFString?
+        SecCertificateCopyCommonName(leaf, &name)
+        return name as String?
+    }
+
+    /// The iPhone's Wi-Fi address and mask (`en0`).
+    private static func wifi() -> (ip: String, netmask: String)? {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return nil }
+        defer { freeifaddrs(list) }
+        for entry in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let ifa = entry.pointee
+            guard String(cString: ifa.ifa_name) == "en0", let addr = ifa.ifa_addr, let mask = ifa.ifa_netmask,
+                  addr.pointee.sa_family == UInt8(AF_INET)
+            else { continue }
+            return (dotted(inet(addr)), dotted(inet(mask)))
+        }
+        return nil
+    }
+
+    private static func inet(_ sa: UnsafeMutablePointer<sockaddr>) -> UInt32 {
+        sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
+    }
+
+    static func ipv4(_ text: String) -> UInt32? {
+        let parts = text.split(separator: ".", omittingEmptySubsequences: false).compactMap { UInt8($0) }
+        guard parts.count == 4 else { return nil }
+        return parts.reduce(0) { $0 << 8 | UInt32($1) }
+    }
+
+    private static func dotted(_ n: UInt32) -> String {
+        [24, 16, 8, 0].map { String((n >> UInt32($0)) & 0xFF) }.joined(separator: ".")
+    }
+
+    /// One probe's state, touched only on its queue.
+    private final class Probe: @unchecked Sendable {
+        let queue = DispatchQueue(label: "local.PrintGlance.search")
+        var name: String?
+        private var done: CheckedContinuation<String?, Never>?
+        init(_ done: CheckedContinuation<String?, Never>) { self.done = done }
+        func finish(_ conn: NWConnection) {
+            conn.stateUpdateHandler = nil
+            conn.cancel()
+            done?.resume(returning: name)
             done = nil
         }
     }

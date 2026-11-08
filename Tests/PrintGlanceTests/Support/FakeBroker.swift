@@ -16,9 +16,10 @@ final class FakeBroker: @unchecked Sendable {
     private var received: [[UInt8]] = []
 
     /// CONNACK return code sent for CONNECT; nil sends nothing (a printer that never answers).
-    init(connack: UInt8? = 0) throws {
+    /// `commonName` names the certificate; a real printer's is its serial.
+    init(connack: UInt8? = 0, commonName: String = "localhost") throws {
         let tls = NWProtocolTLS.Options()
-        sec_protocol_options_set_local_identity(tls.securityProtocolOptions, try Self.identity())
+        sec_protocol_options_set_local_identity(tls.securityProtocolOptions, try Self.identity(commonName))
         listener = try NWListener(using: NWParameters(tls: tls, tcp: NWProtocolTCP.Options()), on: .any)
         let ready = DispatchSemaphore(value: 0)
         listener.stateUpdateHandler = { if case .ready = $0 { ready.signal() } }
@@ -121,15 +122,15 @@ final class FakeBroker: @unchecked Sendable {
 
     // MARK: - Certificate
 
-    nonisolated(unsafe) private static var cached: sec_identity_t?
+    nonisolated(unsafe) private static var cached: [String: sec_identity_t] = [:]
     private static let cacheLock = NSLock()
 
-    /// A self-signed localhost identity made by `/usr/bin/openssl` and kept in memory only.
+    /// A self-signed identity made by `/usr/bin/openssl` and kept in memory only.
     /// Nothing is written to a keychain, and no key is committed to the repo.
-    private static func identity() throws -> sec_identity_t {
+    private static func identity(_ commonName: String) throws -> sec_identity_t {
         cacheLock.lock()
         defer { cacheLock.unlock() }
-        if let cached { return cached }
+        if let identity = cached[commonName] { return identity }
         guard #available(macOS 15, *) else { throw XCTSkip("In-memory PKCS#12 import needs macOS 15") }
         let openssl = URL(fileURLWithPath: "/usr/bin/openssl")
         guard FileManager.default.isExecutableFile(atPath: openssl.path) else { throw XCTSkip("No /usr/bin/openssl") }
@@ -137,7 +138,7 @@ final class FakeBroker: @unchecked Sendable {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         for args in [
-            ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "key.pem", "-out", "cert.pem", "-days", "1", "-subj", "/CN=localhost"],
+            ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "key.pem", "-out", "cert.pem", "-days", "1", "-subj", "/CN=\(commonName)"],
             ["pkcs12", "-export", "-inkey", "key.pem", "-in", "cert.pem", "-out", "id.p12", "-passout", "pass:printglance"],
         ] {
             let p = Process()
@@ -158,7 +159,7 @@ final class FakeBroker: @unchecked Sendable {
               let value = first[kSecImportItemIdentity as String],
               let identity = sec_identity_create(value as! SecIdentity)
         else { throw XCTSkip("Could not import the test identity") }
-        cached = identity
+        cached[commonName] = identity
         return identity
     }
 }

@@ -17,6 +17,9 @@ struct PhoneScreen: View {
     @State private var status: PhoneStatus?
     @State private var failure: String?
     @State private var busy = false
+    /// Nil until the first search ends.
+    @State private var found: [PrinterSettings]?
+    @State private var searching = false
     @Environment(\.scenePhase) private var phase
 
     var body: some View {
@@ -34,6 +37,36 @@ struct PhoneScreen: View {
                     } footer: {
                         if let failure { Text(failure) }
                     }
+                }
+                Section {
+                    if searching {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Searching…")
+                        }
+                    } else if found?.isEmpty == true {
+                        Text("No printers found on this Wi-Fi.")
+                    }
+                    ForEach(found ?? [], id: \.serial) { hit in
+                        Button {
+                            form.ip = hit.ip
+                            form.serial = hit.serial
+                        } label: {
+                            HStack {
+                                LabeledContent(hit.serial, value: hit.ip)
+                                if hit.serial == form.trimmed.serial {
+                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                }
+                            }
+                        }
+                        .tint(.primary)
+                    }
+                    Button(found == nil ? "Search for Printers" : "Search Again") { Task { await search() } }
+                        .disabled(searching)
+                } header: {
+                    Text("Printers on this Wi-Fi")
+                } footer: {
+                    Text("Tap your printer, then enter its access code below.")
                 }
                 Section {
                     field("Name", $form.name, prompt: "Optional")
@@ -70,6 +103,7 @@ struct PhoneScreen: View {
             saved = store?.printer
             form = saved ?? .empty
             status = store?.status
+            if saved == nil { Task { await search() } }
         }
         .onChange(of: phase) {
             if phase == .active { Task { await refresh() } }
@@ -81,6 +115,19 @@ struct PhoneScreen: View {
             TextField(title, text: text, prompt: Text(prompt ?? ""))
                 .multilineTextAlignment(.trailing)
                 .autocorrectionDisabled()
+        }
+    }
+
+    /// One printer found and nothing typed yet: fill it in.
+    private func search() async {
+        guard !searching else { return }
+        searching = true
+        let hits = await PrinterSearch.scan()
+        found = hits
+        searching = false
+        if hits.count == 1, form.trimmed.serial.isEmpty, let hit = hits.first {
+            form.ip = hit.ip
+            form.serial = hit.serial
         }
     }
 
