@@ -354,7 +354,35 @@ extension GlanceContent {
     }
 }
 
+extension PrinterSettings {
+    /// The iPhone form after tapping a printer the search found: its IP and serial, and a code and name only
+    /// if they belong to it. Keeping another printer's code would send it to this one, which rejects it.
+    func picking(_ hit: PrinterSettings, saved: PrinterSettings?) -> PrinterSettings {
+        let own = trimmed.serial == hit.serial ? self : saved?.serial == hit.serial ? saved : nil
+        return PrinterSettings(ip: hit.ip, serial: hit.serial, accessCode: own?.accessCode ?? "", name: own?.name ?? "")
+    }
+}
+
+/// An alert in the iPhone app.
+struct PhoneAlert: Equatable, Sendable {
+    var title: String
+    var message: String
+}
+
 extension GlanceCopy {
+    /// After **Connect**: it worked, or why not.
+    static func phoneConnected(_ outcome: PrinterFetch.Outcome, name: String) -> PhoneAlert {
+        switch outcome {
+        case .printer:
+            return PhoneAlert(
+                title: "Connected to \(name)",
+                message: "Its status shows at the top of this screen. To see it on your Home Screen, add the PrintGlance widget."
+            )
+        case let .failed(reason):
+            return PhoneAlert(title: "Can't connect to \(name)", message: phoneFetchFailed(reason: reason))
+        }
+    }
+
     /// The iPhone also needs Local Network access, which iOS asks for once and Settings can turn off.
     static func phoneFetchFailed(reason: String?) -> String {
         guard !codeRejected(reason), reason?.contains("ECONNREFUSED") != true else {

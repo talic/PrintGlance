@@ -246,6 +246,31 @@ final class PhoneGlanceTests: XCTestCase {
         }
     }
 
+    func testPickingAnotherPrinterDropsTheOldCode() {
+        let x2d = PrinterSettings.x2d()
+        let other = PrinterSettings(ip: "192.0.2.51", serial: "20P9BJ5C2900999", accessCode: "", name: "")
+        XCTAssertEqual(x2d.picking(other, saved: x2d), other, "the X2D's code would be rejected by the other printer")
+        XCTAssertEqual(PrinterSettings.empty.picking(other, saved: nil), other)
+
+        let movedX2D = PrinterSettings(ip: "192.0.2.80", serial: x2d.serial, accessCode: "", name: "")
+        XCTAssertEqual(PrinterSettings.empty.picking(movedX2D, saved: x2d), .x2d(ip: "192.0.2.80"), "back to the saved printer: its code and name return")
+        var typed = other
+        typed.accessCode = "typed123"
+        typed.name = "NCC-1701"
+        XCTAssertEqual(typed.picking(other, saved: x2d), typed, "what was typed for this printer stays")
+    }
+
+    func testConnectSaysHowItWent() {
+        XCTAssertEqual(GlanceCopy.phoneConnected(.printer(Rows.idle()), name: "NCC-1701"), PhoneAlert(
+            title: "Connected to NCC-1701",
+            message: "Its status shows at the top of this screen. To see it on your Home Screen, add the PrintGlance widget."
+        ))
+        XCTAssertEqual(GlanceCopy.phoneConnected(.failed("MQTT CONNACK 5"), name: "NCC-1701"), PhoneAlert(
+            title: "Can't connect to NCC-1701",
+            message: "The access code was rejected. Check the access code on the printer's LAN or Network page."
+        ))
+    }
+
     func testProbeReadsTheSerialFromTheCertificateAndSendsNothing() async throws {
         let broker = try FakeBroker(commonName: "20P9AJ5B0700123")
         let name = await PrinterSearch.commonName(host: "127.0.0.1", port: broker.port, timeout: 5)

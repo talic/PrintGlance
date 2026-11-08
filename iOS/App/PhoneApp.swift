@@ -20,6 +20,7 @@ struct PhoneScreen: View {
     /// Nil until the first search ends.
     @State private var found: [PrinterSettings]?
     @State private var searching = false
+    @State private var alert: PhoneAlert?
     @Environment(\.scenePhase) private var phase
 
     var body: some View {
@@ -49,8 +50,7 @@ struct PhoneScreen: View {
                     }
                     ForEach(found ?? [], id: \.serial) { hit in
                         Button {
-                            form.ip = hit.ip
-                            form.serial = hit.serial
+                            form = form.picking(hit, saved: saved)
                         } label: {
                             HStack {
                                 LabeledContent(hit.serial, value: hit.ip)
@@ -88,7 +88,7 @@ struct PhoneScreen: View {
                         store?.save(form)
                         saved = store?.printer
                         status = store?.status
-                        Task { await refresh() }
+                        Task { await refresh(announce: true) }
                     }
                     .disabled(busy || store == nil || !form.trimmed.isComplete)
                 }
@@ -98,6 +98,14 @@ struct PhoneScreen: View {
             }
             .navigationTitle("PrintGlance")
             .refreshable { await refresh() }
+            .alert(
+                alert?.title ?? "",
+                isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } })
+            ) {
+                Button("OK") {}
+            } message: {
+                Text(alert?.message ?? "")
+            }
         }
         .onAppear {
             saved = store?.printer
@@ -130,16 +138,18 @@ struct PhoneScreen: View {
         found = hits
         searching = false
         if hits.count == 1, form.trimmed.serial.isEmpty, let hit = hits.first {
-            form.ip = hit.ip
-            form.serial = hit.serial
+            form = form.picking(hit, saved: saved)
         }
     }
 
-    private func refresh() async {
+    /// `announce`: after **Connect**, say how it went in an alert, not just in the card at the top.
+    private func refresh(announce: Bool = false) async {
         guard let store, let printer = store.printer, !busy else { return }
         busy = true
         defer { busy = false }
-        switch await PrinterFetch.fetch(printer) {
+        let outcome = await PrinterFetch.fetch(printer)
+        if announce { alert = GlanceCopy.phoneConnected(outcome, name: printer.displayName) }
+        switch outcome {
         case let .printer(row):
             let fresh = PhoneStatus(printer: row, at: Date())
             store.save(fresh)
