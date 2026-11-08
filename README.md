@@ -177,6 +177,25 @@ Your printer IP, serial, and access code stay on this Mac.
 
 You do not need **LAN Only Mode** or **Developer Mode**. PrintGlance only reads status, which Bambu allows while the printer is connected to Bambu's cloud. LAN Only Mode turns off Bambu Handy and printing from outside your network.
 
+## iPhone widget (build it yourself)
+
+The `iOS` folder has a small iPhone app with a Home Screen and Lock Screen widget. It shows one printer's progress, finish time, and why a print paused. There is no download. You build it with Xcode onto your own iPhone.
+
+The iPhone talks to the printer on your Wi-Fi, the same way the Mac does. It does not need the Mac. It reads the printer when you open the app and about every 15 minutes in the widget, when iOS allows. Away from that Wi-Fi, the widget shows what the printer last said and when, and counts down to the finish time.
+
+1. Create `iOS/Local.xcconfig` with your Apple team ID and a bundle ID that nobody else has registered:
+
+   ```
+   DEVELOPMENT_TEAM = ABCDE12345
+   PG_ID = com.yourname.PrintGlance
+   ```
+
+2. Open `iOS/PrintGlance.xcodeproj`, choose your iPhone, and click **Run**.
+3. In the app, enter the printer's IP address, serial number, and access code, then tap **Connect**. When iOS asks to find devices on your local network, tap **Allow**.
+4. Touch and hold the Home Screen or Lock Screen, tap **Edit**, then **Add Widget**, and choose **PrintGlance**.
+
+The access code you enter stays on that iPhone. Like the Mac app, the iPhone app only reads status and never pauses, stops, or starts a print. With a free Apple account, an app you build yourself stops opening after 7 days. Run it from Xcode again to renew it.
+
 ## License
 
 MIT. See the `LICENSE` file.

@@ -1,6 +1,6 @@
 # How PrintGlance works
 
-PrintGlance is a macOS 14+ menu bar app (SwiftUI `MenuBarExtra`, no Dock icon) that shows Bambu Lab 3D printers' progress. It talks to each printer directly over the local network with MQTT over TLS, the same LAN protocol Bambu Studio uses. It needs no Bambu account and no cloud. It watches up to four printers, explains pauses and failures, sends notifications, tracks AMS filament, and keeps a short print history.
+PrintGlance is a macOS 14+ menu bar app (SwiftUI `MenuBarExtra`, no Dock icon) that shows Bambu Lab 3D printers' progress. It talks to each printer directly over the local network with MQTT over TLS, the same LAN protocol Bambu Studio uses. It needs no Bambu account and no cloud. It watches up to four printers, explains pauses and failures, sends notifications, tracks AMS filament, and keeps a short print history. An iPhone app with a widget (`iOS/`, built from source) reuses the parsing and presentation code; see [iPhone app and widget](#iphone-app-and-widget).
 
 This document is for whoever changes the code next, human or agent. Read it before changing behavior; read [TESTING.md](TESTING.md) before writing tests. The user-facing behavior is described in the [README](../README.md); `ShippingTests` fails when the README and the code disagree.
 
@@ -22,11 +22,12 @@ This document is for whoever changes the code next, human or agent. Read it befo
 14. [What is stored where](#what-is-stored-where)
 15. [macOS integration and load-bearing workarounds](#macos-integration-and-load-bearing-workarounds)
 16. [Update check](#update-check)
-17. [The Python feed](#the-python-feed)
-18. [Build, sign, release](#build-sign-release)
-19. [Known limits and debt](#known-limits-and-debt)
-20. [Changing things safely](#changing-things-safely)
-21. [Bambu report fields the app reads](#bambu-report-fields-the-app-reads)
+17. [iPhone app and widget](#iphone-app-and-widget)
+18. [The Python feed](#the-python-feed)
+19. [Build, sign, release](#build-sign-release)
+20. [Known limits and debt](#known-limits-and-debt)
+21. [Changing things safely](#changing-things-safely)
+22. [Bambu report fields the app reads](#bambu-report-fields-the-app-reads)
 
 ## Promises that constrain every change
 
@@ -36,7 +37,7 @@ These are product promises (README, "Private and read-only") or hard-won constra
 |---|---|---|
 | **Read-only.** The app publishes exactly one message: `{"pushing":{"command":"pushall","sequence_id":"0"}}` to `device/<serial>/request`. Never pause, stop, resume, print, or change settings. | The README promises it, and a bug here could ruin a print. | `SecurityTests.testOnlyEverAsksForAFullReport`, `GlanceModelTests.testHandshakeSubscribesAndAsksForEverything`, `MQTTWireTests`, Python `MqttCallbackTests` |
 | **LAN only.** The app's only internet request is the daily GitHub release check. Bambu web pages open in the browser only when the user clicks **Look up**. | Privacy promise. | `ShippingTests.testReadOnlyAndLocalPromise`, `UpdateCheckTests` |
-| **The access code stays on this Mac**, and only ever travels as the MQTT password to the printer's own IP. Never log it, never put it in a notification or a URL. | Privacy promise; the code grants LAN control of the printer. | `SecurityTests.testAccessCodeIsOnlyEverTheMQTTPassword` |
+| **The access code stays on this Mac**, and only ever travels as the MQTT password to the printer's own IP. Never log it, never put it in a notification or a URL. The iPhone app keeps the code typed into it on that iPhone, under the same rules. | Privacy promise; the code grants LAN control of the printer. | `SecurityTests.testAccessCodeIsOnlyEverTheMQTTPassword`, `PhoneGlanceTests.testOneLookAsksForAFullReportAndHangsUp` |
 | **No dependencies.** The package has none; system frameworks only. | Simplicity and supply chain. | Review |
 | `Printer`, `PrintDoc`, `AMSTray`, `AMSUnit`, `Temp`, `Runout` stay `Codable`; only add optional fields with `= nil` defaults. | The JSON fixtures pin the Python feed's format (`PrintDocTests`). | `PrintDocTests` |
 | Don't edit `bambu.py`, `print_loop.*`, or `.env.example` unless the owner asks; never `.env` or launchd. | The feed runs as a LaunchAgent on the owner's Mac and may feed another device. | Review; `Tests/Feed` covers its behavior |
@@ -46,7 +47,7 @@ These are product promises (README, "Private and read-only") or hard-won constra
 
 ## Repository map
 
-All app code is one SwiftPM executable target, `Sources/PrintGlance`.
+All app code is one SwiftPM executable target, `Sources/PrintGlance`. The iPhone project compiles eleven of its Foundation-only files directly (listed under [iPhone app and widget](#iphone-app-and-widget)), so those must not import AppKit or reach Mac-only types.
 
 | File | Responsibility |
 |---|---|
@@ -68,6 +69,8 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`.
 | `SetupWindow.swift` | The `NSWindow` that hosts setup, its show/close/cancel wiring, and the Remove confirmation alert. |
 | `LoginItem.swift` | Open at Login via `SMAppService.mainApp`. |
 | `AppUpdate.swift` | Version comparison and GitHub release parsing (`AppUpdate`), the daily checker (`AppUpdateChecker`). |
+| `PhoneGlance.swift` | iPhone only, but built and tested here: `PhoneStatus` (the last row and when), `PhoneStore` (App Group defaults), `PrinterFetch` (one connect, `pushall`, one report, hang up), and the widget's words (`GlanceContent.phone`, `phoneEntryDates`, `phoneNextFetch`, `GlanceCopy.phoneFetchFailed`). The Mac app never calls it. |
+| `PhoneCard.swift` | The iPhone widget's card (small and medium) and the iPhone app's status card. |
 
 Outside `Sources`:
 
@@ -79,7 +82,9 @@ Outside `Sources`:
 | `Info.plist` | Copied into the bundle by `make app`. Bundle ID `local.PrintGlance`, `LSUIElement`, `LSMultipleInstancesProhibited`, the Local Network usage string, the version. |
 | `Makefile` | `test`, `release`, `app`, `zip`, `notarize`, `install`, `icon`, `clean`. |
 | `scripts/render-appicon.swift` | Draws the app icon into `dist/AppIcon.icns`. |
-| `.github/workflows/test.yml`, `release.yml` | CI tests on every PR and push to `main`; release on a `v*` tag. |
+| `iOS/` | The iPhone app (`App/`) and widget extension (`Widget/`), their Xcode project, Info.plists, entitlements, and `PrintGlance.xcconfig`. See [iPhone app and widget](#iphone-app-and-widget). |
+| `scripts/fake-printer.py` | A pretend printer on `127.0.0.1:8883` for trying the iPhone app in the simulator. |
+| `.github/workflows/test.yml`, `release.yml` | CI tests (and builds the iPhone app) on every PR and push to `main`; release on a `v*` tag. |
 | `docs/*.png` | README screenshots. |
 
 ## From a printer report to the menu bar
@@ -159,7 +164,7 @@ stateDiagram-v2
 
 `GlanceModel` keeps one `Link` per complete saved printer, keyed by serial. The details that matter:
 
-- **Dial.** `beginConnect` dials `<ip>:8883` with client ID `pg-app-<last 6 of serial>-<random per-launch hex>`, user `bblp`, password = access code. The Python feed uses `pg-feed-…`; two sessions with one ID make the printer drop each in turn.
+- **Dial.** `beginConnect` dials `<ip>:8883` with client ID `pg-app-<last 6 of serial>-<random per-launch hex>`, user `bblp`, password = access code. The Python feed uses `pg-feed-…` and the iPhone `pg-phone-…`; two sessions with one ID make the printer drop each in turn.
 - **Handshake.** On CONNACK 0, `didConnect` saves the candidate IP if this dial was one, subscribes to `device/<serial>/report`, and publishes `pushall`.
 - **Timeout.** 8 s without CONNACK marks the link failed with reason `connect timed out`, closes the socket, and asks for rediscovery.
 - **Drop.** `didDisconnect` marks the link failed with the client's reason: `MQTT CONNACK <n>`, `ECONNREFUSED`, `closed`, `ping timeout`, `malformed packet`, or a Network.framework error string. The snapshot gets its 30 s grace.
@@ -264,6 +269,7 @@ Preferences live in the `local.PrintGlance` domain (`UserDefaults.standard` in t
 | `pg.runout` | `RunoutTracker` as JSON. |
 | `pg.update.lastCheck`, `.remoteTag`, `.remoteZip` | Update check cache. |
 | `~/Library/Application Support/PrintGlance/jobs.json` | History. |
+| iPhone: App Group `group.<PG_ID>` defaults, `printers` and `pg.phone.status` | The iPhone's one printer (same shape as the Mac's, code included) and its last `PhoneStatus` as JSON. |
 | `~/Library/Logs/PrintGlance.log` | Connection log (connects, drops, IP changes, skipped alerts). Wiped at launch when over 1 MB. Serials and IPs appear here; access codes never do. |
 
 Changing `CFBundleIdentifier` orphans all of the above.
@@ -290,6 +296,19 @@ Live testing notes: on macOS 27 `NSStatusBarButton.performClick` doesn't open a 
 
 `AppUpdateChecker` asks `https://api.github.com/repos/talic/PrintGlance/releases/latest` at most once a day (an hourly loop checks whether a day has passed, and wake checks too) with an ephemeral session, an 8 s timeout, and a `User-Agent` of `PrintGlance/<version> (+https://github.com/talic/PrintGlance)`. A newer `tag_name` shows **Update available** in the card and **Download PrintGlance <version>** in the menu. The download link is the release's `PrintGlance.zip` asset only if it is an `https://github.com/` URL; otherwise the release page. A failed check publishes what it knew and doesn't count as the day's check. There is no auto-update.
 
+## iPhone app and widget
+
+`iOS/PrintGlance.xcodeproj` builds an iPhone app (iOS 17+) and a WidgetKit extension. They read the printer like the Mac does, over the LAN, with no Mac, cloud, or account. They show one printer. People build it themselves (README, "iPhone widget").
+
+- **Shared code.** Both targets compile these files from `Sources/PrintGlance` as they are: `BambuSnapshot`, `ComingOff`, `FilamentAlert`, `GlanceContent`, `JobLog`, `MQTT311Client`, `PhoneCard`, `PhoneGlance`, `PrintDoc`, `PrinterSettings`, `PrintNotify`. A Mac-only type in one of them breaks the iPhone build, which CI runs.
+- **One look.** The iPhone can't hold a connection open, so `PrinterFetch.fetch` connects (client ID `pg-phone-<last 6>-<random>`), subscribes, publishes the same `pushall`, waits for the first report with a `gcode_state`, and hangs up. Eight seconds without one is `connect timed out`; a drop passes the client's reason through. The app asks on **Connect**, on pull to refresh, and each time it comes to the front. The widget asks each time iOS reloads it.
+- **Shared status.** Both save a `PhoneStatus` (the row, and when the printer sent it) in the App Group's defaults through `PhoneStore`. When the widget can't reach the printer (away from home, or Local Network turned off), it shows the last status. `PhoneStore.shared` is nil when signing left out the App Group, because iOS would then give each process its own defaults; the app says so.
+- **Timeline.** `phoneEntryDates` makes one entry a minute while a finish time counts down, for up to two hours, so "1h 24m left" moves without asking the printer. `phoneNextFetch` asks again in 15 minutes during a print (or just after its finish time, if sooner) and hourly otherwise. iOS decides when it really reloads.
+- **Words.** `GlanceContent.phone` turns a status into `PhoneLines`. Times count from when the printer answered: the hero is the finish time, the detail the minutes left rounded up ("Should be done" once it passes), and "Updated 14:02" closes the card. The percent is what the printer said, never a guess. Paused shows time left and the reason, like the Mac card. `short` is the Lock Screen line ("52% · 16:25").
+- **Sizes.** Small and medium (`PhoneCard`; medium adds layer and filament), and on the Lock Screen a circular percent gauge (or the menu bar's symbol), a rectangular card, and an inline line.
+- **Signing.** `PrintGlance.xcconfig` sets `PG_ID`, the app's bundle ID; the widget is `PG_ID.widget` and the App Group `group.PG_ID`. It includes the git-ignored `iOS/Local.xcconfig` for the builder's team and their own `PG_ID`. Both Info.plists carry `PGAppGroup`, so the code reads the group from its bundle.
+- **Async provider.** The widget uses `AppIntentTimelineProvider` with an empty intent. Its async `timeline(for:in:)` builds the same on CI's Xcode 16.4 and on current SDKs, whose `TimelineProvider` completion handlers gained `@Sendable`.
+
 ## The Python feed
 
 `bambu.py` and `print_loop.py` predate the Swift app's direct MQTT client. The app no longer reads them, but the owner runs `print_loop.sh` as the LaunchAgent `local.PrintGlance.feed`, and another device may read it. It connects to one printer from `.env` (`BAMBU_IP`, `BAMBU_SERIAL`, `BAMBU_ACCESS_CODE`, `BAMBU_NAME`) with client ID `pg-feed-…`, merges reports like the app, and serves `GET /print.json` (and `/print`, `/health`, `/`) on `PRINT_HOST:PRINT_PORT`. The default is `127.0.0.1:8080`, this Mac only; `PRINT_HOST=0.0.0.0` serves the LAN, and the feed logs a warning at start when it does that without `STATS_TOKEN`. With a token, `/print.json` requires a matching `X-Stats-Token` header (compared in constant time). Idle connections close after 10 s, and the `Server` header leaves out the Python version. A report with `Infinity`, huge numbers, or deeply nested JSON can't break it, and paho's thread logs callback errors instead of dying. The JSON is the `PrintDoc` shape in snake_case; `Tests/PrintGlanceTests/Fixtures/*.json` pin it. Leave these files alone unless the owner asks.
@@ -299,7 +318,7 @@ Live testing notes: on macOS 27 `NSStatusBarButton.performClick` doesn't open a 
 - `make test` runs the Swift suite and the feed's suite. On the owner's Mac `xcode-select` points at the Command Line Tools, which lack XCTest and the SwiftUI macros, so the Makefile exports `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`. Bare `swift test` fails there.
 - `make app` builds release, assembles `dist/PrintGlance.app` with `Info.plist` and the icon, and signs ad-hoc (`SIGN_ID=-`). `make zip` zips it. `make notarize` signs with a Developer ID (hardened runtime, timestamp), submits to notarytool, checks the status, staples, and re-zips.
 - `make install` quits the running app, copies it to `~/Applications`, **rewrites saved printers from `.env`**, and opens it. Don't run it without asking.
-- **CI** (`test.yml`): `swift test` and the feed tests on `macos-15` with Xcode 16.4 (Swift 6.1, macOS 15.5 SDK). That toolchain is older than a current Mac's, and Swift 6 concurrency checks differ: code that crosses actors with Apple framework types can build locally and fail in CI. Keep non-Sendable framework values inside nonisolated helpers and return plain values. The PR's CI is the real check.
+- **CI** (`test.yml`): `swift test`, an unsigned simulator build of the iPhone app and widget, and the feed tests on `macos-15` with Xcode 16.4 (Swift 6.1, macOS 15.5 SDK). That toolchain is older than a current Mac's, and Swift 6 concurrency checks differ: code that crosses actors with Apple framework types can build locally and fail in CI. Keep non-Sendable framework values inside nonisolated helpers and return plain values. The PR's CI is the real check.
 - **Release** (`release.yml`): on a `v*` tag that must equal `v` + `CFBundleShortVersionString`, runs tests, imports the Developer ID certificate if the secrets exist, builds, notarizes, checks Gatekeeper, and attaches `PrintGlance.zip` to the GitHub release. Without signing secrets it ships ad-hoc (a marked `ponytail:` fallback; turn it back into an error once the secrets exist). The README keeps its "Open Anyway" steps until a notarized release is the latest.
 - Bump `CFBundleShortVersionString` and `CFBundleVersion` in `Info.plist` for a release.
 
@@ -314,6 +333,9 @@ Deliberate shortcuts carry a `ponytail:` comment in the code naming the ceiling 
 - **Runout treats 0% as empty**, though an X2D printed on at 0%. Weighing spools at 0% would let an offset per AMS model move the guess.
 - **The log** is wiped at 1 MB rather than rotated.
 - **Release signing** falls back to ad-hoc without secrets.
+- **iPhone: one printer.** `PhoneStore.printer` is the first saved one. Upgrade: a list in the app and a widget intent to pick a printer.
+- **iPhone: the full report** is taken to be the first report with a `gcode_state`, which `pushall` sends at once. A delta carrying the state first would leave fields out until the next look.
+- **iPhone: LAN only.** Away from the printer's Wi-Fi the widget shows the last status. Reaching it from anywhere would need the cloud, which the app promises not to use.
 
 Accepted by the owner, not fixed: CSV export doesn't neutralize cells starting with `=`, `+`, `-`, `@` (spreadsheet formula injection from a crafted job name). Not automated: the 20 s keep-alive ping. See TESTING.md.
 

@@ -1,0 +1,7 @@
+// Signing for your own iPhone. Put your team and a bundle ID prefix nobody else has registered in
+// iOS/Local.xcconfig (git-ignored), for example:
+//   DEVELOPMENT_TEAM = ABCDE12345
+//   PG_ID = com.example.PrintGlance
+// The app is PG_ID, the widget PG_ID.widget, and their App Group group.PG_ID.
+PG_ID = local.PrintGlance.phone
+#include? "Local.xcconfig"
