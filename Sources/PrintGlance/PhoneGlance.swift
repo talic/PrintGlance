@@ -86,6 +86,11 @@ enum PrinterFetch {
                 }
             }
             client.onDisconnect = { once.finish(.failed($0)) }
+            // Before `connect`, so a client that answers at once still cancels it.
+            once.timer = Task { @MainActor in
+                try? await Task.sleep(for: timeout)
+                if !Task.isCancelled { once.finish(.failed("connect timed out")) }
+            }
             client.connect(
                 host: p.ip,
                 port: 8883,
@@ -93,10 +98,6 @@ enum PrinterFetch {
                 username: "bblp",
                 password: p.accessCode
             )
-            once.timer = Task { @MainActor in
-                try? await Task.sleep(for: timeout)
-                if !Task.isCancelled { once.finish(.failed("connect timed out")) }
-            }
         }
         client.onConnect = nil
         client.onMessage = nil

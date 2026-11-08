@@ -32,10 +32,11 @@ struct Provider: AppIntentTimelineProvider {
         Entry(date: Date(), lines: GlanceContent.phone(PhoneStatus(printer: Self.sample, at: Date()), hasPrinter: true, now: Date()))
     }
 
+    /// The gallery shows the sample until there is a real status; anywhere else, only what is true.
     func snapshot(for configuration: PrinterIntent, in context: Context) async -> Entry {
         let store = PhoneStore.shared
-        guard let status = store?.status else { return placeholder(in: context) }
-        return Entry(date: Date(), lines: GlanceContent.phone(status, hasPrinter: true, now: Date()))
+        if context.isPreview, store?.status == nil { return placeholder(in: context) }
+        return Entry(date: Date(), lines: GlanceContent.phone(store?.status, hasPrinter: store?.printer != nil, now: Date()))
     }
 
     func timeline(for configuration: PrinterIntent, in context: Context) async -> Timeline<Entry> {
