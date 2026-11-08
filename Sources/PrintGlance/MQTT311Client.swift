@@ -147,8 +147,8 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
     }
 
     func disconnect() {
-        queue.async { [weak self] in
-            guard let self else { return }
+        // Strong: a client dropped right after `disconnect()` (the iPhone's one-shot fetch) still closes its socket.
+        queue.async { [self] in
             self.generation &+= 1
             self.pingTimer?.cancel()
             self.pingTimer = nil

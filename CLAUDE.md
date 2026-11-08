@@ -1,6 +1,6 @@
 # PrintGlance
 
-A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu Lab 3D printers' progress by talking MQTT over TLS to each printer on the LAN. Up to four printers, notifications, AMS filament, history.
+A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu Lab 3D printers' progress by talking MQTT over TLS to each printer on the LAN. Up to four printers, notifications, AMS filament, history. `iOS/` is a build-it-yourself iPhone app and widget that reads one printer the same way.
 
 - **How it works:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Read it before changing behavior.
 - **How it's tested:** [docs/TESTING.md](docs/TESTING.md). Read it before writing tests.
@@ -11,6 +11,7 @@ A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu La
 - `make test`: the Swift suite and the Python feed's suite, about 20 s. Bare `swift test` fails where `xcode-select` points at the Command Line Tools; the Makefile sets `DEVELOPER_DIR` to Xcode.
 - `PG_RENDER_DIR=/tmp/pg make test`: PNGs of every card, menu bar, list, history, and setup state, light and dark.
 - `make app`: builds `dist/PrintGlance.app`, ad-hoc signed.
+- iPhone app and widget: `xcodebuild -project iOS/PrintGlance.xcodeproj -target PrintGlance -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build` (CI runs it). `python3 scripts/fake-printer.py` stands in for a printer in the simulator.
 - `make install`: quits the running app and **rewrites saved printers from `.env`**. Ask before running it. Also ask before launching any build: it connects to real printers, and only one copy can run.
 
 ## Rules
@@ -21,6 +22,7 @@ A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu La
 - No new dependencies. Keep `Printer`, `PrintDoc`, `AMSTray` (and friends) `Codable`; add only optional fields with `= nil`.
 - Don't edit `bambu.py`, `print_loop.*`, or `.env.example` unless the owner asks, and never `.env` or launchd: the feed runs as a LaunchAgent on the owner's Mac.
 - Don't restructure the load-bearing macOS workarounds listed in ARCHITECTURE.md (`PinMenuBarExtra`, `hugMenuBarPanel`, `PanelOpened`, no `.id(strip)`, "keep `failed` through retries", `Notifier`).
+- The iPhone project compiles eleven files from `Sources/PrintGlance` (listed in ARCHITECTURE.md, "iPhone app and widget"). Keep them free of AppKit and Mac-only types.
 - Reach Notification Center only through `Notifier`. It traps in tests, and a MainActor permission completion traps in the app.
 - Presentation decisions go in pure `static` functions on `GlanceContent` (report parsing on `BambuPrint`), each tested. Views stay thin.
 - Tests never touch `UserDefaults.standard`, Notification Center, the network, or `~/Library`; use `ModelHarness`, `Screen`, `FakeBroker`, and the other helpers in `Tests/PrintGlanceTests/Support`.

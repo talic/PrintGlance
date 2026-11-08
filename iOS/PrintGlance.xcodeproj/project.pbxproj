@@ -1,0 +1,453 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5A3000000000000000000001 /* BambuSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000001 /* BambuSnapshot.swift */; };
+		5A3000000000000000000002 /* ComingOff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000002 /* ComingOff.swift */; };
+		5A3000000000000000000003 /* FilamentAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000003 /* FilamentAlert.swift */; };
+		5A3000000000000000000004 /* GlanceContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000004 /* GlanceContent.swift */; };
+		5A3000000000000000000005 /* JobLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000005 /* JobLog.swift */; };
+		5A3000000000000000000006 /* MQTT311Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000006 /* MQTT311Client.swift */; };
+		5A3000000000000000000007 /* PhoneCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000007 /* PhoneCard.swift */; };
+		5A3000000000000000000008 /* PhoneGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000008 /* PhoneGlance.swift */; };
+		5A3000000000000000000009 /* PrintDoc.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000009 /* PrintDoc.swift */; };
+		5A300000000000000000000A /* PrinterSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A200000000000000000000A /* PrinterSettings.swift */; };
+		5A4000000000000000000001 /* BambuSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000001 /* BambuSnapshot.swift */; };
+		5A4000000000000000000002 /* ComingOff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000002 /* ComingOff.swift */; };
+		5A4000000000000000000003 /* FilamentAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000003 /* FilamentAlert.swift */; };
+		5A4000000000000000000004 /* GlanceContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000004 /* GlanceContent.swift */; };
+		5A4000000000000000000005 /* JobLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000005 /* JobLog.swift */; };
+		5A4000000000000000000006 /* MQTT311Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000006 /* MQTT311Client.swift */; };
+		5A4000000000000000000007 /* PhoneCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000007 /* PhoneCard.swift */; };
+		5A4000000000000000000008 /* PhoneGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000008 /* PhoneGlance.swift */; };
+		5A4000000000000000000009 /* PrintDoc.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2000000000000000000009 /* PrintDoc.swift */; };
+		5A400000000000000000000A /* PrinterSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A200000000000000000000A /* PrinterSettings.swift */; };
+		5A300000000000000000000B /* PrintNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A200000000000000000000B /* PrintNotify.swift */; };
+		5A400000000000000000000B /* PrintNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A200000000000000000000B /* PrintNotify.swift */; };
+		5A5000000000000000000001 /* PrintGlanceWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5A1000000000000000000008 /* PrintGlanceWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5A8000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5A1000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A6000000000000000000002;
+			remoteInfo = PrintGlanceWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5A7000000000000000000004 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				5A5000000000000000000001 /* PrintGlanceWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		5A1000000000000000000007 /* PrintGlance.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrintGlance.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5A1000000000000000000008 /* PrintGlanceWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PrintGlanceWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5A1000000000000000000009 /* PrintGlance.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = PrintGlance.xcconfig; sourceTree = "<group>"; };
+		5A100000000000000000000A /* App-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "App-Info.plist"; sourceTree = "<group>"; };
+		5A100000000000000000000B /* Widget-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Widget-Info.plist"; sourceTree = "<group>"; };
+		5A100000000000000000000C /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
+		5A100000000000000000000D /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
+		5A2000000000000000000001 /* BambuSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BambuSnapshot.swift; sourceTree = "<group>"; };
+		5A2000000000000000000002 /* ComingOff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComingOff.swift; sourceTree = "<group>"; };
+		5A2000000000000000000003 /* FilamentAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilamentAlert.swift; sourceTree = "<group>"; };
+		5A2000000000000000000004 /* GlanceContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlanceContent.swift; sourceTree = "<group>"; };
+		5A2000000000000000000005 /* JobLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobLog.swift; sourceTree = "<group>"; };
+		5A2000000000000000000006 /* MQTT311Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MQTT311Client.swift; sourceTree = "<group>"; };
+		5A2000000000000000000007 /* PhoneCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneCard.swift; sourceTree = "<group>"; };
+		5A2000000000000000000008 /* PhoneGlance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneGlance.swift; sourceTree = "<group>"; };
+		5A2000000000000000000009 /* PrintDoc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintDoc.swift; sourceTree = "<group>"; };
+		5A200000000000000000000A /* PrinterSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrinterSettings.swift; sourceTree = "<group>"; };
+		5A200000000000000000000B /* PrintNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintNotify.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		5A1000000000000000000005 /* App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = App;
+			sourceTree = "<group>";
+		};
+		5A1000000000000000000006 /* Widget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Widget;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5A7000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5A7000000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5A1000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				5A1000000000000000000005 /* App */,
+				5A1000000000000000000006 /* Widget */,
+				5A1000000000000000000004 /* Shared */,
+				5A1000000000000000000009 /* PrintGlance.xcconfig */,
+				5A100000000000000000000A /* App-Info.plist */,
+				5A100000000000000000000B /* Widget-Info.plist */,
+				5A100000000000000000000C /* App.entitlements */,
+				5A100000000000000000000D /* Widget.entitlements */,
+				5A1000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5A1000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5A1000000000000000000007 /* PrintGlance.app */,
+				5A1000000000000000000008 /* PrintGlanceWidget.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5A1000000000000000000004 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				5A2000000000000000000001 /* BambuSnapshot.swift */,
+				5A2000000000000000000002 /* ComingOff.swift */,
+				5A2000000000000000000003 /* FilamentAlert.swift */,
+				5A2000000000000000000004 /* GlanceContent.swift */,
+				5A2000000000000000000005 /* JobLog.swift */,
+				5A2000000000000000000006 /* MQTT311Client.swift */,
+				5A2000000000000000000007 /* PhoneCard.swift */,
+				5A2000000000000000000008 /* PhoneGlance.swift */,
+				5A2000000000000000000009 /* PrintDoc.swift */,
+				5A200000000000000000000A /* PrinterSettings.swift */,
+				5A200000000000000000000B /* PrintNotify.swift */,
+			);
+			name = Shared;
+			path = ../Sources/PrintGlance;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5A6000000000000000000001 /* PrintGlance */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5A9000000000000000000002 /* Build configuration list for PBXNativeTarget "PrintGlance" */;
+			buildPhases = (
+				5A7000000000000000000001 /* Sources */,
+				5A7000000000000000000002 /* Frameworks */,
+				5A7000000000000000000003 /* Resources */,
+				5A7000000000000000000004 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5A8000000000000000000002 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5A1000000000000000000005 /* App */,
+			);
+			name = PrintGlance;
+			productName = PrintGlance;
+			productReference = 5A1000000000000000000007 /* PrintGlance.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5A6000000000000000000002 /* PrintGlanceWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5A9000000000000000000003 /* Build configuration list for PBXNativeTarget "PrintGlanceWidget" */;
+			buildPhases = (
+				5A7000000000000000000005 /* Sources */,
+				5A7000000000000000000006 /* Frameworks */,
+				5A7000000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5A1000000000000000000006 /* Widget */,
+			);
+			name = PrintGlanceWidget;
+			productName = PrintGlanceWidget;
+			productReference = 5A1000000000000000000008 /* PrintGlanceWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5A1000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1640;
+				LastUpgradeCheck = 1640;
+			};
+			buildConfigurationList = 5A9000000000000000000001 /* Build configuration list for PBXProject "PrintGlance" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5A1000000000000000000002;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5A1000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5A6000000000000000000001 /* PrintGlance */,
+				5A6000000000000000000002 /* PrintGlanceWidget */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5A7000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5A7000000000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5A7000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5A3000000000000000000001 /* BambuSnapshot.swift in Sources */,
+				5A3000000000000000000002 /* ComingOff.swift in Sources */,
+				5A3000000000000000000003 /* FilamentAlert.swift in Sources */,
+				5A3000000000000000000004 /* GlanceContent.swift in Sources */,
+				5A3000000000000000000005 /* JobLog.swift in Sources */,
+				5A3000000000000000000006 /* MQTT311Client.swift in Sources */,
+				5A3000000000000000000007 /* PhoneCard.swift in Sources */,
+				5A3000000000000000000008 /* PhoneGlance.swift in Sources */,
+				5A3000000000000000000009 /* PrintDoc.swift in Sources */,
+				5A300000000000000000000A /* PrinterSettings.swift in Sources */,
+				5A300000000000000000000B /* PrintNotify.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5A7000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5A4000000000000000000001 /* BambuSnapshot.swift in Sources */,
+				5A4000000000000000000002 /* ComingOff.swift in Sources */,
+				5A4000000000000000000003 /* FilamentAlert.swift in Sources */,
+				5A4000000000000000000004 /* GlanceContent.swift in Sources */,
+				5A4000000000000000000005 /* JobLog.swift in Sources */,
+				5A4000000000000000000006 /* MQTT311Client.swift in Sources */,
+				5A4000000000000000000007 /* PhoneCard.swift in Sources */,
+				5A4000000000000000000008 /* PhoneGlance.swift in Sources */,
+				5A4000000000000000000009 /* PrintDoc.swift in Sources */,
+				5A400000000000000000000A /* PrinterSettings.swift in Sources */,
+				5A400000000000000000000B /* PrintNotify.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5A8000000000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5A6000000000000000000002 /* PrintGlanceWidget */;
+			targetProxy = 5A8000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		5AA000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5A1000000000000000000009 /* PrintGlance.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		5AA000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5A1000000000000000000009 /* PrintGlance.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		5AA000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "App-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = PrintGlance;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintGlance reads your printer's progress over your Wi-Fi.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PG_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		5AA000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "App-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = PrintGlance;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintGlance reads your printer's progress over your Wi-Fi.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PG_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+		5AA000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Widget.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Widget-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = PrintGlance;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintGlance reads your printer's progress over your Wi-Fi.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PG_ID).widget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		5AA000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Widget.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Widget-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = PrintGlance;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PrintGlance reads your printer's progress over your Wi-Fi.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PG_ID).widget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5A9000000000000000000001 /* Build configuration list for PBXProject "PrintGlance" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5AA000000000000000000001 /* Debug */,
+				5AA000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5A9000000000000000000002 /* Build configuration list for PBXNativeTarget "PrintGlance" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5AA000000000000000000003 /* Debug */,
+				5AA000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5A9000000000000000000003 /* Build configuration list for PBXNativeTarget "PrintGlanceWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5AA000000000000000000005 /* Debug */,
+				5AA000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 5A1000000000000000000001 /* Project object */;
+}
