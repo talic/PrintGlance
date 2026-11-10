@@ -1,0 +1,33 @@
+{
+  "cases": [
+    {
+      "id": "sliced-3mf",
+      "print": {"gcode_file": "/sdcard/Benchy.gcode.3mf"},
+      "job": "Benchy"
+    },
+    {
+      "id": "size-not-layer-height",
+      "print": {"subtask_name": "Spacer 20mm x4"},
+      "job": "Spacer 20mm x4"
+    },
+    {
+      "id": "second-ams-tray",
+      "print": {
+        "gcode_state": "RUNNING",
+        "ams": {
+          "tray_now": 4,
+          "ams": [
+            {"id": "0", "tray": [{"id": "0", "tray_type": "PLA"}]},
+            {"id": "1", "tray": [{"id": "0", "tray_type": "PETG"}]}
+          ]
+        }
+      },
+      "filament": "PETG"
+    },
+    {
+      "id": "remaining-capped-at-30-days",
+      "print": {"gcode_state": "RUNNING", "mc_remaining_time": 100000},
+      "remainingS": 2592000
+    }
+  ]
+}
