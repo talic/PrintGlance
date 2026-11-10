@@ -397,6 +397,21 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(h.notifications.posted.filter { $0.id == id }.count, 1)
     }
 
+    /// The printer names the next job while it still says Finished. That must not use up the
+    /// job's notice.
+    func testFinishingSoonComesForAPrintStartedWhileWatching() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running(minutesLeft: 84))
+        link.report(Report.state("FINISH"))
+        link.report(Report.state("FINISH", task: "t2"))
+        link.report(Report.running(minutesLeft: 116, task: "t2"))
+        let soon = h.notifications.posted.filter { $0.title == "X2D finishing soon" }
+        XCTAssertEqual(soon.map(\.id), ["pg.comingoff.\(x2d.serial).t1", "pg.comingoff.\(x2d.serial).t2"])
+        XCTAssertEqual(soon.last?.fireIn, 106 * 60)
+    }
+
     func testLeadTimeMovesTheFinishingSoonNotice() throws {
         let h = ModelHarness(self)
         h.model.notifyPrefs.comingOffLead = 30
