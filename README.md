@@ -95,6 +95,8 @@ Click the printer icon to open the print card.
 
 Times follow your Mac's 12- or 24-hour setting. If the job finishes after today, the finish time includes the day, such as **4:25 PM tomorrow**.
 
+A printer's own time left ends with the last layer. It then takes a few more minutes, to unload the filament for one, before it reports the print finished. PrintGlance learns how many from the prints it watches finish, and adds them to the finish time, the time left, and **Print Finishing Soon**. It uses the middle of that printer's last five prints. Until it has watched one finish, it shows the printer's own number.
+
 ## Watch more than one printer
 
 PrintGlance watches up to four printers. To add one, click **…** and choose **Add Printer…**.
@@ -181,7 +183,7 @@ You do not need **LAN Only Mode** or **Developer Mode**. PrintGlance only reads 
 
 The `iOS` folder has a small iPhone app with a Home Screen and Lock Screen widget. It watches up to four printers, like the Mac app, and shows their progress, finish times, and why a print paused. The widget shows the printer that needs you, the same one the menu bar picks. The medium size shows two printers side by side. There is no download. You build it with Xcode onto your own iPhone.
 
-The iPhone talks to the printer on your Wi-Fi, the same way the Mac does. It does not need the Mac. It reads the printer when you open the app and about every 15 minutes in the widget, when iOS allows. Away from that Wi-Fi, the widget shows what the printer last said and when, and counts down to the finish time.
+The iPhone talks to the printer on your Wi-Fi, the same way the Mac does. It does not need the Mac. The iPhone shows the printer's own time left, without the minutes the Mac app learns to add. It reads the printer when you open the app and about every 15 minutes in the widget, when iOS allows. Away from that Wi-Fi, the widget shows what the printer last said and when, and counts down to the finish time.
 
 1. Create `iOS/Local.xcconfig` with your Apple team ID and a bundle ID that nobody else has registered:
 

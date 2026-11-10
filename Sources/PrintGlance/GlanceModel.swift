@@ -88,6 +88,7 @@ final class GlanceModel: ObservableObject {
     private let updates = AppUpdateChecker()
     private var filament = FilamentAlert()
     private var runout: RunoutTracker
+    private var overrun: Overrun
     private var staleTask: Task<Void, Never>?
     private var notify: PrintNotify
     private let notifyPresenter = PrintNotifyPresenter()
@@ -139,6 +140,7 @@ final class GlanceModel: ObservableObject {
         self.historyRows = log.recent(JobLog.cap)
         self.comingOff = ComingOff.load(defaults)
         self.runout = RunoutTracker.load(defaults)
+        self.overrun = Overrun.load(defaults)
     }
 
     nonisolated static let defaultLogURL = FileManager.default.homeDirectoryForCurrentUser
@@ -528,6 +530,14 @@ final class GlanceModel: ObservableObject {
                 snapshots: snaps,
                 focusId: settings.focusId
             )
+            // First, so everything after it sees when the printer should really report Finished.
+            let lateBefore = overrun.late
+            for i in doc.printers.indices {
+                overrun.observe(&doc.printers[i])
+            }
+            if overrun.late != lateBefore {
+                overrun.save(defaults)
+            }
             let runoutBefore = runout
             for i in doc.printers.indices {
                 doc.printers[i].runout = runout.observe(doc.printers[i])

@@ -362,6 +362,21 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(PrintNotifyPrefs.load(h.defaults).comingOffLead, 30)
     }
 
+    /// The printer's time left ends with the last layer; the app adds what it learned the printer
+    /// runs past it, so the card and the finishing-soon notice aim at Finished.
+    func testLearnedLatenessMovesTheFinishTimeAndTheNotice() throws {
+        let h = ModelHarness(self)
+        var learned = Overrun()
+        learned.late[x2d.serial] = [280, 300, 320]
+        learned.save(h.defaults)
+        h.relaunch()
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running(minutesLeft: 84))
+        XCTAssertEqual(h.row(x2d.serial)?.remainingS, 84 * 60 + 300)
+        XCTAssertEqual(h.notifications.posted.first { $0.title == "Print finishing soon" }?.fireIn, 74 * 60 + 300)
+    }
+
     func testLowFilamentNotifiesOncePerSpoolAndJob() throws {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)
