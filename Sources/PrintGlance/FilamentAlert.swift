@@ -63,8 +63,8 @@ struct Runout: Codable, Equatable, Sendable {
 
 /// How fast a print really moves: seconds of printing per percent, by the clock.
 ///
-/// The printer's own time left ran well short of the clock on two dual-nozzle printers
-/// (2026-11-10), so a runout is timed by what the clock has shown so far.
+/// A melt rate is grams per real hour, so it is measured, not taken from the printer's time
+/// left, which is the slicer's guess.
 struct Pace: Codable, Equatable {
     /// Percents the clock must cover before it counts.
     static let minSpan = 3
