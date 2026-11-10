@@ -61,7 +61,7 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`. The iPhone
 | `PrintGlancePanel.swift` | `hugMenuBarPanel()` (sizes the panel window to the card), `PanelOpened` (runs a closure each time the panel opens), `MenuBarHug.frame` (pure frame math). |
 | `PrintNotify.swift` | Print-state notifications: preferences (`PrintNotifyPrefs`), edge detection per printer (`PrintNotify`), duplicate suppression (`PrintNotifyStamp`), offline suppression when this Mac caused it, `PendingSelection` (a clicked notification opens that printer). |
 | `ComingOff.swift` | `QuietHours` and `ComingOff`, the once-per-job "Print finishing soon" notice scheduled ahead of time. |
-| `FilamentAlert.swift` | `FilamentAlert` (spool under 20%) and `RunoutTracker` (least-squares fit of AMS percent against progress to predict where a spool runs out). |
+| `FilamentAlert.swift` | `FilamentAlert` (spool under 20%), `RunoutTracker` (where a spool runs out, from its AMS percent against progress), and `Pace` (how fast the print moves by the clock). |
 | `JobLog.swift` | Print history: opens a row when a job starts, closes it on finish/fail/idle, caps at 50, saves `jobs.json`, exports CSV. Gives the finished time for "40m ago". |
 | `PrinterSettings.swift` | `PrinterSettings` (one saved printer), `SavedPrinters` (the list, focus, cap of 4, edits, persistence, legacy migration), `AccessCodeStore` (reads the 1.1.7 Keychain item once, then deletes it). |
 | `PrinterDiscovery.swift` | SSDP discovery of Bambu printers on the Wi-Fi (UDP multicast), reply parsing, model code names, `ipChanges` for rediscovery. |
@@ -219,7 +219,16 @@ All notifications go through `GlanceModel.post` → `Notifier.add` and carry the
 
 **Low filament.** `FilamentAlert` fires once per printer, slot, and job when the active spool is under 20% while Starting or Printing.
 
-**Runout.** `RunoutTracker` fits a least-squares line to each spool's AMS percent against print progress (`mc_percent`), one reading per whole percent, and predicts the progress at which it reaches 0. Progress, not time, so pauses and speed changes don't skew it. It needs 5 readings, a slope clearly below flat (two standard errors), and won't guess further ahead than three times the progress it has measured. Readings under 5% are left out: the AMS estimate swings by a couple of points near empty and can read 0% with filament left (measured on an X2D). A rise of 10 points or a different filament or color in the slot is a new spool. The earliest runout before 100% becomes `row.runout`: the card draws an orange notch on the bar and a line such as "PLA Matte in A2 runs out around 15:45." ("is about to run out" under 5 minutes; no time while paused), and names another slot with the same filament and color that AMS backup may switch to. State is saved under `pg.runout` so a relaunch mid-print keeps the fit.
+**Runout.** The AMS percent is a gauge, not a count. On two dual-nozzle printers (2026-11-10) a spool near 50% read 58, then 47 within ten minutes, then 50, all while feeding. A line fitted to a few such readings takes one swing for the spool emptying, so `RunoutTracker` asks for more before it speaks. It keeps one reading per whole percent of print progress (`mc_percent`) for each spool and fits a least-squares line to them. Progress, not time, so pauses don't skew it. Where the line reaches 0 is the runout, when all of this holds:
+
+- There are 8 readings.
+- The line falls by at least twice the swing of the readings around it (the gap between the readings furthest above and below the line, counted as at least 2 points).
+- The fall is no faster than 134 g an hour: 30 mm³/s of PLA, more than any print averages. The grams come from the spool's `tray_weight`, or 1 kg.
+- The runout is no further ahead than twice the progress the readings cover, so the spool has lost a third of what it started the print with.
+
+Grams an hour needs the print's real speed. `Pace` takes it from the clock: seconds per percent since the first percent change the app saw, pauses left out, once that covers 3%. Before that, and when reports arrive in a burst, it is the printer's `mc_remaining_time` spread over the percent left, which ran well short of the clock on those printers. The same pace turns the runout into a clock time. The rules trade early for right: a missed runout still pauses the print and sends Print Paused.
+
+Readings under 5% are left out: the AMS estimate swings by a couple of points near empty and can read 0% with filament left (measured on an X2D). A rise of 10 points or a different filament or color in the slot is a new spool. The earliest runout before 100% becomes `row.runout`: the card draws an orange notch on the bar and a line such as "PLA Matte in A2 runs out around 15:45." ("is about to run out" under 5 minutes; no time while paused), and names another slot with the same filament and color that AMS backup may switch to. State is saved under `pg.runout` so a relaunch mid-print keeps the readings; a fit saved by an older build doesn't decode, and that print starts over.
 
 ## Errors: codes, reasons, lookup
 
@@ -368,7 +377,7 @@ All under the report's `print` object.
 | `subtask_name`, `gcode_file` | Job name, file path | Job label (cache paths and hex names ignored, every `.gcode`/`.3mf`/`.gco` extension dropped, a layer-height suffix like " 0.2mm layer, 2 walls" cut but sizes like "20mm" kept, 40 chars) |
 | `ams.tray_now` / `tray_tar` | Active slot (255 none, 254 external) | Active filament |
 | `ams.ams[].id`, `.humidity`, `.humidity_raw`, `.info`, `.tray[]` | AMS units (HT from id 128) and slots | Trays, humidity, runout |
-| `tray[].tray_type`, `tray_sub_brands`, `tray_info_idx`, `remain`, `tray_color`, `cols` | Slot contents | Filament name, %, color dot |
+| `tray[].tray_type`, `tray_sub_brands`, `tray_info_idx`, `remain`, `tray_color`, `cols`, `tray_weight` | Slot contents | Filament name, %, color dot, grams for the runout |
 | `vt_tray`, `vir_slot[]` | External spool(s); dual-nozzle printers send two | External slots |
 | `device.extruder.state`, `.info[].temp` | Nozzle count and active nozzle, packed temps | Left/Right, nozzle temp |
 | `device.bed.info.temp`, `device.ctc.info.temp` | Packed bed and chamber temps | Heat line |

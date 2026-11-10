@@ -387,12 +387,12 @@ final class GlanceModelTests: XCTestCase {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)
         link.accept()
-        // Two points of spool per percent of progress: empty at 25%.
-        for p in 10...17 {
-            link.report(Report.running(percent: p, minutesLeft: 100 - p).merging(Report.ams(remain: 50 - p * 2)))
+        // A point of spool per percent of an 8-hour print, 125 g an hour: empty at 30%.
+        for p in 10...19 {
+            link.report(Report.running(percent: p, minutesLeft: (100 - p) * 5).merging(Report.ams(remain: 30 - p)))
         }
         let runout = try XCTUnwrap(h.row(x2d.serial)?.runout)
-        XCTAssertTrue((24...25).contains(runout.percent), "\(runout.percent)")
+        XCTAssertTrue((29...30).contains(runout.percent), "\(runout.percent)")
         XCTAssertEqual(runout.tray, "A1")
         XCTAssertEqual(runout.name, "PLA Matte")
         let notices = h.notifications.posted.filter { $0.title == "Filament may run out" }

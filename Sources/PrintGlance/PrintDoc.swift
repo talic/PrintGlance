@@ -43,6 +43,8 @@ struct AMSTray: Codable, Equatable, Sendable, Identifiable {
     var label: String? = nil
     /// `AMSUnit.id` of the unit holding this tray. Nil for an external spool.
     var unit: String? = nil
+    /// Grams on a full spool, from its tag. Nil when the printer sends none.
+    var weight: Int? = nil
 }
 
 struct AMSUnit: Codable, Equatable, Sendable {
