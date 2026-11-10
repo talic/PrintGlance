@@ -200,6 +200,29 @@ final class ComingOffTests: XCTestCase {
         )
     }
 
+    /// 2026-11-10 16:27: the next job's ID arrived while the printer still said Finished (100%, no
+    /// time left), a second before Starting. Marking that job done silenced its notice for the
+    /// whole print.
+    func testTheNextJobsIdWhileStillFinishedDoesNotSilenceIt() {
+        var c = ComingOff()
+        _ = c.consider(printer: printer("RUNNING", remainingS: 3600, jobId: "t1"), prefs: .default)
+        _ = c.consider(printer: printer("FINISH", remainingS: 0, jobId: "t1"), prefs: .default)
+        XCTAssertNil(c.consider(printer: printer("FINISH", remainingS: 0, jobId: "t2"), prefs: .default))
+        XCTAssertNil(c.phase["x2d|t2"])
+        XCTAssertNil(c.consider(printer: printer("PREPARE", remainingS: 7260, jobId: "t2"), prefs: .default))
+        let soon = c.consider(printer: printer("RUNNING", remainingS: 6960, jobId: "t2"), prefs: .default)
+        XCTAssertEqual(soon?.interval, 6360)
+        XCTAssertEqual(c.phase["x2d|t2"], .scheduled)
+    }
+
+    func testAJobNeverSeenPrintingIsLeftAlone() {
+        for state in ["FINISH", "FAILED", "IDLE"] {
+            var c = ComingOff()
+            XCTAssertNil(c.consider(printer: printer(state, remainingS: 0, jobId: "t9"), prefs: .default), state)
+            XCTAssertEqual(c.phase, [:], state)
+        }
+    }
+
     func testIdleAndFailedMarkDone() {
         var c = ComingOff()
         _ = c.consider(

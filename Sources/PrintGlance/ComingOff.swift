@@ -216,13 +216,13 @@ struct ComingOff: Equatable {
         return nil
     }
 
+    /// A job never seen printing has no notice to cancel, and is not marked done: the printer
+    /// names the next job while it still says Finished (2026-11-10), and done would silence that
+    /// job's notice for the whole print.
     private mutating func complete(key: String, id: String) -> ComingOffAction? {
-        let had = phase[key]
+        guard let had = phase[key] else { return nil }
         phase[key] = .done
         scheduledFireInS[key] = nil
-        if had == .scheduled || had == nil {
-            return ComingOffAction.cancelOnly(id)
-        }
-        return nil
+        return had == .scheduled ? ComingOffAction.cancelOnly(id) : nil
     }
 }
