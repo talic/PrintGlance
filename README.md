@@ -117,7 +117,7 @@ To change or remove a printer, Control-click its row and choose **Edit…** or *
 
 ## See recent prints
 
-To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac, newest first. Each row shows the job name, when it started (such as **14:02 yesterday**), how long it took when PrintGlance saw it start and finish, and **Finished**, **Failed**, or **Printing**. Failed prints are red. With more than one printer, each row also names the printer.
+To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac, newest first. Each row shows the job name, when it started (such as **14:02 yesterday**), how long it took when PrintGlance saw it start and finish, and **Finished**, **Failed**, or **Printing**. Failed prints are red, with the reason when the printer gave one, such as **The print was canceled.** A print that paused says how often and why, such as **Paused: The build plate is missing or out of place.** With more than one printer, each row also names the printer.
 
 To save the list, click **Export CSV**. To clear it, click **Clear History…** below the list, then click **Clear**. A print in progress stays. To return to the print card, click the back arrow next to **History**, or press Esc.
 
@@ -133,7 +133,11 @@ Click **…** and open **Notifications**. Turn on the events you want:
 - **Low Filament**
 - **Quiet Hours**, shown with its hours, such as **Quiet Hours (10 PM–7 AM)**
 
-**Quiet Hours** starts turned off. The others start turned on. **Print Paused** and **Print Failed** start with a short reason for common problems, such as **Filament ran out in AMS A, slot 2.** They end with the error code when the printer sends one.
+**Quiet Hours** starts turned off. The others start turned on.
+
+Each notice names the printer first, then the job and how far it got, then why. A paused print reads **X2D paused**, then **Benchy · 52%**, then a short reason for common problems, such as **Filament ran out in AMS A, slot 2.** When PrintGlance has no reason for the error code, the notice gives the code instead. The print card always lists the codes, each with **Look up**. Notification Center stacks each printer's notices on their own.
+
+A notice leaves Notification Center once it's no longer true. When a printer starts or resumes printing, its finished, paused, and failed notices go. When PrintGlance hears from a printer again, its lost connection notice goes. **History** keeps what happened to each print.
 
 **Print Finishing Soon** tells you shortly before the print ends, so you can be at the printer. To choose how early, open **Lead Time** under it and choose **5 Minutes**, **10 Minutes**, **15 Minutes**, or **30 Minutes**. It starts at 10 minutes. If less time is left when PrintGlance first sees the print, the notice comes right away and says how much is left. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is canceled.
 

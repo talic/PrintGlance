@@ -195,21 +195,24 @@ The panel opens on the menu bar's printer each time. Clicking a list row changes
 
 ## Notifications
 
-All notifications go through `GlanceModel.post` → `Notifier.add` and carry the printer's serial in `userInfo["serial"]`.
+All notifications go through `GlanceModel.post` → `Notifier.add`, carry the printer's serial in `userInfo["serial"]`, and use it as the `threadIdentifier`, so Notification Center stacks each printer's alerts on their own.
+
+Print alerts read printer and state first, then the job, then why: the title is "X2D paused" (finished, failed, finishing soon), the subtitle is the job and its percent ("Benchy · 52%", no percent at 0 or on finish), and the body is the reason.
 
 | Notice | Trigger | Identifier | Default | Quiet Hours |
 |---|---|---|---|---|
-| Print finished | `RUNNING`/`PREPARE` → `FINISH` | `pg.finish.<serial>` | on | Delayed to 7 AM (`UNCalendarNotificationTrigger`) |
-| Print failed | `RUNNING`/`PREPARE` → `FAILED` | `pg.fail.<serial>` | on | Delivered |
-| Print paused | `RUNNING`/`PREPARE` → `PAUSE` | `pg.pause.<serial>` | on | Delivered |
+| Finished | `RUNNING`/`PREPARE` → `FINISH` | `pg.finish.<serial>` | on | Delayed to 7 AM (`UNCalendarNotificationTrigger`) |
+| Failed | `RUNNING`/`PREPARE` → `FAILED` | `pg.fail.<serial>` | on | Delivered |
+| Paused | `RUNNING`/`PREPARE` → `PAUSE` | `pg.pause.<serial>` | on | Delivered |
 | Lost connection | `RUNNING`/`PREPARE`/`PAUSE` → `OFFLINE` | `pg.offline.<serial>` | on | Delivered |
-| Print finishing soon | Scheduled lead time before the end of a `RUNNING` job | `pg.comingoff.<serial>.<jobId>` | on, 10 min | Skipped if it would fire in the window |
+| Finishing soon | Scheduled lead time before the end of a `RUNNING` job | `pg.comingoff.<serial>.<jobId>` | on, 10 min | Skipped if it would fire in the window |
 | Low filament | Active spool < 20% while Starting or Printing | `filament.<serial>\|<tray>\|<task>` | on | Delivered |
 | Filament may run out | First runout estimate per job and slot | `runout.<serial>.<jobId>.<slot>` | on (with Low Filament) | Delivered |
 
 - **Edges, per printer.** `PrintNotify` remembers each printer's last state, so focus changes and adding a printer aren't print edges. `.connecting` and `.needsSetup` change nothing.
 - **Duplicates.** A `PrintNotifyStamp` (serial, state, job) is saved per printer after each alert; the same alert for the same job isn't repeated, across relaunches too. A new `RUNNING` clears it.
-- **Reasons.** Pause and fail bodies start with a plain reason when the code is known ("Filament ran out in AMS A, slot 1.") and end with "· Error <code>".
+- **Reasons.** A pause or fail body is the plain reason for the code `GlanceContent.leadErrorCode` picks: the first code with a reason, else the first code. Printers can send an HMS code we don't explain next to a `print_error` we do, and the alert explains the second. With no reason the body is "Error <code>"; with no code, "The printer didn't say why." The card lists every code with **Look up**. Finished says "Ready to take off the plate."
+- **Clearing.** On each state change `PrintNotify` names alerts that are no longer true, and `Notifier.removeDelivered` takes them out of Notification Center: Starting or Printing clears that printer's finished, paused, and failed alerts, and any report other than Offline clears its lost connection. The first report after launch counts as a change, so last session's stale alerts go too. History keeps the record (see [History](#history)).
 - **Lost connection** isn't sent while this Mac has no network, or for 2 minutes after its network changes (`NWPathMonitor` in `start()`), because then the Mac lost the printer, not the other way round.
 - **Finishing soon** is scheduled once per job as a time-interval notification at `remaining − lead`. It is rescheduled only when the remaining time jumps by more than 2 minutes or the lead time changes. Pause or Offline cancels it until printing resumes; Finish, Failed, or Idle cancels it for good. Inside the lead time it fires at once and says what's actually left.
 - **Permission** is requested on the first Starting or Printing report each launch (not on Finish, so the prompt can't eat that alert), and after the first printer is set up. If notifications are off in System Settings, the Notifications menu starts with **Notifications Are Off…**.
@@ -245,6 +248,8 @@ Only paused and failed printers show codes (`print_error` can linger after the p
 ## History
 
 `JobLog` opens a row when a printer starts a job (Starting or Printing) and closes it when it finishes (ok), fails (fail), or goes idle (ok, no end time). A new job ID while a row is open closes the old row. `endedAt` is set only if PrintGlance saw the job running, so "took 4h 43m" is never a guess. Up to 50 rows are kept (the oldest closed rows go first; an open row never does) in `~/Library/Application Support/PrintGlance/jobs.json`; History shows them newest first and exports CSV (`started,ended,duration_min,printer,job,filament,outcome`, RFC 4180 quoting). The newest successful row's `endedAt` gives the menu bar's "40m ago".
+
+A row also keeps what went wrong, as codes so the words improve with the reasons table: `pauses` gets one entry per Printing or Starting → Paused change (`GlanceContent.leadErrorCode`, or "" when the printer gave none), and a failed row gets `failCode`. `JobLog.lastState` is process-local, so a relaunch mid-pause doesn't count it again. `GlanceContent.historyNotes` turns them into lines under the caption: the failure's reason, then "Paused: <reason>", "Paused twice. Last: <reason>", or "Paused 3 times." The CSV leaves them out.
 
 **Clear History…** under the list (shown when there is an ended print) asks first, then drops every ended row from memory and `jobs.json` (`JobLog.clearEnded`, `GlanceModel.clearHistory`). A print in progress stays: dropping its open row would make the next report reopen it with the wrong start time. Clearing also clears a finished printer's "40m ago", which comes from the same rows.
 

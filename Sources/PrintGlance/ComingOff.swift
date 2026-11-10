@@ -34,6 +34,8 @@ struct ComingOffAction: Equatable {
     var interval: TimeInterval?
     var immediate: Bool
     var title: String
+    /// The job, under the title. Empty when the printer gave no job name.
+    var subtitle: String = ""
     var body: String
 
     static func cancelOnly(_ id: String) -> ComingOffAction {
@@ -164,17 +166,12 @@ struct ComingOff: Equatable {
             return ComingOffAction.cancelOnly(id)
         }
 
-        let title = "Print finishing soon"
         let name = printer.name.isEmpty ? "Printer" : printer.name
+        let title = "\(name) finishing soon"
+        let subtitle = printer.job ?? ""
         // Already inside the lead time: say what is actually left.
         let minutes = fireInS > 0 ? prefs.comingOffLead : max(1, (remainingS + 59) / 60)
-        let left = "About \(minutes) \(minutes == 1 ? "minute" : "minutes") left."
-        let body: String
-        if let job = printer.job, !job.isEmpty {
-            body = "\(job) on \(name). \(left)"
-        } else {
-            body = "\(name). \(left)"
-        }
+        let body = "About \(minutes) \(minutes == 1 ? "minute" : "minutes") left."
 
         if fireInS == 0 {
             phase[key] = .done
@@ -185,6 +182,7 @@ struct ComingOff: Equatable {
                 interval: nil,
                 immediate: true,
                 title: title,
+                subtitle: subtitle,
                 body: body
             )
         }
@@ -203,6 +201,7 @@ struct ComingOff: Equatable {
             interval: TimeInterval(fireInS),
             immediate: false,
             title: title,
+            subtitle: subtitle,
             body: body
         )
     }

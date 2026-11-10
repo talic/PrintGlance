@@ -71,8 +71,11 @@ final class NotificationLog: @unchecked Sendable {
     struct Posted: Equatable {
         var id: String
         var title: String
+        var subtitle: String
         var body: String
         var serial: String?
+        /// The Notification Center stack it joins.
+        var thread: String
         /// Seconds until it fires; nil for now.
         var fireIn: TimeInterval?
         var calendar: DateComponents?
@@ -80,6 +83,8 @@ final class NotificationLog: @unchecked Sendable {
 
     var posted: [Posted] = []
     var cancelled: [String] = []
+    /// Delivered alerts taken out of Notification Center.
+    var removed: [String] = []
     var permissionRequests = 0
     var denied = false
 
@@ -93,13 +98,16 @@ final class NotificationLog: @unchecked Sendable {
                 posted.append(Posted(
                     id: request.identifier,
                     title: request.content.title,
+                    subtitle: request.content.subtitle,
                     body: request.content.body,
                     serial: request.content.userInfo[PendingSelection.serialKey] as? String,
+                    thread: request.content.threadIdentifier,
                     fireIn: fireIn,
                     calendar: calendar
                 ))
             },
             removePending: { [self] ids in cancelled.append(contentsOf: ids) },
+            removeDelivered: { [self] ids in removed.append(contentsOf: ids) },
             requestAuthorization: { [self] in permissionRequests += 1 },
             isDenied: { [self] in denied }
         )

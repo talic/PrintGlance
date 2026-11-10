@@ -622,6 +622,13 @@ struct HistoryView: View {
                 .monospacedDigit()
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+            ForEach(GlanceContent.historyNotes(row), id: \.self) { note in
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
