@@ -32,8 +32,9 @@ final class PrintNotifyTests: XCTestCase {
 
         let done = n.observe(row("FINISH", jobId: "task-1"))
         XCTAssertEqual(done.alert?.kind, .finish)
-        XCTAssertEqual(done.alert?.title, "Print finished")
-        XCTAssertEqual(done.alert?.body, "Print in Parts on X2D")
+        XCTAssertEqual(done.alert?.title, "X2D finished")
+        XCTAssertEqual(done.alert?.subtitle, "Print in Parts")
+        XCTAssertEqual(done.alert?.body, "Ready to take off the plate.")
         XCTAssertFalse(done.requestPermission)
         XCTAssertEqual(n.stamp, PrintNotifyStamp(serial: "x2d", state: "FINISH", jobId: "task-1"))
         XCTAssertNil(n.observe(row("FINISH", jobId: "task-1")).alert)
@@ -63,7 +64,9 @@ final class PrintNotifyTests: XCTestCase {
         _ = n.observe(row("RUNNING", jobId: "task-5"))
         let failed = n.observe(row("FAILED", jobId: "task-5"))
         XCTAssertEqual(failed.alert?.kind, .fail)
-        XCTAssertEqual(failed.alert?.title, "Print failed")
+        XCTAssertEqual(failed.alert?.title, "X2D failed")
+        XCTAssertEqual(failed.alert?.subtitle, "Print in Parts · 16%")
+        XCTAssertEqual(failed.alert?.body, "The printer didn't say why.")
 
         let fromPrint = [
             "gcode_state": "RUNNING",
@@ -103,7 +106,8 @@ final class PrintNotifyTests: XCTestCase {
         let done = n.observe(fleet(focus: "aaa", [aRun, b]))
         XCTAssertEqual(done.alerts.map(\.kind), [.finish])
         XCTAssertEqual(done.alert?.serial, "bbb")
-        XCTAssertEqual(done.alert?.body, "Job B on B")
+        XCTAssertEqual(done.alert?.title, "B finished")
+        XCTAssertEqual(done.alert?.subtitle, "Job B")
         XCTAssertNil(
             n.observe(fleet(focus: "bbb", [aRun, b])).alert,
             "focus switch is not a second finish"
@@ -185,14 +189,49 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertTrue(PrintNotifyPrefs.load(d).finish, "other prefs untouched")
     }
 
-    func testPauseAndFailBodiesEndWithErrorCodeAfterTheReason() {
+    func testPauseNamesThePrinterThenTheJobThenWhy() {
         var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
         _ = n.observe(row("RUNNING", jobId: "t1"))
         var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 16, job: "Print in Parts", jobId: "t1")
         paused.printError = "0700-8002"
         let out = n.observe(GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [paused]))))
         XCTAssertEqual(out.alert?.kind, .pause)
-        XCTAssertEqual(out.alert?.body, "The filament cutter is stuck. Print in Parts on X2D · Error 0700-8002")
+        XCTAssertEqual(out.alert?.title, "X2D paused")
+        XCTAssertEqual(out.alert?.subtitle, "Print in Parts · 16%")
+        XCTAssertEqual(out.alert?.body, "The filament cutter is stuck.")
+    }
+
+    func testPauseBeforeTheFirstLayerLeavesOutZeroPercent() {
+        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        _ = n.observe(row("PREPARE", jobId: "t1"))
+        var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 0, job: "plate_8", jobId: "t1")
+        paused.printError = "0500-8062"
+        let out = n.observe(GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [paused]))))
+        XCTAssertEqual(out.alert?.subtitle, "plate_8")
+        XCTAssertEqual(out.alert?.body, "The build plate is missing or out of place.")
+    }
+
+    func testAlertsThatAreNoLongerTrueAreCleared() {
+        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        XCTAssertEqual(
+            n.observe(row("PAUSE", jobId: "t1")).clears,
+            ["pg.offline.x2d"],
+            "first report after launch: the printer is back, still paused"
+        )
+        XCTAssertEqual(n.observe(row("PAUSE", jobId: "t1")).clears, [], "only on a change")
+        XCTAssertEqual(
+            n.observe(row("RUNNING", jobId: "t1")).clears,
+            ["pg.finish.x2d", "pg.pause.x2d", "pg.fail.x2d", "pg.offline.x2d"],
+            "resumed"
+        )
+        XCTAssertEqual(n.observe(row("FAILED", jobId: "t1")).clears, ["pg.offline.x2d"], "the failure stays")
+        XCTAssertEqual(n.observe(row("OFFLINE", jobId: "t1")).clears, [])
+        XCTAssertEqual(n.observe(GlanceContent(result: .feedDown)).clears, [])
+        XCTAssertEqual(
+            n.observe(row("PREPARE", jobId: "t2")).clears,
+            ["pg.finish.x2d", "pg.pause.x2d", "pg.fail.x2d", "pg.offline.x2d"],
+            "a new print"
+        )
     }
 
     func testClickedNotificationPicksThePrinterOnce() {

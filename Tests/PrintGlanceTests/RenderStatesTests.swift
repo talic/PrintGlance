@@ -73,7 +73,9 @@ final class RenderStatesTests: XCTestCase {
                 filament: "PLA",
                 startAt: start,
                 endedAt: i == 0 ? nil : start + Double(i % 5 + 1) * 3600 + 1200,
-                outcome: i == 0 ? nil : i % 6 == 2 ? JobLog.outcomeFail : JobLog.outcomeOK
+                outcome: i == 0 ? nil : i % 6 == 2 ? JobLog.outcomeFail : JobLog.outcomeOK,
+                pauses: i % 6 == 1 ? ["0500-8062"] : i % 6 == 2 ? ["0700-2000-0002-0001", ""] : nil,
+                failCode: i % 6 == 2 ? "0300-400C" : nil
             )
         }
         let few = (0..<4).map { row($0, serial: "x2d") }
