@@ -68,6 +68,11 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(RunoutTracker.floor, 5)
     }
 
+    func testFinishTimeLearnsFromTheLastFivePrints() throws {
+        try readme(contains: "the middle of that printer's last five prints")
+        XCTAssertEqual(Overrun.keep, 5)
+    }
+
     func testQuietHours() throws {
         try readme(contains: "**Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM.")
         XCTAssertEqual(QuietHours.startHour, 22)
