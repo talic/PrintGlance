@@ -99,6 +99,8 @@ final class GlanceModel: ObservableObject {
     private var pendingSelection = PendingSelection()
     private var jobLog: JobLog
     private let jobLogURL: URL
+    /// What `printers.json` last got, so it is written only when a printer or its history changes.
+    private var printerFileInput: ([Printer], [JobLogRow])?
     private var occupancyTask: Task<Void, Never>?
     private var comingOff = ComingOff()
     private let pathMonitor = NWPathMonitor()
@@ -298,6 +300,7 @@ final class GlanceModel: ObservableObject {
         let fresh = Dictionary(complete.map { ($0.serial, LinkStatus.connecting) }) { first, _ in first }
         if linkStatus != fresh { linkStatus = fresh }
         guard !complete.isEmpty else {
+            writePrinterFile(PrintDoc(v: 1, printers: []), [:])
             apply(GlanceContent(result: .needsSetup))
             return
         }
@@ -552,6 +555,7 @@ final class GlanceModel: ObservableObject {
                 jobLog.save(to: jobLogURL)
                 historyRows = jobLog.recent(JobLog.cap)
             }
+            writePrinterFile(doc, snaps)
             let comingOffBefore = comingOff
             for row in doc.printers {
                 if let action = comingOff.consider(printer: row, prefs: notifyPrefs) {
@@ -597,6 +601,15 @@ final class GlanceModel: ObservableObject {
         } else {
             apply(GlanceContent(result: .feedDown))
         }
+    }
+
+    /// Hands the printers to other apps on this Mac. Rows stay equal between reports, so this writes about once a
+    /// minute while printing and not at all while idle.
+    private func writePrinterFile(_ doc: PrintDoc, _ snaps: [String: BambuSnapshot]) {
+        if let last = printerFileInput, last.0 == doc.printers, last.1 == jobLog.rows { return }
+        printerFileInput = (doc.printers, jobLog.rows)
+        PrinterFile.make(doc: doc, reports: snaps.mapValues(\.printObj), history: jobLog.rows)
+            .save(to: PrinterFile.url(besideHistory: jobLogURL))
     }
 
     private func post(
