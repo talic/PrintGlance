@@ -68,6 +68,11 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(RunoutTracker.floor, 5)
     }
 
+    func testFinishTimeLearnsFromTheLastFivePrints() throws {
+        try readme(contains: "the middle of that printer's last five prints")
+        XCTAssertEqual(Overrun.keep, 5)
+    }
+
     func testQuietHours() throws {
         try readme(contains: "**Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM.")
         XCTAssertEqual(QuietHours.startHour, 22)
@@ -115,6 +120,20 @@ final class ShippingTests: XCTestCase {
         try readme(contains: "**Filament ran out in AMS A, slot 2.**")
         try readme(contains: "**Error 0700-2100-0002-0001**")
         XCTAssertEqual(GlanceContent.errorReason(code: "0700-2100-0002-0001"), "Filament ran out in AMS A, slot 2.")
+    }
+
+    func testPausedNoticeReadsAsTheREADMEShowsIt() throws {
+        try readme(contains: "A paused print reads **X2D paused**, then **Benchy · 52%**, then a short reason")
+        var notify = PrintNotify(serial: "x2d", prefs: .default, stamps: [:])
+        let row = Printer(id: "x2d", name: "X2D", state: "RUNNING", percent: 52, job: "Benchy", jobId: "t1")
+        _ = notify.observe(GlanceContent(result: .doc(PrintDoc(v: 1, focusId: nil, printers: [row]))))
+        var paused = row
+        paused.state = "PAUSE"
+        paused.hmsCode = "0700-2100-0002-0001"
+        let alert = notify.observe(GlanceContent(result: .doc(PrintDoc(v: 1, focusId: nil, printers: [paused])))).alert
+        XCTAssertEqual(alert?.title, "X2D paused")
+        XCTAssertEqual(alert?.subtitle, "Benchy · 52%")
+        XCTAssertEqual(alert?.body, "Filament ran out in AMS A, slot 2.")
     }
 
     func testSlotNames() throws {

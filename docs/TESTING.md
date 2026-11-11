@@ -1,6 +1,6 @@
 # Testing PrintGlance
 
-The suite has two parts: **298 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **71 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
+The suite has two parts: **322 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **71 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Running
 
@@ -36,10 +36,10 @@ PG_RENDER_DIR=/tmp/pg-renders make test
 
 | Layer | Files | What it proves | Speed |
 |---|---|---|---|
-| **Parsing and presentation** (pure functions) | `PrintDocTests`, `PrepareAmsHmsTests`, `BambuSnapshotTests`, `FilamentAlertTests`, `RunoutTrackerTests`, `ComingOffTests`, `PrintNotifyTests`, `JobLogTests`, `AppUpdateTests`, `PrinterDiscoveryTests`, `SetupFlowTests`, `MenuBarHugTests`, `MQTT311ClientTests`, `AccessCodeStoreTests`, `SavedPrintersTests` | Each report field becomes the right row; each row becomes the right words; each rule (ranking, notifications, runout, history, quiet hours, backoff) decides right, with fixed `now`, `Calendar`, and `Locale`. | ms |
+| **Parsing and presentation** (pure functions) | `PrintDocTests`, `PrepareAmsHmsTests`, `BambuSnapshotTests`, `FilamentAlertTests`, `RunoutTrackerTests`, `OverrunTests`, `ComingOffTests`, `PrintNotifyTests`, `JobLogTests`, `AppUpdateTests`, `PrinterDiscoveryTests`, `SetupFlowTests`, `MenuBarHugTests`, `MQTT311ClientTests`, `AccessCodeStoreTests`, `SavedPrintersTests`, `PhoneGlanceTests` | Each report field becomes the right row; each row becomes the right words; each rule (ranking, notifications, runout, history, quiet hours, backoff) decides right, with fixed `now`, `Calendar`, and `Locale`. | ms |
 | **Workflows** (`GlanceModel` with fakes) | `GlanceModelTests`, `SetupWorkflowTests` | The app as a whole: adding a printer dials it with the code, a report becomes the card and menu bar, a rejected code retries without searching, a printer that moved is found and its new IP saved only once it answers, removing and editing printers, every notification and its identifier, history files, the setup window's connect/fail/retry/cancel/edit. | ms; a few wait for the real 1 s backoff |
 | **Wire** (real `MQTT311Client`, real TLS on loopback) | `MQTTWireTests` | The exact bytes of CONNECT, SUBSCRIBE, PUBLISH; CONNACK codes; refused ports; frame reassembly across reads and in one read; 150 KB reports; QoS 1; hostile frames (garbage lengths, packets over 4 MB, topics longer than their packet, truncated packets, non-UTF-8 topics, unknown packet types); a disconnect or replaced socket staying silent. | ~1.5 s |
-| **UI** (SwiftUI read through accessibility) | `UI/CardScreenTests`, `UI/PanelScreenTests`, `UI/SetupScreenTests`, `UI/LayoutTests` | What a person sees and can do in each state: exact text in reading order, which buttons exist and are enabled, VoiceOver names for every control, no `Optional(…)` leaking into text, pressing buttons and typing into fields, the full setup flow driven through the window, size limits for small displays and long names. | ~4 s |
+| **UI** (SwiftUI read through accessibility) | `UI/CardScreenTests`, `UI/PanelScreenTests`, `UI/SetupScreenTests`, `UI/LayoutTests`, `PhoneGlanceTests.testCardReadsInOrder` | What a person sees and can do in each state: exact text in reading order, which buttons exist and are enabled, VoiceOver names for every control, no `Optional(…)` leaking into text, pressing buttons and typing into fields, the full setup flow driven through the window, size limits for small displays and long names. | ~4 s |
 | **Security and privacy** | `SecurityTests`, `UpdateCheckTests`, parts of `MQTTWireTests` | The access code only ever travels as the MQTT password (never in the log, client ID, notifications, or publishes); the app only ever publishes `pushall`; outbound URLs carry no serial; updates download only from `https://github.com`; seeded fuzzing of reports, error codes, and discovery packets never crashes or prints an optional. | ~0.5 s |
 | **Shipping** | `ShippingTests` | `Info.plist` keys the app relies on; README promises (four printers, 50 jobs, 20%, 5%, Quiet Hours 10 PM–7 AM, lead times, 2-minute network settle, stage words, the paused example, the lost-connection wording, "only fetches GitHub") checked against the constants and functions that keep them. | ms |
 | **Renders** | `RenderStatesTests` | PNGs of every state, skipped unless `PG_RENDER_DIR` is set. | — |
@@ -54,7 +54,7 @@ All in `Tests/PrintGlanceTests/Support`.
 | `ModelHarness(self, saved:, connectTimeout:)` | A `GlanceModel` wired to fakes with its own preferences domain, history file, and log. `add(_:)` saves printers like the setup window and returns their connections; `relaunch()` builds a new model over the same storage; `row(serial)`, `doc`, `logText`, `jobsURL`. `start()` is never called (it touches Notification Center's delegate, GitHub, and NSWorkspace). |
 | `FakeMQTT` | One printer connection. The test plays the printer: `accept()` (CONNACK 0), `report([...])` (one `{"print": …}` message), `send(Data)` (raw bytes), `drop("MQTT CONNACK 5")`. Records `dials`, `subscriptions`, `publishes`, `disconnects`. |
 | `FakePrinters` | Every connection the model opened; `latest(serial)` finds the newest for a printer. Saving settings opens new ones. |
-| `NotificationLog` | Records what the model asked of Notification Center as plain values (`posted` with id, title, body, serial, trigger delay or calendar date; `cancelled`; `permissionRequests`); set `denied` to simulate notifications off. |
+| `NotificationLog` | Records what the model asked of Notification Center as plain values (`posted` with id, title, subtitle, body, serial, thread, trigger delay or calendar date; `cancelled` pending; `removed` delivered; `permissionRequests`); set `denied` to simulate notifications off. |
 | `FakeNetwork` | What discovery finds (`hits`) and how often it searched (`scans`). |
 | `Report` | Bambu `print` payloads: `running(...)`, `state("FINISH")`, `ams(remain:)`. Combine with `.merging(...)`. |
 | `FakeBroker` | A TLS MQTT broker on `127.0.0.1` with a self-signed certificate generated by `/usr/bin/openssl` and imported in memory only (needs macOS 15; nothing is written to a keychain or the repo). Records client packets, sends bytes as separate TLS records, hangs up. |
@@ -97,6 +97,7 @@ All in `Tests/PrintGlanceTests/Support`.
 | Setup window | `SetupFlowTests`, `SetupWorkflowTests`, `SetupScreenTests` |
 | Notifications: finish, fail, pause, lost connection, dedupe, permission, quiet hours, network settle, click | `PrintNotifyTests`, `GlanceModelTests` ("Notifications"), `ComingOffTests.testQuietHours…` |
 | Finishing soon | `ComingOffTests`, `GlanceModelTests.testFinishingSoon…`, `…testLeadTime…` |
+| Finish time: learned lateness | `OverrunTests`, `GlanceModelTests.testLearnedLateness…` |
 | Low filament and runout | `FilamentAlertTests`, `RunoutTrackerTests`, `GlanceModelTests.testLowFilament…`, `…testFallingSpool…`, `CardScreenTests.testRunoutLineUnderTheBar` |
 | Error codes, reasons, lookup URLs | `PrepareAmsHmsTests`, `CardScreenTests.testPaused…`, `…testFailed`, `SecurityTests.testErrorLookupSendsOnlyTheModelPrefix`, `SecurityTests.testRandomErrorCodesNeverCrash` |
 | History, CSV, Clear History | `JobLogTests`, `GlanceModelTests.testFinishedPrintIsLogged…`, `…testClearingHistoryForgetsPastPrintsOnDisk`, `…testExportWritesCSV`, `PanelScreenTests` (History), `ShippingTests.testClearHistoryKeepsAPrintInProgress`, `LayoutTests.testHistoryScrollsInsteadOfGrowing` |
@@ -106,7 +107,9 @@ All in `Tests/PrintGlanceTests/Support`.
 | README and Info.plist | `ShippingTests` |
 | Hostile input | `SecurityTests` (fuzzing), `MQTTWireTests` (frames, oversized packets), `GlanceModelTests.testGarbageMessagesChangeNothing`, `PrepareAmsHmsTests.testHostileNumbersDoNotTrap`, Python `ActiveFilamentTests.test_garbage_shapes_do_not_raise`, `PrinterRowTests.test_infinite_and_huge_numbers…`, `MqttCallbackTests.test_message_ignores_bad_payloads` |
 | Job names (extensions, slicer suffixes) | `PrintDocTests.testJobLabel…`, Python `JobLabelTests` |
+| Feed parser matches the app (job label, second AMS tray, 30-day remaining cap) | `ParserParityTests`, Python `ParserParityTests` in `test_parser_parity.py`, fixture `Tests/PrintGlanceTests/Fixtures/parser-parity.json` |
 | Feed exposure: bind address, token, idle timeout, `Server` header, no secrets in responses | Python `BindTests`, `HttpTests` |
+| iPhone app and widget: one look (pushall only, own client ID, timeout, rejected code), the search (subnet, serial-shaped names, certificate read over real TLS with nothing sent, picking a printer drops another's code), the Connect alert, asking every printer at once, App Group statuses for several printers, ranking cards like the menu bar, widget words, timeline, card | `PhoneGlanceTests`; CI builds `iOS/` for the simulator |
 
 ## What isn't automated
 
@@ -126,6 +129,14 @@ Run these by hand before a release, or when touching the area. Ask the owner bef
 | **Update available** and **Download PrintGlance x.y.z** | `GlanceModel.availableUpdate` is set only from `start()`. `UpdateCheckTests` covers the checker itself. |
 | Gatekeeper on the downloaded zip, notarization | `release.yml` checks this for signed builds. |
 | **Clear History…** asks first, and **Cancel** keeps the list | The confirmation is a modal `NSAlert`. `PanelScreenTests` presses the button with a stand-in action; `GlanceModelTests` covers the clearing. |
+
+**iPhone app and widget.** `make test` covers the shared logic, and CI builds the Xcode project. To see them, run `python3 scripts/fake-printer.py` (a pretend printer on `127.0.0.1:8883`; pass `PAUSE`, `PREPARE`, `FAILED`, `FINISH`, or `IDLE` for other states), build the `PrintGlance` target for a simulator, and in the app enter IP `127.0.0.1` with any serial and code. The simulator reaches the Mac's localhost, so no real printer is involved. Checked that way: Connect, the card, small and medium widgets fetching on their own, Paused and Finished, light and dark. A build signed with a free Personal Team keeps the App Group on both targets and installs and opens on an iPhone. The search, run in the simulator on the owner's Wi-Fi, found exactly the two printers the Mac app watches. With both saved, the app and a medium widget showed both, live, ranked like the menu bar. Not checked yet:
+
+| Check | Why it can't be automated here |
+|---|---|
+| A real iPhone: the Local Network prompt on Connect, and the widget reaching the printer on its own afterwards | Simulators skip Local Network privacy; extensions usually share the app's grant, but Apple doesn't document it for widgets. If the widget only ever shows what the app last saved, this is why. |
+| Lock Screen sizes (circular, rectangular, inline) | The simulator's Lock Screen editor didn't open from a tap; they build but haven't been seen. |
+| How often iOS really reloads the widget | WidgetKit's budget only shows on a device over a day. |
 
 To watch the running app from the shell without UI automation, a temporary `DistributedNotificationCenter` observer in `PrintGlanceApp.init` can run commands and write to `~/Library/Logs/PrintGlance.log`; remove it before committing. Mask serials and IPs when sharing the log.
 
@@ -168,7 +179,7 @@ final class MyTests: XCTestCase {
         link.accept()
         link.report(Report.running())
         link.report(Report.state("FINISH"))
-        XCTAssertEqual(h.notifications.titles(), ["Print finishing soon", "Print finished"])
+        XCTAssertEqual(h.notifications.titles(), ["X2D finishing soon", "X2D finished"])
         link.drop("closed")
         let searched = await eventually { h.network.scans == 1 }
         XCTAssertTrue(searched)

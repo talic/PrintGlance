@@ -10,6 +10,10 @@ struct Notifier {
     var removePending: ([String]) -> Void = {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: $0)
     }
+    /// Takes alerts that are no longer true out of Notification Center.
+    var removeDelivered: ([String]) -> Void = {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: $0)
+    }
     /// Nonisolated: the completion runs on Apple's notify queue, and a MainActor closure traps (SIGTRAP).
     var requestAuthorization: @Sendable () async -> Void = {
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
@@ -88,6 +92,7 @@ final class GlanceModel: ObservableObject {
     private let updates = AppUpdateChecker()
     private var filament = FilamentAlert()
     private var runout: RunoutTracker
+    private var overrun: Overrun
     private var staleTask: Task<Void, Never>?
     private var notify: PrintNotify
     private let notifyPresenter = PrintNotifyPresenter()
@@ -139,6 +144,7 @@ final class GlanceModel: ObservableObject {
         self.historyRows = log.recent(JobLog.cap)
         self.comingOff = ComingOff.load(defaults)
         self.runout = RunoutTracker.load(defaults)
+        self.overrun = Overrun.load(defaults)
     }
 
     nonisolated static let defaultLogURL = FileManager.default.homeDirectoryForCurrentUser
@@ -528,6 +534,14 @@ final class GlanceModel: ObservableObject {
                 snapshots: snaps,
                 focusId: settings.focusId
             )
+            // First, so everything after it sees when the printer should really report Finished.
+            let lateBefore = overrun.late
+            for i in doc.printers.indices {
+                overrun.observe(&doc.printers[i])
+            }
+            if overrun.late != lateBefore {
+                overrun.save(defaults)
+            }
             let runoutBefore = runout
             for i in doc.printers.indices {
                 doc.printers[i].runout = runout.observe(doc.printers[i])
@@ -585,11 +599,21 @@ final class GlanceModel: ObservableObject {
         }
     }
 
-    private func post(id: String, title: String, body: String, serial: String, trigger: UNNotificationTrigger? = nil) {
+    private func post(
+        id: String,
+        title: String,
+        subtitle: String = "",
+        body: String,
+        serial: String,
+        trigger: UNNotificationTrigger? = nil
+    ) {
         let content = UNMutableNotificationContent()
         content.title = title
+        content.subtitle = subtitle
         content.body = body
         content.sound = .default
+        // Notification Center stacks each printer's alerts on their own.
+        content.threadIdentifier = serial
         content.userInfo = [PendingSelection.serialKey: serial]
         notifier.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
@@ -665,6 +689,9 @@ final class GlanceModel: ObservableObject {
         if outcome.requestPermission {
             requestNotificationPermission()
         }
+        if !outcome.clears.isEmpty {
+            notifier.removeDelivered(outcome.clears)
+        }
         for alert in outcome.alerts {
             if alert.kind == .offline, !PrintNotify.offlineAlertAllowed(
                 macOnline: macOnline,
@@ -674,10 +701,10 @@ final class GlanceModel: ObservableObject {
                 log("skipped lost connection alert \(alert.serial): this Mac's network")
                 continue
             }
-            let id = alert.serial.isEmpty ? "printer" : alert.serial
             post(
-                id: "pg.\(alert.kind.rawValue).\(id)",
+                id: alert.identifier,
                 title: alert.title,
+                subtitle: alert.subtitle,
                 body: alert.body,
                 serial: alert.serial,
                 trigger: finishTrigger(alert)
@@ -710,7 +737,14 @@ final class GlanceModel: ObservableObject {
         } else {
             trigger = nil
         }
-        post(id: action.identifier, title: action.title, body: action.body, serial: serial, trigger: trigger)
+        post(
+            id: action.identifier,
+            title: action.title,
+            subtitle: action.subtitle,
+            body: action.body,
+            serial: serial,
+            trigger: trigger
+        )
     }
 }
 

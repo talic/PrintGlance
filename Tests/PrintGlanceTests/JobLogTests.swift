@@ -225,6 +225,68 @@ final class JobLogTests: XCTestCase {
         XCTAssertEqual(log.rows.first?.endedAt, t0 + 900)
     }
 
+    func testHistoryKeepsEachPauseAndWhyThePrintFailed() {
+        var log = JobLog()
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        log.observe(printers: [row("PREPARE", jobId: "t1")], now: t0)
+        var plate = row("PAUSE", jobId: "t1")
+        plate.hmsCode = "0503-0000-0003-0027"
+        plate.printError = "0500-8062"
+        log.observe(printers: [plate], now: t0 + 60)
+        log.observe(printers: [plate], now: t0 + 70)
+        XCTAssertEqual(log.rows[0].pauses, ["0500-8062"], "one pause, by the code we can explain")
+
+        log.observe(printers: [row("RUNNING", jobId: "t1")], now: t0 + 120)
+        log.observe(printers: [row("PAUSE", jobId: "t1")], now: t0 + 180)
+        XCTAssertEqual(log.rows[0].pauses, ["0500-8062", ""])
+
+        var relaunched = JobLog(rows: log.rows)
+        relaunched.observe(printers: [row("PAUSE", jobId: "t1")], now: t0 + 240)
+        XCTAssertEqual(relaunched.rows[0].pauses?.count, 2, "a relaunch mid-pause doesn't count it again")
+
+        log.observe(printers: [row("RUNNING", jobId: "t1")], now: t0 + 300)
+        var canceled = row("FAILED", jobId: "t1")
+        canceled.printError = "0300-400C"
+        log.observe(printers: [canceled], now: t0 + 360)
+        XCTAssertEqual(log.rows[0].failCode, "0300-400C")
+        XCTAssertEqual(log.rows.count, 1)
+    }
+
+    func testOlderHistoryFilesStillLoad() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jobs-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let old = #"{"rows":[{"serial":"x2d","name":"X2D","jobId":"t1","startAt":"2026-11-01T10:00:00Z","outcome":"ok"}]}"#
+        try Data(old.utf8).write(to: url)
+        let loaded = JobLog.load(from: url)
+        XCTAssertEqual(loaded.rows.count, 1)
+        XCTAssertNil(loaded.rows[0].pauses)
+        XCTAssertNil(loaded.rows[0].failCode)
+    }
+
+    func testHistoryNotesSayWhyItFailedAndHowOftenItPaused() {
+        var row = JobLogRow(
+            serial: "x2d", name: "X2D", jobId: "t1", job: "Benchy", filament: nil,
+            startAt: Date(timeIntervalSince1970: 0), endedAt: nil, outcome: JobLog.outcomeOK
+        )
+        XCTAssertEqual(GlanceContent.historyNotes(row), [])
+        row.pauses = [""]
+        XCTAssertEqual(GlanceContent.historyNotes(row), ["Paused once."])
+        row.pauses = ["0500-8062"]
+        XCTAssertEqual(GlanceContent.historyNotes(row), ["Paused: The build plate is missing or out of place."])
+        row.pauses = ["0500-8062", "0503-0000-0003-0027"]
+        XCTAssertEqual(GlanceContent.historyNotes(row), ["Paused twice. Last: Error 0503-0000-0003-0027"])
+        row.pauses = ["0500-8062", "", ""]
+        XCTAssertEqual(GlanceContent.historyNotes(row), ["Paused 3 times."], "the last pause gave no code")
+
+        row.outcome = JobLog.outcomeFail
+        row.failCode = "0300-400C"
+        XCTAssertEqual(GlanceContent.historyNotes(row), ["The print was canceled.", "Paused 3 times."])
+        row.pauses = nil
+        row.failCode = nil
+        XCTAssertEqual(GlanceContent.historyNotes(row), [], "the caption already says Failed")
+    }
+
     func testClearHistoryMessage() {
         XCTAssertEqual(GlanceContent.clearHistoryMessage(cleared: 12, running: 0),
                        "PrintGlance forgets the 12 prints saved on this Mac. You can't undo this.")

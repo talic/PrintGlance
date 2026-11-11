@@ -235,6 +235,17 @@ struct GlanceContent: Equatable, Sendable {
         errorCodes(row).lazy.compactMap(errorReason(code:)).first
     }
 
+    /// The code a notification or History names: the one `errorReason` explains, else the first.
+    static func leadErrorCode(_ row: Printer) -> String? {
+        let codes = errorCodes(row)
+        return codes.first { errorReason(code: $0) != nil } ?? codes.first
+    }
+
+    /// A code's plain reason, else "Error <code>".
+    static func errorLine(code: String) -> String {
+        errorReason(code: code) ?? "Error \(code)"
+    }
+
     /// A short reason in our words for a common code. Nil for every other code, which keeps "Error <code>".
     /// AMS codes carry the unit in the first group's low byte and, for feed and filament parts, the slot in
     /// the second group's second digit (Bambu Studio's DevHMS.cpp); the table holds unit A, slot 1.
@@ -378,6 +389,26 @@ struct GlanceContent: Equatable, Sendable {
             row.endedAt.map { formatRemain(max(0, Int($0.timeIntervalSince(row.startAt)))) },
             outcome,
         ].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// Lines under a History row's caption: why it failed, then how often it paused and the last pause's reason.
+    static func historyNotes(_ row: JobLogRow) -> [String] {
+        var notes: [String] = []
+        if row.outcome == JobLog.outcomeFail, let code = row.failCode, !code.isEmpty {
+            notes.append(errorLine(code: code))
+        }
+        if let pauses = row.pauses, let last = pauses.last {
+            let n = pauses.count
+            let times = n == 1 ? "Paused once" : n == 2 ? "Paused twice" : "Paused \(n) times"
+            if last.isEmpty {
+                notes.append("\(times).")
+            } else if n == 1 {
+                notes.append("Paused: \(errorLine(code: last))")
+            } else {
+                notes.append("\(times). Last: \(errorLine(code: last))")
+            }
+        }
+        return notes
     }
 
     /// The Clear History alert's text, for `cleared` ended prints and `running` ones that stay.

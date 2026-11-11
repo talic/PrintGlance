@@ -13,8 +13,9 @@ final class ComingOffTests: XCTestCase {
         )
         XCTAssertEqual(action?.interval, 3000)
         XCTAssertEqual(action?.immediate, false)
-        XCTAssertEqual(action?.title, "Print finishing soon")
-        XCTAssertEqual(action?.body, "Print in Parts on X2D. About 10 minutes left.")
+        XCTAssertEqual(action?.title, "X2D finishing soon")
+        XCTAssertEqual(action?.subtitle, "Print in Parts")
+        XCTAssertEqual(action?.body, "About 10 minutes left.")
         XCTAssertEqual(c.phase["x2d|t1"], .scheduled)
 
         XCTAssertNil(
@@ -34,7 +35,7 @@ final class ComingOffTests: XCTestCase {
             var c = ComingOff()
             let action = c.consider(printer: printer("RUNNING", remainingS: 3600, jobId: "t1"), prefs: prefs)
             XCTAssertEqual(action?.interval, TimeInterval(3600 - lead * 60), "\(lead)")
-            XCTAssertEqual(action?.body, "Print in Parts on X2D. About \(lead) minutes left.")
+            XCTAssertEqual(action?.body, "About \(lead) minutes left.")
         }
         XCTAssertEqual(PrintNotifyPrefs.default.comingOffLead, 10)
     }
@@ -49,7 +50,7 @@ final class ComingOffTests: XCTestCase {
         XCTAssertEqual(moved?.interval, 1790)
         XCTAssertEqual(moved?.identifier, "pg.comingoff.x2d.t1", "same id replaces the pending notice")
         XCTAssertEqual(moved?.cancelIds, ["pg.comingoff.x2d.t1"])
-        XCTAssertEqual(moved?.body, "Print in Parts on X2D. About 30 minutes left.")
+        XCTAssertEqual(moved?.body, "About 30 minutes left.")
         XCTAssertNil(
             c.consider(printer: printer("RUNNING", remainingS: 3570, jobId: "t1"), prefs: prefs, now: now + 30),
             "rescheduled once"
@@ -68,19 +69,19 @@ final class ComingOffTests: XCTestCase {
         var c = ComingOff()
         let late = c.consider(printer: printer("RUNNING", remainingS: 170, jobId: "t1"), prefs: prefs)
         XCTAssertEqual(late?.immediate, true)
-        XCTAssertEqual(late?.body, "Print in Parts on X2D. About 3 minutes left.")
+        XCTAssertEqual(late?.body, "About 3 minutes left.")
 
         var d = ComingOff()
         XCTAssertEqual(
             d.consider(printer: printer("RUNNING", remainingS: 30, jobId: "t2"), prefs: prefs)?.body,
-            "Print in Parts on X2D. About 1 minute left."
+            "About 1 minute left."
         )
 
         var e = ComingOff()
         _ = e.consider(printer: printer("RUNNING", remainingS: 1500, jobId: "t3"), prefs: .default)
         let raised = e.consider(printer: printer("RUNNING", remainingS: 1490, jobId: "t3"), prefs: prefs)
         XCTAssertEqual(raised?.immediate, true, "a longer lead time than what's left fires now")
-        XCTAssertEqual(raised?.body, "Print in Parts on X2D. About 25 minutes left.")
+        XCTAssertEqual(raised?.body, "About 25 minutes left.")
         XCTAssertNil(e.consider(printer: printer("RUNNING", remainingS: 1480, jobId: "t3"), prefs: prefs))
     }
 
@@ -197,6 +198,29 @@ final class ComingOffTests: XCTestCase {
                 prefs: .default
             )
         )
+    }
+
+    /// 2026-11-10 16:27: the next job's ID arrived while the printer still said Finished (100%, no
+    /// time left), a second before Starting. Marking that job done silenced its notice for the
+    /// whole print.
+    func testTheNextJobsIdWhileStillFinishedDoesNotSilenceIt() {
+        var c = ComingOff()
+        _ = c.consider(printer: printer("RUNNING", remainingS: 3600, jobId: "t1"), prefs: .default)
+        _ = c.consider(printer: printer("FINISH", remainingS: 0, jobId: "t1"), prefs: .default)
+        XCTAssertNil(c.consider(printer: printer("FINISH", remainingS: 0, jobId: "t2"), prefs: .default))
+        XCTAssertNil(c.phase["x2d|t2"])
+        XCTAssertNil(c.consider(printer: printer("PREPARE", remainingS: 7260, jobId: "t2"), prefs: .default))
+        let soon = c.consider(printer: printer("RUNNING", remainingS: 6960, jobId: "t2"), prefs: .default)
+        XCTAssertEqual(soon?.interval, 6360)
+        XCTAssertEqual(c.phase["x2d|t2"], .scheduled)
+    }
+
+    func testAJobNeverSeenPrintingIsLeftAlone() {
+        for state in ["FINISH", "FAILED", "IDLE"] {
+            var c = ComingOff()
+            XCTAssertNil(c.consider(printer: printer(state, remainingS: 0, jobId: "t9"), prefs: .default), state)
+            XCTAssertEqual(c.phase, [:], state)
+        }
     }
 
     func testIdleAndFailedMarkDone() {

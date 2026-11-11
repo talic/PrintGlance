@@ -531,7 +531,9 @@ enum BambuPrint {
         let remain = remainPercent(tray["remain"])
         let color = trayColorHex(tray)
         if name == nil, remain == nil, color == nil { return nil }
-        return AMSTray(id: "", name: name, remain: remain, color: color)
+        var t = AMSTray(id: "", name: name, remain: remain, color: color)
+        t.weight = BambuJSON.intValue(tray["tray_weight"]).flatMap { $0 > 0 ? $0 : nil }
+        return t
     }
 
     /// Bambu Studio shows a percent only for AMS 2 Pro and AMS HT (`info` type 3 and 4, DevFilaSystem.h).

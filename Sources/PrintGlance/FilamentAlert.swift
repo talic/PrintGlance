@@ -61,31 +61,110 @@ struct Runout: Codable, Equatable, Sendable {
     var backup: String?
 }
 
-/// Per printer and job, a straight-line fit of each spool's AMS percent against print progress
-/// (`mc_percent`). Progress, not the clock, so pauses and speed changes don't skew it.
+/// How fast a print really moves: seconds of printing per percent, by the clock.
 ///
-/// On an X2D (2026-10-01) the reading swung 3–5 for 15% of progress, then read 0–2 for the last
-/// 20% of the print without running out. Counting drops took two dips as a rate 20 times too fast;
-/// a fit with one reading per percent rides out the swings.
+/// A melt rate is grams per real hour, so it is measured, not taken from the printer's time
+/// left, which is the slicer's guess.
+struct Pace: Codable, Equatable {
+    /// Percents the clock must cover before it counts.
+    static let minSpan = 3
+    /// Faster than 100% in five minutes is a burst of old reports, not a print.
+    static let fastest = 3.0
+
+    var fromPercent: Int
+    var from: Date
+    var toPercent: Int
+    var to: Date
+    /// False until the percent first moves, so the clock starts on a whole percent.
+    var anchored = false
+    var pausedS = 0.0
+    var pausedAt: Date? = nil
+
+    init(percent: Int, now: Date) {
+        fromPercent = percent
+        from = now
+        toPercent = percent
+        to = now
+    }
+
+    mutating func printing(_ percent: Int, now: Date) {
+        if let pausedAt {
+            pausedS += max(0, now.timeIntervalSince(pausedAt))
+            self.pausedAt = nil
+        }
+        guard percent > toPercent else { return }
+        if !anchored {
+            self = Pace(percent: percent, now: now)
+            anchored = true
+        }
+        toPercent = percent
+        to = now
+    }
+
+    mutating func paused(now: Date) {
+        if anchored, pausedAt == nil { pausedAt = now }
+    }
+
+    // ponytail: a pause the app slept through counts as printing. Reading the printer's own
+    // print clock, if a firmware sends one, would fix it.
+    var secondsPerPercent: Double? {
+        let span = toPercent - fromPercent
+        guard span >= Self.minSpan else { return nil }
+        let s = (to.timeIntervalSince(from) - pausedS) / Double(span)
+        return s >= Self.fastest ? s : nil
+    }
+}
+
+/// Per printer and job, where each spool should run out, from its AMS percent against print
+/// progress (`mc_percent`).
+///
+/// The AMS percent is a gauge, not a count. On 2026-11-10 a spool near 50% read 58, then 47
+/// within ten minutes, then 50, all while feeding, and a second printer's rose 4 points as it fed.
+/// A nearly empty one (2026-10-01) swung 3–5, then read 0–2 for the last 20% of the print without
+/// running out. A line fitted to a few readings takes one swing for the spool emptying. So the
+/// fit only speaks when:
+///
+/// - the line falls by `swingFactor` times the swing of the readings around it,
+/// - the fall is one a nozzle can melt (`maxGramsPerHour`), at the print's own `Pace`,
+/// - the end is no further ahead than `maxReach` times the progress the readings cover.
+///
+/// It says less than a plain fit and says it later. A missed runout still pauses the print and
+/// sends Print Paused; a wrong one sends you to a spool that is half full.
 struct RunoutTracker: Codable, Equatable {
     static let defaultsKey = "pg.runout"
     /// Below this the reading is noise, and 0 still had filament, so readings under it are left
     /// out. The fit stops moving and the last guess made above it stands.
     static let floor = 5
-    /// Guess only this many times further ahead than the progress the readings cover.
-    static let maxReach = 3.0
-    /// A rise this big is a new or refilled spool; smaller rises are the estimate swinging.
+    /// Guess only this many times further ahead than the progress the readings cover. A spool
+    /// has then lost a third of what it started the print with.
+    static let maxReach = 2.0
+    /// A rise this big is a new or refilled spool; smaller rises are the gauge swinging.
     static let swapRise = 10
-    static let minReadings = 5.0
+    static let minReadings = 8
+    /// The fitted fall must be this many times the readings' swing around the line.
+    static let swingFactor = 2.0
+    /// Whole-number readings swing this much around a clean line.
+    static let minSwing = 2.0
+    /// 30 mm³/s of PLA for an hour. A fast nozzle peaks above that; no print averages it.
+    // ponytail: one limit for every nozzle. A 0.8 mm high-flow nozzle can pass it, and then a
+    // real runout goes unsaid. Scaling by `nozzle_diameter` from the report would lift it.
+    static let maxGramsPerHour = 134.0
+    /// Bambu spools hold 1 kg unless the tag says otherwise.
+    static let defaultGrams = 1000
 
-    /// One reading per whole percent of progress, kept as least-squares sums.
+    struct Reading: Codable, Equatable {
+        /// Print progress, 0–100.
+        var p: Int
+        /// Spool percent.
+        var r: Int
+    }
+
     struct Spool: Codable, Equatable {
         var name: String?
         var color: String?
-        var n = 0.0, sp = 0.0, sr = 0.0, spp = 0.0, spr = 0.0, srr = 0.0
-        var firstAt: Int?
-        var lastAt: Int?
-        /// The newest reading at progress `pendingAt`. It joins the sums once progress moves on.
+        /// One reading per whole percent of progress, oldest first.
+        var readings: [Reading] = []
+        /// The newest reading at progress `pendingAt`. It joins `readings` once progress moves on.
         var pending: Int
         var pendingAt: Int
 
@@ -96,25 +175,32 @@ struct RunoutTracker: Codable, Equatable {
             pendingAt = p
         }
 
-        mutating func add(_ p: Int, _ r: Int) {
-            let (x, y) = (Double(p), Double(r))
-            n += 1; sp += x; sr += y; spp += x * x; spr += x * y; srr += y * y
-            if firstAt == nil { firstAt = p }
-            lastAt = p
-        }
-
-        /// Progress where the line reaches 0, when it falls clearly (slope two standard errors
-        /// below flat) and doesn't reach past `maxReach` times the progress it covers.
-        var runoutAt: Double? {
-            guard n >= RunoutTracker.minReadings, let firstAt, let lastAt else { return nil }
+        /// Progress where the fitted line reaches 0, or nil while the readings don't settle it.
+        func runoutAt(secondsPerPercent: Double, grams: Int) -> Double? {
+            guard readings.count >= RunoutTracker.minReadings, secondsPerPercent > 0,
+                  let first = readings.first?.p, let last = readings.last?.p else { return nil }
+            let n = Double(readings.count)
+            var sp = 0.0, sr = 0.0, spp = 0.0, spr = 0.0
+            for reading in readings {
+                let (x, y) = (Double(reading.p), Double(reading.r))
+                sp += x; sr += y; spp += x * x; spr += x * y
+            }
             let sxx = spp - sp * sp / n
             guard sxx > 0 else { return nil }
             let b = (spr - sp * sr / n) / sxx
             let a = (sr - b * sp) / n
-            let se = (max(srr - a * sr - b * spr, 0) / (n - 2) / sxx).squareRoot()
-            guard b + 2 * se < 0 else { return nil }
+            guard b < 0 else { return nil }
+
+            let residuals = readings.map { Double($0.r) - (a + b * Double($0.p)) }
+            let swing = max((residuals.max() ?? 0) - (residuals.min() ?? 0), RunoutTracker.minSwing)
+            let span = Double(last - first)
+            guard -b * span >= RunoutTracker.swingFactor * swing else { return nil }
+
+            let gramsPerHour = -b * Double(grams) / 100 * 3600 / secondsPerPercent
+            guard gramsPerHour <= RunoutTracker.maxGramsPerHour else { return nil }
+
             let out = -a / b
-            return out - Double(lastAt) <= Double(lastAt - firstAt) * RunoutTracker.maxReach ? out : nil
+            return out - Double(last) <= span * RunoutTracker.maxReach ? out : nil
         }
     }
 
@@ -122,10 +208,12 @@ struct RunoutTracker: Codable, Equatable {
         var id: String
         var spools: [String: Spool] = [:]
         var noticed: Set<String> = []
+        var pace: Pace? = nil
     }
 
     var jobs: [String: Job] = [:]
 
+    /// A fit saved by an older build doesn't decode, so that print starts over.
     static func load(_ d: UserDefaults) -> RunoutTracker {
         d.data(forKey: defaultsKey).flatMap { try? JSONDecoder().decode(RunoutTracker.self, from: $0) } ?? RunoutTracker()
     }
@@ -154,6 +242,12 @@ struct RunoutTracker: Codable, Equatable {
         }
         guard let jobId = row.jobId, let percent = row.percent else { return nil }
         var job = jobs[row.id].flatMap { $0.id == jobId ? $0 : nil } ?? Job(id: jobId)
+        if state == "RUNNING" {
+            if job.pace == nil { job.pace = Pace(percent: percent, now: now) }
+            job.pace?.printing(percent, now: now)
+        } else {
+            job.pace?.paused(now: now)
+        }
         let trays = (row.trays ?? []).filter { $0.remain != nil }
         job.spools = job.spools.filter { id, _ in trays.contains { $0.id == id } }
         for tray in trays {
@@ -165,7 +259,7 @@ struct RunoutTracker: Codable, Equatable {
             }
             // One reading per percent: purging at 0% and a pause add nothing, as progress stands still.
             if percent > s.pendingAt, s.pending >= Self.floor {
-                s.add(s.pendingAt, s.pending)
+                s.readings.append(Reading(p: s.pendingAt, r: s.pending))
             }
             s.pending = remain
             s.pendingAt = percent
@@ -173,13 +267,22 @@ struct RunoutTracker: Codable, Equatable {
         }
         jobs[row.id] = job
 
+        // The clock once it has covered enough of the print; until then, the printer's word.
+        var pace = job.pace?.secondsPerPercent
+        if pace == nil, let remainingS = row.remainingS, remainingS > 0, percent < 100 {
+            pace = Double(remainingS) / Double(100 - percent)
+        }
+        guard let pace else { return nil }
+
         let p = Double(percent)
         var best: (out: Double, tray: AMSTray)?
         for tray in trays {
+            let grams = tray.weight.flatMap { $0 > 0 ? $0 : nil } ?? Self.defaultGrams
             // ponytail: treats a reading of 0 as empty, though the X2D printed on at 0. Once spools
             // are weighed at 0, an offset per AMS model could move the guess later.
             // Past the guess and still printing means it was wrong, so it goes.
-            guard let out = job.spools[tray.id]?.runoutAt, out >= p, out < 100, out < best?.out ?? 100 else { continue }
+            guard let out = job.spools[tray.id]?.runoutAt(secondsPerPercent: pace, grams: grams),
+                  out >= p, out < 100, out < best?.out ?? 100 else { continue }
             best = (out, tray)
         }
         guard let best else { return nil }
@@ -195,8 +298,8 @@ struct RunoutTracker: Codable, Equatable {
                 $0.id != best.tray.id && $0.unit != nil && $0.name == name && $0.color == color
             }?.label
         }
-        if state == "RUNNING", let remainingS = row.remainingS, remainingS > 0, percent < 100 {
-            let s = Double(remainingS) * (best.out - p) / (100 - p)
+        if state == "RUNNING" {
+            let s = (best.out - p) * pace
             if s < 300 {
                 runout.soon = true
             } else {

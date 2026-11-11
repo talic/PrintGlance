@@ -1,6 +1,6 @@
 # How PrintGlance works
 
-PrintGlance is a macOS 14+ menu bar app (SwiftUI `MenuBarExtra`, no Dock icon) that shows Bambu Lab 3D printers' progress. It talks to each printer directly over the local network with MQTT over TLS, the same LAN protocol Bambu Studio uses. It needs no Bambu account and no cloud. It watches up to four printers, explains pauses and failures, sends notifications, tracks AMS filament, and keeps a short print history.
+PrintGlance is a macOS 14+ menu bar app (SwiftUI `MenuBarExtra`, no Dock icon) that shows Bambu Lab 3D printers' progress. It talks to each printer directly over the local network with MQTT over TLS, the same LAN protocol Bambu Studio uses. It needs no Bambu account and no cloud. It watches up to four printers, explains pauses and failures, sends notifications, tracks AMS filament, and keeps a short print history. An iPhone app with a widget (`iOS/`, built from source) reuses the parsing and presentation code; see [iPhone app and widget](#iphone-app-and-widget).
 
 This document is for whoever changes the code next, human or agent. Read it before changing behavior; read [TESTING.md](TESTING.md) before writing tests. The user-facing behavior is described in the [README](../README.md); `ShippingTests` fails when the README and the code disagree.
 
@@ -22,11 +22,12 @@ This document is for whoever changes the code next, human or agent. Read it befo
 14. [What is stored where](#what-is-stored-where)
 15. [macOS integration and load-bearing workarounds](#macos-integration-and-load-bearing-workarounds)
 16. [Update check](#update-check)
-17. [The Python feed](#the-python-feed)
-18. [Build, sign, release](#build-sign-release)
-19. [Known limits and debt](#known-limits-and-debt)
-20. [Changing things safely](#changing-things-safely)
-21. [Bambu report fields the app reads](#bambu-report-fields-the-app-reads)
+17. [iPhone app and widget](#iphone-app-and-widget)
+18. [The Python feed](#the-python-feed)
+19. [Build, sign, release](#build-sign-release)
+20. [Known limits and debt](#known-limits-and-debt)
+21. [Changing things safely](#changing-things-safely)
+22. [Bambu report fields the app reads](#bambu-report-fields-the-app-reads)
 
 ## Promises that constrain every change
 
@@ -36,7 +37,7 @@ These are product promises (README, "Private and read-only") or hard-won constra
 |---|---|---|
 | **Read-only.** The app publishes exactly one message: `{"pushing":{"command":"pushall","sequence_id":"0"}}` to `device/<serial>/request`. Never pause, stop, resume, print, or change settings. | The README promises it, and a bug here could ruin a print. | `SecurityTests.testOnlyEverAsksForAFullReport`, `GlanceModelTests.testHandshakeSubscribesAndAsksForEverything`, `MQTTWireTests`, Python `MqttCallbackTests` |
 | **LAN only.** The app's only internet request is the daily GitHub release check. Bambu web pages open in the browser only when the user clicks **Look up**. | Privacy promise. | `ShippingTests.testReadOnlyAndLocalPromise`, `UpdateCheckTests` |
-| **The access code stays on this Mac**, and only ever travels as the MQTT password to the printer's own IP. Never log it, never put it in a notification or a URL. | Privacy promise; the code grants LAN control of the printer. | `SecurityTests.testAccessCodeIsOnlyEverTheMQTTPassword` |
+| **The access code stays on this Mac**, and only ever travels as the MQTT password to the printer's own IP. Never log it, never put it in a notification or a URL. The iPhone app keeps the code typed into it on that iPhone, under the same rules. | Privacy promise; the code grants LAN control of the printer. | `SecurityTests.testAccessCodeIsOnlyEverTheMQTTPassword`, `PhoneGlanceTests.testOneLookAsksForAFullReportAndHangsUp` |
 | **No dependencies.** The package has none; system frameworks only. | Simplicity and supply chain. | Review |
 | `Printer`, `PrintDoc`, `AMSTray`, `AMSUnit`, `Temp`, `Runout` stay `Codable`; only add optional fields with `= nil` defaults. | The JSON fixtures pin the Python feed's format (`PrintDocTests`). | `PrintDocTests` |
 | Don't edit `bambu.py`, `print_loop.*`, or `.env.example` unless the owner asks; never `.env` or launchd. | The feed runs as a LaunchAgent on the owner's Mac and may feed another device. | Review; `Tests/Feed` covers its behavior |
@@ -46,7 +47,7 @@ These are product promises (README, "Private and read-only") or hard-won constra
 
 ## Repository map
 
-All app code is one SwiftPM executable target, `Sources/PrintGlance`.
+All app code is one SwiftPM executable target, `Sources/PrintGlance`. The iPhone project compiles eleven of its Foundation-only files directly (listed under [iPhone app and widget](#iphone-app-and-widget)), so those must not import AppKit or reach Mac-only types.
 
 | File | Responsibility |
 |---|---|
@@ -60,7 +61,8 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`.
 | `PrintGlancePanel.swift` | `hugMenuBarPanel()` (sizes the panel window to the card), `PanelOpened` (runs a closure each time the panel opens), `MenuBarHug.frame` (pure frame math). |
 | `PrintNotify.swift` | Print-state notifications: preferences (`PrintNotifyPrefs`), edge detection per printer (`PrintNotify`), duplicate suppression (`PrintNotifyStamp`), offline suppression when this Mac caused it, `PendingSelection` (a clicked notification opens that printer). |
 | `ComingOff.swift` | `QuietHours` and `ComingOff`, the once-per-job "Print finishing soon" notice scheduled ahead of time. |
-| `FilamentAlert.swift` | `FilamentAlert` (spool under 20%) and `RunoutTracker` (least-squares fit of AMS percent against progress to predict where a spool runs out). |
+| `Overrun.swift` | `Overrun`: how long each printer runs past its own time left, learned from the prints the app watches finish and added to the row's time left and finish time. |
+| `FilamentAlert.swift` | `FilamentAlert` (spool under 20%), `RunoutTracker` (where a spool runs out, from its AMS percent against progress), and `Pace` (how fast the print moves by the clock). |
 | `JobLog.swift` | Print history: opens a row when a job starts, closes it on finish/fail/idle, caps at 50, saves `jobs.json`, exports CSV. Gives the finished time for "40m ago". |
 | `PrinterSettings.swift` | `PrinterSettings` (one saved printer), `SavedPrinters` (the list, focus, cap of 4, edits, persistence, legacy migration), `AccessCodeStore` (reads the 1.1.7 Keychain item once, then deletes it). |
 | `PrinterDiscovery.swift` | SSDP discovery of Bambu printers on the Wi-Fi (UDP multicast), reply parsing, model code names, `ipChanges` for rediscovery. |
@@ -68,6 +70,8 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`.
 | `SetupWindow.swift` | The `NSWindow` that hosts setup, its show/close/cancel wiring, and the Remove confirmation alert. |
 | `LoginItem.swift` | Open at Login via `SMAppService.mainApp`. |
 | `AppUpdate.swift` | Version comparison and GitHub release parsing (`AppUpdate`), the daily checker (`AppUpdateChecker`). |
+| `PhoneGlance.swift` | iPhone only, but built and tested here: `PhoneStatus` (the last row and when), `PhoneStore` (App Group defaults), `PrinterFetch` (one connect, `pushall`, one report, hang up), `PrinterSearch` (finds printers without multicast), and the widget's words (`GlanceContent.phone`, `phoneEntryDates`, `phoneNextFetch`, `GlanceCopy.phoneFetchFailed`). The Mac app never calls it. |
+| `PhoneCard.swift` | The iPhone widget's card (small and medium) and the iPhone app's status card. |
 
 Outside `Sources`:
 
@@ -79,7 +83,9 @@ Outside `Sources`:
 | `Info.plist` | Copied into the bundle by `make app`. Bundle ID `local.PrintGlance`, `LSUIElement`, `LSMultipleInstancesProhibited`, the Local Network usage string, the version. |
 | `Makefile` | `test`, `release`, `app`, `zip`, `notarize`, `install`, `icon`, `clean`. |
 | `scripts/render-appicon.swift` | Draws the app icon into `dist/AppIcon.icns`. |
-| `.github/workflows/test.yml`, `release.yml` | CI tests on every PR and push to `main`; release on a `v*` tag. |
+| `iOS/` | The iPhone app (`App/`) and widget extension (`Widget/`), their Xcode project, Info.plists, entitlements, and `PrintGlance.xcconfig`. See [iPhone app and widget](#iphone-app-and-widget). |
+| `scripts/fake-printer.py` | A pretend printer on `127.0.0.1:8883` for trying the iPhone app in the simulator. |
+| `.github/workflows/test.yml`, `release.yml` | CI tests (and builds the iPhone app) on every PR and push to `main`; release on a `v*` tag. |
 | `docs/*.png` | README screenshots. |
 
 ## From a printer report to the menu bar
@@ -103,7 +109,7 @@ flowchart LR
 1. **Receive.** `MQTT311Client` reassembles frames from the TLS socket, and hands each PUBLISH's payload to `onMessage` on the main queue.
 2. **Merge.** `GlanceModel.didMessage` parses JSON (anything that isn't an object is dropped) and calls `BambuSnapshot.ingest`, which merges the `print` object into the snapshot like Bambu Studio's `json_diff`: nested objects merge key by key, arrays and values replace. Printers send a full report after `pushall`, then deltas. When `task_id`, `subtask_id`, or `subtask_name` changes, the old `layer_num`, `total_layer_num`, and `gcode_file` are dropped so a new job can't show the last one's layer.
 3. **Rows.** `publishSnapshot` runs after every message, connect, disconnect, and every 5 s (so a silent printer goes offline on time). It builds a `PrintDoc` with one `Printer` per complete saved printer, in saved order, via `BambuPrint.row`. A printer that never reported is an `OFFLINE` row.
-4. **Side effects, in this order:** `RunoutTracker.observe` (sets `row.runout`), `JobLog.observe` (saves `jobs.json` on change), `ComingOff.consider` (schedules or cancels "finishing soon"), `apply` (publishes `content`; `PrintNotify.observe` turns state edges into alerts), the minute clock for "40m ago" and "Last update", `FilamentAlert.consider` and the runout notice.
+4. **Side effects, in this order:** `Overrun.observe` (moves `row.remainingS` and `row.eta` to when the printer should report Finished, so everything after it sees that), `RunoutTracker.observe` (sets `row.runout`), `JobLog.observe` (saves `jobs.json` on change), `ComingOff.consider` (schedules or cancels "finishing soon"), `apply` (publishes `content`; `PrintNotify.observe` turns state edges into alerts), the minute clock for "40m ago" and "Last update", `FilamentAlert.consider` and the runout notice.
 5. **Draw.** `GlanceModel.strip` feeds the menu bar `StripLabel`. `GlanceView` shows `PrintDoc.displayRow()` (or the printer clicked in the list during this panel visit), `PrinterDetail` for the card, and `PrinterList` when there are two or more printers. Every string comes from a `GlanceContent` function.
 
 Before any printer has reported, `content` is `.needsSetup` (no complete printer), `.connecting` (some link not failed), or `.feedDown` (every link failed). The card shows **Add your printer**, **Connecting**, or **Can't reach printer** with the reason from `GlanceCopy.feedDownDetail`.
@@ -127,6 +133,8 @@ Before any printer has reported, `content` is `.needsSetup` (no complete printer
 Printers heat, level, and calibrate under `RUNNING` with layer 0 and `stg_cur` naming the stage; PREPARE itself only covers fetching the file. Both show as **Starting**. A stage after layer 0 (a filament change) stays Printing. `BambuPrint.stageLabel` maps `stg_cur` numbers to Heating, Leveling, Loading filament, Unloading filament, Calibrating, Cleaning nozzle, Homing, or Starting.
 
 Percent is clamped to 0–100. `mc_remaining_time` (minutes) is clamped to 0–30 days. `eta` is the finish clock time formatted by `GlanceContent.dayTime`: "16:25", "16:25 tomorrow", "16:25 Mon" within 6 days, else "Sep 12"; the hour cycle follows the Mac's locale, words stay English. The menu bar pads the percent with figure spaces (U+2007) so its width doesn't change as the number grows.
+
+**Finish time.** The printer's time left ends with the last layer, not with `FINISH`. On two dual-nozzle printers (2026-11-10) it read 0 for the last two minutes of printing, and the printer then spent three more unloading (`stg_cur` 66) before it reported `FINISH`: 4.6 and 5.1 minutes after the last time left above zero. Mid-print the time left kept pace with the clock, and a finish time worked out from seconds per percent was further off, so the gap is added, not scaled. `Overrun` keeps, per printer, the last time left above zero and when it was first seen. When the row turns `FINISH`, the seconds from that promise's end to now are remembered, unless the print paused after the promise, the job changed, or the gap is negative or over 15 minutes (the app missed the end). The middle of the last five is that printer's lateness; it is 0 until the first watched finish. It is added to `remainingS` for Starting, Printing, Paused, and Offline rows, and `eta` is worked out again. Once the time left reads 0 while printing, the row counts down in whole minutes to the last promise's end plus the lateness, so the finish time stands still; past that it shows no time, as before. The promise is kept in memory only, so a relaunch in a print's last minutes skips that print. The iPhone app builds its rows without this and shows the printer's own number.
 
 Temperatures are only filled while Starting, so rows stay equal between reports while printing (equal rows mean no SwiftUI update). Newer printers pack a heater as `target << 16 | current` under `device.*`; older ones send top-level `nozzle_temper` etc. Dual-nozzle printers (H2D, X2D) report each nozzle in `device.extruder.info` and the active one in bits 4–7 of `device.extruder.state`; the card shows **Left** or **Right** next to the filament.
 
@@ -159,7 +167,7 @@ stateDiagram-v2
 
 `GlanceModel` keeps one `Link` per complete saved printer, keyed by serial. The details that matter:
 
-- **Dial.** `beginConnect` dials `<ip>:8883` with client ID `pg-app-<last 6 of serial>-<random per-launch hex>`, user `bblp`, password = access code. The Python feed uses `pg-feed-…`; two sessions with one ID make the printer drop each in turn.
+- **Dial.** `beginConnect` dials `<ip>:8883` with client ID `pg-app-<last 6 of serial>-<random per-launch hex>`, user `bblp`, password = access code. The Python feed uses `pg-feed-…` and the iPhone `pg-phone-…`; two sessions with one ID make the printer drop each in turn.
 - **Handshake.** On CONNACK 0, `didConnect` saves the candidate IP if this dial was one, subscribes to `device/<serial>/report`, and publishes `pushall`.
 - **Timeout.** 8 s without CONNACK marks the link failed with reason `connect timed out`, closes the socket, and asks for rediscovery.
 - **Drop.** `didDisconnect` marks the link failed with the client's reason: `MQTT CONNACK <n>`, `ECONNREFUSED`, `closed`, `ping timeout`, `malformed packet`, or a Network.framework error string. The snapshot gets its 30 s grace.
@@ -187,23 +195,26 @@ The panel opens on the menu bar's printer each time. Clicking a list row changes
 
 ## Notifications
 
-All notifications go through `GlanceModel.post` → `Notifier.add` and carry the printer's serial in `userInfo["serial"]`.
+All notifications go through `GlanceModel.post` → `Notifier.add`, carry the printer's serial in `userInfo["serial"]`, and use it as the `threadIdentifier`, so Notification Center stacks each printer's alerts on their own.
+
+Print alerts read printer and state first, then the job, then why: the title is "X2D paused" (finished, failed, finishing soon), the subtitle is the job and its percent ("Benchy · 52%", no percent at 0 or on finish), and the body is the reason.
 
 | Notice | Trigger | Identifier | Default | Quiet Hours |
 |---|---|---|---|---|
-| Print finished | `RUNNING`/`PREPARE` → `FINISH` | `pg.finish.<serial>` | on | Delayed to 7 AM (`UNCalendarNotificationTrigger`) |
-| Print failed | `RUNNING`/`PREPARE` → `FAILED` | `pg.fail.<serial>` | on | Delivered |
-| Print paused | `RUNNING`/`PREPARE` → `PAUSE` | `pg.pause.<serial>` | on | Delivered |
+| Finished | `RUNNING`/`PREPARE` → `FINISH` | `pg.finish.<serial>` | on | Delayed to 7 AM (`UNCalendarNotificationTrigger`) |
+| Failed | `RUNNING`/`PREPARE` → `FAILED` | `pg.fail.<serial>` | on | Delivered |
+| Paused | `RUNNING`/`PREPARE` → `PAUSE` | `pg.pause.<serial>` | on | Delivered |
 | Lost connection | `RUNNING`/`PREPARE`/`PAUSE` → `OFFLINE` | `pg.offline.<serial>` | on | Delivered |
-| Print finishing soon | Scheduled lead time before the end of a `RUNNING` job | `pg.comingoff.<serial>.<jobId>` | on, 10 min | Skipped if it would fire in the window |
+| Finishing soon | Scheduled lead time before the end of a `RUNNING` job | `pg.comingoff.<serial>.<jobId>` | on, 10 min | Skipped if it would fire in the window |
 | Low filament | Active spool < 20% while Starting or Printing | `filament.<serial>\|<tray>\|<task>` | on | Delivered |
 | Filament may run out | First runout estimate per job and slot | `runout.<serial>.<jobId>.<slot>` | on (with Low Filament) | Delivered |
 
 - **Edges, per printer.** `PrintNotify` remembers each printer's last state, so focus changes and adding a printer aren't print edges. `.connecting` and `.needsSetup` change nothing.
 - **Duplicates.** A `PrintNotifyStamp` (serial, state, job) is saved per printer after each alert; the same alert for the same job isn't repeated, across relaunches too. A new `RUNNING` clears it.
-- **Reasons.** Pause and fail bodies start with a plain reason when the code is known ("Filament ran out in AMS A, slot 1.") and end with "· Error <code>".
+- **Reasons.** A pause or fail body is the plain reason for the code `GlanceContent.leadErrorCode` picks: the first code with a reason, else the first code. Printers can send an HMS code we don't explain next to a `print_error` we do, and the alert explains the second. With no reason the body is "Error <code>"; with no code, "The printer didn't say why." The card lists every code with **Look up**. Finished says "Ready to take off the plate."
+- **Clearing.** On each state change `PrintNotify` names alerts that are no longer true, and `Notifier.removeDelivered` takes them out of Notification Center: Starting or Printing clears that printer's finished, paused, and failed alerts, and any report other than Offline clears its lost connection. The first report after launch counts as a change, so last session's stale alerts go too. History keeps the record (see [History](#history)).
 - **Lost connection** isn't sent while this Mac has no network, or for 2 minutes after its network changes (`NWPathMonitor` in `start()`), because then the Mac lost the printer, not the other way round.
-- **Finishing soon** is scheduled once per job as a time-interval notification at `remaining − lead`. It is rescheduled only when the remaining time jumps by more than 2 minutes or the lead time changes. Pause or Offline cancels it until printing resumes; Finish, Failed, or Idle cancels it for good. Inside the lead time it fires at once and says what's actually left.
+- **Finishing soon** is scheduled once per job as a time-interval notification at `remaining − lead`. It is rescheduled only when the remaining time jumps by more than 2 minutes or the lead time changes. Pause or Offline cancels it until printing resumes; Finish, Failed, or Idle cancels it for good. A job the app never saw starting or printing is left alone: when a new print starts, the printer sends the new job's `task_id` for one report while `gcode_state` still says `FINISH`, and marking that job done would silence its notice for the whole print (measured 2026-11-10). Inside the lead time it fires at once and says what's actually left.
 - **Permission** is requested on the first Starting or Printing report each launch (not on Finish, so the prompt can't eat that alert), and after the first printer is set up. If notifications are off in System Settings, the Notifications menu starts with **Notifications Are Off…**.
 - **Presentation.** `PrintNotifyPresenter` shows banners while the app is frontmost (a menu bar app always is), and turns a click into `PendingSelection`.
 - **Pause default migration.** Pause alerts became default-on; `pg.notify.pauseOn.v1` turns them on once for older installs.
@@ -214,7 +225,16 @@ All notifications go through `GlanceModel.post` → `Notifier.add` and carry the
 
 **Low filament.** `FilamentAlert` fires once per printer, slot, and job when the active spool is under 20% while Starting or Printing.
 
-**Runout.** `RunoutTracker` fits a least-squares line to each spool's AMS percent against print progress (`mc_percent`), one reading per whole percent, and predicts the progress at which it reaches 0. Progress, not time, so pauses and speed changes don't skew it. It needs 5 readings, a slope clearly below flat (two standard errors), and won't guess further ahead than three times the progress it has measured. Readings under 5% are left out: the AMS estimate swings by a couple of points near empty and can read 0% with filament left (measured on an X2D). A rise of 10 points or a different filament or color in the slot is a new spool. The earliest runout before 100% becomes `row.runout`: the card draws an orange notch on the bar and a line such as "PLA Matte in A2 runs out around 15:45." ("is about to run out" under 5 minutes; no time while paused), and names another slot with the same filament and color that AMS backup may switch to. State is saved under `pg.runout` so a relaunch mid-print keeps the fit.
+**Runout.** The AMS percent is a gauge, not a count. On two dual-nozzle printers (2026-11-10) a spool near 50% read 58, then 47 within ten minutes, then 50, all while feeding. A line fitted to a few such readings takes one swing for the spool emptying, so `RunoutTracker` asks for more before it speaks. It keeps one reading per whole percent of print progress (`mc_percent`) for each spool and fits a least-squares line to them. Progress, not time, so pauses don't skew it. Where the line reaches 0 is the runout, when all of this holds:
+
+- There are 8 readings.
+- The line falls by at least twice the swing of the readings around it (the gap between the readings furthest above and below the line, counted as at least 2 points).
+- The fall is no faster than 134 g an hour: 30 mm³/s of PLA, more than any print averages. The grams come from the spool's `tray_weight`, or 1 kg.
+- The runout is no further ahead than twice the progress the readings cover, so the spool has lost a third of what it started the print with.
+
+Grams an hour needs the print's real speed. `Pace` takes it from the clock: seconds per percent since the first percent change the app saw, pauses left out, once that covers 3%. Before that, and when reports arrive in a burst, it is the printer's `mc_remaining_time` spread over the percent left. The same pace turns the runout into a clock time. The rules trade early for right: a missed runout still pauses the print and sends Print Paused.
+
+Readings under 5% are left out: the AMS estimate swings by a couple of points near empty and can read 0% with filament left (measured on an X2D). A rise of 10 points or a different filament or color in the slot is a new spool. The earliest runout before 100% becomes `row.runout`: the card draws an orange notch on the bar and a line such as "PLA Matte in A2 runs out around 15:45." ("is about to run out" under 5 minutes; no time while paused), and names another slot with the same filament and color that AMS backup may switch to. State is saved under `pg.runout` so a relaunch mid-print keeps the readings; a fit saved by an older build doesn't decode, and that print starts over.
 
 ## Errors: codes, reasons, lookup
 
@@ -228,6 +248,8 @@ Only paused and failed printers show codes (`print_error` can linger after the p
 ## History
 
 `JobLog` opens a row when a printer starts a job (Starting or Printing) and closes it when it finishes (ok), fails (fail), or goes idle (ok, no end time). A new job ID while a row is open closes the old row. `endedAt` is set only if PrintGlance saw the job running, so "took 4h 43m" is never a guess. Up to 50 rows are kept (the oldest closed rows go first; an open row never does) in `~/Library/Application Support/PrintGlance/jobs.json`; History shows them newest first and exports CSV (`started,ended,duration_min,printer,job,filament,outcome`, RFC 4180 quoting). The newest successful row's `endedAt` gives the menu bar's "40m ago".
+
+A row also keeps what went wrong, as codes so the words improve with the reasons table: `pauses` gets one entry per Printing or Starting → Paused change (`GlanceContent.leadErrorCode`, or "" when the printer gave none), and a failed row gets `failCode`. `JobLog.lastState` is process-local, so a relaunch mid-pause doesn't count it again. `GlanceContent.historyNotes` turns them into lines under the caption: the failure's reason, then "Paused: <reason>", "Paused twice. Last: <reason>", or "Paused 3 times." The CSV leaves them out.
 
 **Clear History…** under the list (shown when there is an ended print) asks first, then drops every ended row from memory and `jobs.json` (`JobLog.clearEnded`, `GlanceModel.clearHistory`). A print in progress stays: dropping its open row would make the next report reopen it with the wrong start time. Clearing also clears a finished printer's "40m ago", which comes from the same rows.
 
@@ -245,7 +267,7 @@ Only paused and failed printers show codes (`print_error` can linger after the p
 
 ## Discovery
 
-`PrinterDiscovery.scan` sends an SSDP `M-SEARCH` for `urn:bambulab-com:device:3dprinter:1` to `239.255.255.250` on UDP ports 1990 and 2021 from sockets bound to those ports (with `SO_REUSEPORT`, so it works while Bambu Studio holds them) and to an ephemeral port, and collects replies for 4 s. `parse` accepts a reply only if it looks like Bambu's (NT/ST mention bambulab, or it has `DevName`/`DevModel`), and only if `Location` is a plain IPv4 address that isn't multicast, broadcast, or `0.0.0.0`. The serial comes from `USN`; model codes map to marketing names ("N6" → "X2D"). Access codes are never in the packets. macOS asks for Local Network permission the first time (the string is in `Info.plist`).
+`PrinterDiscovery.scan` sends an SSDP `M-SEARCH` for `urn:bambulab-com:device:3dprinter:1` to `239.255.255.250` on UDP ports 1990 and 2021 from sockets bound to those ports (with `SO_REUSEPORT`, so it works while Bambu Studio holds them) and to an ephemeral port, and collects replies for 4 s. `parse` accepts a reply only if it looks like Bambu's (NT/ST mention bambulab, or it has `DevName`/`DevModel`), and only if `Location` is a plain IPv4 address that isn't multicast, broadcast, or `0.0.0.0`. The serial comes from `USN`; model codes map to marketing names ("N6" → "X2D"). Access codes are never in the packets. macOS asks for Local Network permission the first time (the string is in `Info.plist`). The iPhone app can't use SSDP; it reads serials from certificates instead (see [iPhone app and widget](#iphone-app-and-widget)).
 
 ## What is stored where
 
@@ -262,8 +284,10 @@ Preferences live in the `local.PrintGlance` domain (`UserDefaults.standard` in t
 | `pg.notify.stamps` (and legacy `pg.notify.stamp.*`) | Duplicate-alert stamps per printer. |
 | `pg.comingoff.phase`, `pg.comingoff.remain` | Finishing-soon state per printer and job (`remain` holds the scheduled delay; the name predates lead times). |
 | `pg.runout` | `RunoutTracker` as JSON. |
+| `pg.overrun` | `Overrun` as JSON: seconds late for each printer's last five watched finishes. |
 | `pg.update.lastCheck`, `.remoteTag`, `.remoteZip` | Update check cache. |
 | `~/Library/Application Support/PrintGlance/jobs.json` | History. |
+| iPhone: App Group `group.<PG_ID>` defaults, `printers` and `pg.phone.statuses` | The iPhone's printers (same shape and cap of four as the Mac's, codes included) and each one's last `PhoneStatus`, as a JSON array. |
 | `~/Library/Logs/PrintGlance.log` | Connection log (connects, drops, IP changes, skipped alerts). Wiped at launch when over 1 MB. Serials and IPs appear here; access codes never do. |
 
 Changing `CFBundleIdentifier` orphans all of the above.
@@ -290,6 +314,22 @@ Live testing notes: on macOS 27 `NSStatusBarButton.performClick` doesn't open a 
 
 `AppUpdateChecker` asks `https://api.github.com/repos/talic/PrintGlance/releases/latest` at most once a day (an hourly loop checks whether a day has passed, and wake checks too) with an ephemeral session, an 8 s timeout, and a `User-Agent` of `PrintGlance/<version> (+https://github.com/talic/PrintGlance)`. A newer `tag_name` shows **Update available** in the card and **Download PrintGlance <version>** in the menu. The download link is the release's `PrintGlance.zip` asset only if it is an `https://github.com/` URL; otherwise the release page. A failed check publishes what it knew and doesn't count as the day's check. There is no auto-update.
 
+## iPhone app and widget
+
+`iOS/PrintGlance.xcodeproj` builds an iPhone app (iOS 17+) and a WidgetKit extension. They read the printer like the Mac does, over the LAN, with no Mac, cloud, or account. They watch up to four printers. People build it themselves (README, "iPhone widget").
+
+- **Shared code.** Both targets compile these files from `Sources/PrintGlance` as they are: `BambuSnapshot`, `ComingOff`, `FilamentAlert`, `GlanceContent`, `JobLog`, `MQTT311Client`, `PhoneCard`, `PhoneGlance`, `PrintDoc`, `PrinterSettings`, `PrintNotify`. A Mac-only type in one of them breaks the iPhone build, which CI runs.
+- **One look.** The iPhone can't hold a connection open, so `PrinterFetch.fetch` connects (client ID `pg-phone-<last 6>-<random>`), subscribes, publishes the same `pushall`, waits for the first report with a `gcode_state`, and hangs up. Eight seconds without one is `connect timed out`; a drop passes the client's reason through. `PrinterFetch.fetchAll` asks every printer at once, so a look takes one timeout at most. The app asks all on pull to refresh and each time it comes to the front, and the one being added on **Connect**. The widget asks all each time iOS reloads it.
+- **Search.** iOS allows the Mac's SSDP multicast only with an entitlement Apple must approve, so `PrinterSearch` opens TLS to port 8883 on every other address in the iPhone's subnet (at most the /24 around it), all at once with a 3 s limit. A Bambu printer's certificate names its serial, so a common name of 8–20 uppercase letters and digits counts as a printer; anything else there (a home MQTT broker) has a host name. It never logs in, so the access code is still typed. The app searches on launch until a printer is saved, and again each time it comes to the front with nothing found: answering iOS's Local Network question, which the first search runs into, does that. Tapping a result fills its IP and serial, and clears the code and name unless they belong to that printer, since another printer's code would be rejected; one result fills the form by itself. **Connect** ends in an alert: connected, or why not.
+- **Shared status.** Both save each printer's `PhoneStatus` (the row, and when the printer sent it) in the App Group's defaults through `PhoneStore.record`; a printer that didn't answer keeps its last one, and removing a printer drops its status. When the widget can't reach a printer (away from home, or Local Network turned off), it shows the last status. `PhoneStore.shared` is nil when signing left out the App Group, because iOS would then give each process its own defaults; the app says so.
+- **Timeline.** `phoneEntryDates` makes one entry a minute while a finish time counts down, for up to two hours, so "1h 24m left" moves without asking the printer. `phoneNextFetch` asks again in 15 minutes during a print (or just after its finish time, if sooner) and hourly otherwise. iOS decides when it really reloads.
+- **Words.** `GlanceContent.phone` turns a status into `PhoneLines`. Times count from when the printer answered: the hero is the finish time, the detail the minutes left rounded up ("Should be done" once it passes), and "Updated 14:02" closes the card. The percent is what the printer said, never a guess. Paused shows time left and the reason, like the Mac card. `short` is the Lock Screen line ("52% · 16:25").
+- **Which printer.** `GlanceContent.phoneCards` ranks the cards with `PrintDoc.ranked()`, the order behind the menu bar's `displayRow()`; a printer never reached counts as offline. When a job is the title, the state line starts with the printer's name ("Voyager · Printing"), so cards tell apart.
+- **App.** **Your printers** lists a card per printer; tapping one loads it into the form, swiping left removes it. **Connect** adds the printer in the form or updates the saved one with its serial (`SavedPrinters.adding`), or says four is the limit.
+- **Sizes.** Small (the top-ranked printer) and medium (`PhoneCard`; the top two side by side, or one printer with layer and filament), and on the Lock Screen, for the top-ranked printer, a circular percent gauge (or the menu bar's symbol), a rectangular card, and an inline line.
+- **Signing.** `PrintGlance.xcconfig` sets `PG_ID`, the app's bundle ID; the widget is `PG_ID.widget` and the App Group `group.PG_ID`. It includes the git-ignored `iOS/Local.xcconfig` for the builder's team and their own `PG_ID`. Both Info.plists carry `PGAppGroup`, so the code reads the group from its bundle.
+- **Async provider.** The widget uses `AppIntentTimelineProvider` with an empty intent. Its async `timeline(for:in:)` builds the same on CI's Xcode 16.4 and on current SDKs, whose `TimelineProvider` completion handlers gained `@Sendable`.
+
 ## The Python feed
 
 `bambu.py` and `print_loop.py` predate the Swift app's direct MQTT client. The app no longer reads them, but the owner runs `print_loop.sh` as the LaunchAgent `local.PrintGlance.feed`, and another device may read it. It connects to one printer from `.env` (`BAMBU_IP`, `BAMBU_SERIAL`, `BAMBU_ACCESS_CODE`, `BAMBU_NAME`) with client ID `pg-feed-…`, merges reports like the app, and serves `GET /print.json` (and `/print`, `/health`, `/`) on `PRINT_HOST:PRINT_PORT`. The default is `127.0.0.1:8080`, this Mac only; `PRINT_HOST=0.0.0.0` serves the LAN, and the feed logs a warning at start when it does that without `STATS_TOKEN`. With a token, `/print.json` requires a matching `X-Stats-Token` header (compared in constant time). Idle connections close after 10 s, and the `Server` header leaves out the Python version. A report with `Infinity`, huge numbers, or deeply nested JSON can't break it, and paho's thread logs callback errors instead of dying. The JSON is the `PrintDoc` shape in snake_case; `Tests/PrintGlanceTests/Fixtures/*.json` pin it. Leave these files alone unless the owner asks.
@@ -299,7 +339,7 @@ Live testing notes: on macOS 27 `NSStatusBarButton.performClick` doesn't open a 
 - `make test` runs the Swift suite and the feed's suite. On the owner's Mac `xcode-select` points at the Command Line Tools, which lack XCTest and the SwiftUI macros, so the Makefile exports `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`. Bare `swift test` fails there.
 - `make app` builds release, assembles `dist/PrintGlance.app` with `Info.plist` and the icon, and signs ad-hoc (`SIGN_ID=-`). `make zip` zips it. `make notarize` signs with a Developer ID (hardened runtime, timestamp), submits to notarytool, checks the status, staples, and re-zips.
 - `make install` quits the running app, copies it to `~/Applications`, **rewrites saved printers from `.env`**, and opens it. Don't run it without asking.
-- **CI** (`test.yml`): `swift test` and the feed tests on `macos-15` with Xcode 16.4 (Swift 6.1, macOS 15.5 SDK). That toolchain is older than a current Mac's, and Swift 6 concurrency checks differ: code that crosses actors with Apple framework types can build locally and fail in CI. Keep non-Sendable framework values inside nonisolated helpers and return plain values. The PR's CI is the real check.
+- **CI** (`test.yml`): `swift test`, an unsigned simulator build of the iPhone app and widget, and the feed tests on `macos-15` with Xcode 16.4 (Swift 6.1, macOS 15.5 SDK). That toolchain is older than a current Mac's, and Swift 6 concurrency checks differ: code that crosses actors with Apple framework types can build locally and fail in CI. Keep non-Sendable framework values inside nonisolated helpers and return plain values. The PR's CI is the real check.
 - **Release** (`release.yml`): on a `v*` tag that must equal `v` + `CFBundleShortVersionString`, runs tests, imports the Developer ID certificate if the secrets exist, builds, notarizes, checks Gatekeeper, and attaches `PrintGlance.zip` to the GitHub release. Without signing secrets it ships ad-hoc (a marked `ponytail:` fallback; turn it back into an error once the secrets exist). The README keeps its "Open Anyway" steps until a notarized release is the latest.
 - Bump `CFBundleShortVersionString` and `CFBundleVersion` in `Info.plist` for a release.
 
@@ -314,6 +354,11 @@ Deliberate shortcuts carry a `ponytail:` comment in the code naming the ceiling 
 - **Runout treats 0% as empty**, though an X2D printed on at 0%. Weighing spools at 0% would let an offset per AMS model move the guess.
 - **The log** is wiped at 1 MB rather than rotated.
 - **Release signing** falls back to ad-hoc without secrets.
+- **iPhone: the widget picks the printer.** It shows the one that needs you; there's no choosing a printer per widget. Upgrade: a printer parameter on the widget's intent.
+- **iPhone: shared statuses are read, changed, and written.** The app and widget saving at the same moment can lose one status until the next look.
+- **iPhone: the full report** is taken to be the first report with a `gcode_state`, which `pushall` sends at once. A delta carrying the state first would leave fields out until the next look.
+- **iPhone: search covers a /24.** A bigger subnet searches only the 253 addresses around the iPhone; the IP can still be typed.
+- **iPhone: LAN only.** Away from the printer's Wi-Fi the widget shows the last status. Reaching it from anywhere would need the cloud, which the app promises not to use.
 
 Accepted by the owner, not fixed: CSV export doesn't neutralize cells starting with `=`, `+`, `-`, `@` (spreadsheet formula injection from a crafted job name). Not automated: the 20 s keep-alive ping. See TESTING.md.
 
@@ -341,7 +386,7 @@ All under the report's `print` object.
 | `subtask_name`, `gcode_file` | Job name, file path | Job label (cache paths and hex names ignored, every `.gcode`/`.3mf`/`.gco` extension dropped, a layer-height suffix like " 0.2mm layer, 2 walls" cut but sizes like "20mm" kept, 40 chars) |
 | `ams.tray_now` / `tray_tar` | Active slot (255 none, 254 external) | Active filament |
 | `ams.ams[].id`, `.humidity`, `.humidity_raw`, `.info`, `.tray[]` | AMS units (HT from id 128) and slots | Trays, humidity, runout |
-| `tray[].tray_type`, `tray_sub_brands`, `tray_info_idx`, `remain`, `tray_color`, `cols` | Slot contents | Filament name, %, color dot |
+| `tray[].tray_type`, `tray_sub_brands`, `tray_info_idx`, `remain`, `tray_color`, `cols`, `tray_weight` | Slot contents | Filament name, %, color dot, grams for the runout |
 | `vt_tray`, `vir_slot[]` | External spool(s); dual-nozzle printers send two | External slots |
 | `device.extruder.state`, `.info[].temp` | Nozzle count and active nozzle, packed temps | Left/Right, nozzle temp |
 | `device.bed.info.temp`, `device.ctc.info.temp` | Packed bed and chamber temps | Heat line |

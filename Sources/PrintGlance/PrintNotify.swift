@@ -10,24 +10,37 @@ enum PrintNotifyKind: String, Equatable {
 struct PrintNotifyAlert: Equatable {
     var kind: PrintNotifyKind
     var title: String
+    /// The job and how far it got, under the title. Empty when there's nothing to say.
+    var subtitle: String = ""
     var body: String
     var serial: String
+
+    var identifier: String { Self.identifier(kind, serial: serial) }
+
+    /// One per printer and kind, so a newer alert replaces the older one in Notification Center.
+    static func identifier(_ kind: PrintNotifyKind, serial: String) -> String {
+        "pg.\(kind.rawValue).\(serial.isEmpty ? "printer" : serial)"
+    }
 }
 
 struct PrintNotifyOutcome: Equatable {
     var requestPermission: Bool
     var alerts: [PrintNotifyAlert]
+    /// Delivered alerts that are no longer true, to take out of Notification Center.
+    var clears: [String] = []
 
     var alert: PrintNotifyAlert? { alerts.first }
 
-    init(requestPermission: Bool, alert: PrintNotifyAlert?) {
+    init(requestPermission: Bool, alert: PrintNotifyAlert?, clears: [String] = []) {
         self.requestPermission = requestPermission
         self.alerts = alert.map { [$0] } ?? []
+        self.clears = clears
     }
 
-    init(requestPermission: Bool, alerts: [PrintNotifyAlert]) {
+    init(requestPermission: Bool, alerts: [PrintNotifyAlert], clears: [String] = []) {
         self.requestPermission = requestPermission
         self.alerts = alerts
+        self.clears = clears
     }
 }
 
@@ -196,12 +209,14 @@ struct PrintNotify {
         case let .doc(doc):
             var requestPermission = false
             var alerts: [PrintNotifyAlert] = []
+            var clears: [String] = []
             for printer in doc.printers {
                 let one = observePrinter(printer)
                 requestPermission = requestPermission || one.requestPermission
                 alerts.append(contentsOf: one.alerts)
+                clears.append(contentsOf: one.clears)
             }
-            return PrintNotifyOutcome(requestPermission: requestPermission, alerts: alerts)
+            return PrintNotifyOutcome(requestPermission: requestPermission, alerts: alerts, clears: clears)
         case .feedDown:
             var alerts: [PrintNotifyAlert] = []
             let ids = Set(lastBySerial.keys).union(timedBySerial.keys)
@@ -256,6 +271,7 @@ struct PrintNotify {
             }
         }
 
+        let clears = prev == next ? [] : Self.clears(id, next: next)
         lastBySerial[id] = next
         switch next {
         case "RUNNING", "PREPARE", "PAUSE":
@@ -266,7 +282,20 @@ struct PrintNotify {
             timedBySerial[id] = false
         }
 
-        return PrintNotifyOutcome(requestPermission: requestPermission, alert: alert)
+        return PrintNotifyOutcome(requestPermission: requestPermission, alert: alert, clears: clears)
+    }
+
+    /// What a new state makes untrue. A new or resumed print ends the last finish, pause, or failure,
+    /// and any report at all ends a lost connection. Also runs on the first report after launch.
+    private static func clears(_ id: String, next: String) -> [String] {
+        var kinds: [PrintNotifyKind] = []
+        if next == "RUNNING" || next == "PREPARE" {
+            kinds = [.finish, .pause, .fail]
+        }
+        if next != "OFFLINE", next != "FEEDDOWN" {
+            kinds.append(.offline)
+        }
+        return kinds.map { PrintNotifyAlert.identifier($0, serial: id) }
     }
 
     func persistStamp(_ d: UserDefaults) {
@@ -298,28 +327,29 @@ struct PrintNotify {
         }
     }
 
+    /// "X2D paused" over "Benchy · 62%" over the reason. The code shows only when there's no reason:
+    /// the card lists every code with a Look up link.
     private static func alert(_ kind: PrintNotifyKind, _ row: Printer?, serial: String) -> PrintNotifyAlert? {
         guard let row else { return nil }
         let name = row.name.isEmpty ? "Printer" : row.name
         let job = row.job.flatMap { $0.isEmpty ? nil : $0 }
-        var body = job.map { "\($0) on \(name)" } ?? name
-        if kind == .fail || kind == .pause {
-            if let code = GlanceContent.errorCodes(row).first {
-                body += " · Error \(code)"
-            }
-            if let reason = GlanceContent.errorReason(row) {
-                body = "\(reason) \(body)"
-            }
-        }
+        let progress = row.percent.flatMap { $0 > 0 ? "\($0)%" : nil }
         let title: String
+        var subtitle = [job, progress].compactMap { $0 }.joined(separator: " · ")
+        let body: String
         switch kind {
-        case .finish: title = "Print finished"
-        case .fail: title = "Print failed"
-        case .pause: title = "Print paused"
+        case .finish:
+            title = "\(name) finished"
+            subtitle = job ?? ""
+            body = "Ready to take off the plate."
+        case .fail, .pause:
+            title = kind == .fail ? "\(name) failed" : "\(name) paused"
+            body = GlanceContent.leadErrorCode(row).map(GlanceContent.errorLine(code:)) ?? "The printer didn't say why."
         case .offline:
             title = "Lost connection to \(name)"
+            subtitle = ""
             body = (row.percent.map { "\(job ?? name) was at \($0)%. " } ?? "") + "PrintGlance keeps trying."
         }
-        return PrintNotifyAlert(kind: kind, title: title, body: body, serial: serial)
+        return PrintNotifyAlert(kind: kind, title: title, subtitle: subtitle, body: body, serial: serial)
     }
 }

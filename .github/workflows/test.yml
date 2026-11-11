@@ -12,6 +12,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests
         run: swift test
+      - name: Build the iPhone app and widget
+        run: xcodebuild -project iOS/PrintGlance.xcodeproj -target PrintGlance -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
       - name: Run feed tests
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"

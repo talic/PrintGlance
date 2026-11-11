@@ -9,6 +9,10 @@ struct JobLogRow: Codable, Equatable, Sendable, Identifiable {
     var startAt: Date
     var endedAt: Date?
     var outcome: String?
+    /// One entry per pause PrintGlance saw: the code the printer gave, or "" for none.
+    var pauses: [String]? = nil
+    /// The code a failed print stopped with.
+    var failCode: String? = nil
 
     var id: String {
         "\(serial)|\(jobId)|\(startAt.timeIntervalSince1970)"
@@ -28,6 +32,8 @@ struct JobLog {
     var rows: [JobLogRow] = []
     /// Process-local. Not written to disk.
     var hadTimed: [String: Bool] = [:]
+    /// Each printer's last state, process-local, so a pause counts once and a relaunch doesn't recount it.
+    var lastState: [String: String] = [:]
 
     static func fileURL() -> URL {
         let fm = FileManager.default
@@ -110,6 +116,8 @@ struct JobLog {
     private mutating func observeOne(_ printer: Printer, now: Date) {
         let next = printer.state.uppercased()
         let jobId = printer.jobId ?? ""
+        let prev = lastState[printer.id]
+        lastState[printer.id] = next
         switch next {
         case "RUNNING", "PREPARE":
             hadTimed[printer.id] = true
@@ -128,13 +136,18 @@ struct JobLog {
                 live: hadTimed[printer.id] == true
             )
             hadTimed[printer.id] = false
+        case "PAUSE":
+            if prev == "RUNNING" || prev == "PREPARE", let i = openIndex(serial: printer.id, jobId: jobId) {
+                rows[i].pauses = (rows[i].pauses ?? []) + [GlanceContent.leadErrorCode(printer) ?? ""]
+            }
         case "FAILED":
             close(
                 serial: printer.id,
                 jobId: jobId,
                 outcome: Self.outcomeFail,
                 now: now,
-                live: hadTimed[printer.id] == true
+                live: hadTimed[printer.id] == true,
+                failCode: GlanceContent.leadErrorCode(printer)
             )
             hadTimed[printer.id] = false
         case "IDLE":
@@ -190,11 +203,13 @@ struct JobLog {
         jobId: String,
         outcome: String,
         now: Date,
-        live: Bool
+        live: Bool,
+        failCode: String? = nil
     ) {
         guard let i = openIndex(serial: serial, jobId: jobId) else { return }
         rows[i].outcome = outcome
         rows[i].endedAt = live ? now : nil
+        rows[i].failCode = failCode
         if !jobId.isEmpty, rows[i].jobId.isEmpty {
             rows[i].jobId = jobId
         }

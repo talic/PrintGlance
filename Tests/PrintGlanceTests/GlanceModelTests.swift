@@ -295,10 +295,12 @@ final class GlanceModelTests: XCTestCase {
         link.accept()
         link.report(Report.running())
         link.report(Report.state("FINISH"))
-        let finish = try XCTUnwrap(h.notifications.posted.first { $0.title == "Print finished" })
+        let finish = try XCTUnwrap(h.notifications.posted.first { $0.title == "X2D finished" })
         XCTAssertEqual(finish.id, "pg.finish.\(x2d.serial)")
-        XCTAssertEqual(finish.body, "Benchy on X2D")
+        XCTAssertEqual(finish.subtitle, "Benchy")
+        XCTAssertEqual(finish.body, "Ready to take off the plate.")
         XCTAssertEqual(finish.serial, x2d.serial, "clicking it opens the card on this printer")
+        XCTAssertEqual(finish.thread, x2d.serial, "each printer stacks on its own")
         XCTAssertNil(finish.fireIn)
         XCTAssertNil(finish.calendar, "Quiet Hours is off")
     }
@@ -309,8 +311,49 @@ final class GlanceModelTests: XCTestCase {
         link.accept()
         link.report(Report.running())
         link.report(["gcode_state": "PAUSE", "hms": [["attr": 0x0700_2000, "code": 0x0002_0001]]])
-        let pause = try XCTUnwrap(h.notifications.posted.first { $0.title == "Print paused" })
-        XCTAssertEqual(pause.body, "Filament ran out in AMS A, slot 1. Benchy on X2D · Error 0700-2000-0002-0001")
+        let pause = try XCTUnwrap(h.notifications.posted.first { $0.title == "X2D paused" })
+        XCTAssertEqual(pause.subtitle, "Benchy · 52%")
+        XCTAssertEqual(pause.body, "Filament ran out in AMS A, slot 1.", "the card has the code and Look up")
+    }
+
+    /// An X2D sent an unexplained HMS code with a print_error we explain. The alert names the
+    /// explained one, not the first.
+    func testPauseNotificationExplainsWhicheverCodeHasAReason() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running())
+        link.report([
+            "gcode_state": "PAUSE",
+            "hms": [["attr": 0x0503_0000, "code": 0x0003_0027]],
+            "print_error": 0x0500_8062,
+        ])
+        let pause = try XCTUnwrap(h.notifications.posted.first { $0.title == "X2D paused" })
+        XCTAssertEqual(pause.body, "The build plate is missing or out of place.")
+    }
+
+    func testPauseWithAnUnknownCodeGivesTheCode() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running())
+        link.report(["gcode_state": "PAUSE", "hms": [["attr": 0x0503_0000, "code": 0x0003_0027]]])
+        let pause = try XCTUnwrap(h.notifications.posted.first { $0.title == "X2D paused" })
+        XCTAssertEqual(pause.body, "Error 0503-0000-0003-0027")
+    }
+
+    func testResumingTakesThePauseOutOfNotificationCenter() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running())
+        let beforePause = h.notifications.removed.count
+        link.report(["gcode_state": "PAUSE", "print_error": 0x0500_8062])
+        XCTAssertNotNil(h.notifications.posted.first { $0.id == "pg.pause.\(x2d.serial)" })
+        XCTAssertFalse(h.notifications.removed.dropFirst(beforePause).contains("pg.pause.\(x2d.serial)"))
+        let beforeResume = h.notifications.removed.count
+        link.report(Report.running(percent: 53))
+        XCTAssertTrue(h.notifications.removed.dropFirst(beforeResume).contains("pg.pause.\(x2d.serial)"))
     }
 
     func testFailedPrintNotifies() throws {
@@ -319,8 +362,9 @@ final class GlanceModelTests: XCTestCase {
         link.accept()
         link.report(Report.running())
         link.report(["gcode_state": "FAILED", "print_error": 0x0300_806E])
-        let fail = try XCTUnwrap(h.notifications.posted.first { $0.title == "Print failed" })
-        XCTAssertEqual(fail.body, "The nozzle overheated. Turn the printer off and have it checked. Benchy on X2D · Error 0300-806E")
+        let fail = try XCTUnwrap(h.notifications.posted.first { $0.title == "X2D failed" })
+        XCTAssertEqual(fail.subtitle, "Benchy · 52%")
+        XCTAssertEqual(fail.body, "The nozzle overheated. Turn the printer off and have it checked.")
     }
 
     func testTurnedOffNotificationsStayOffAndAreSaved() throws {
@@ -331,8 +375,8 @@ final class GlanceModelTests: XCTestCase {
         link.accept()
         link.report(Report.running())
         link.report(Report.state("FINISH"))
-        XCTAssertFalse(h.notifications.titles().contains("Print finished"))
-        XCTAssertFalse(h.notifications.titles().contains("Print finishing soon"))
+        XCTAssertFalse(h.notifications.titles().contains("X2D finished"))
+        XCTAssertFalse(h.notifications.titles().contains("X2D finishing soon"))
         XCTAssertFalse(PrintNotifyPrefs.load(h.defaults).finish)
     }
 
@@ -341,15 +385,31 @@ final class GlanceModelTests: XCTestCase {
         let link = try XCTUnwrap(h.add(x2d).first)
         link.accept()
         link.report(Report.running(minutesLeft: 84))
-        let soon = try XCTUnwrap(h.notifications.posted.first { $0.title == "Print finishing soon" })
+        let soon = try XCTUnwrap(h.notifications.posted.first { $0.title == "X2D finishing soon" })
         let id = "pg.comingoff.\(x2d.serial).t1"
         XCTAssertEqual(soon.id, id)
         XCTAssertEqual(soon.fireIn, 74 * 60, "10 minutes before the end")
-        XCTAssertEqual(soon.body, "Benchy on X2D. About 10 minutes left.")
+        XCTAssertEqual(soon.subtitle, "Benchy")
+        XCTAssertEqual(soon.body, "About 10 minutes left.")
         let cancelledBefore = h.notifications.cancelled.count
         link.report(["gcode_state": "PAUSE"])
         XCTAssertEqual(h.notifications.cancelled.dropFirst(cancelledBefore).first, id)
         XCTAssertEqual(h.notifications.posted.filter { $0.id == id }.count, 1)
+    }
+
+    /// The printer names the next job while it still says Finished. That must not use up the
+    /// job's notice.
+    func testFinishingSoonComesForAPrintStartedWhileWatching() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running(minutesLeft: 84))
+        link.report(Report.state("FINISH"))
+        link.report(Report.state("FINISH", task: "t2"))
+        link.report(Report.running(minutesLeft: 116, task: "t2"))
+        let soon = h.notifications.posted.filter { $0.title == "X2D finishing soon" }
+        XCTAssertEqual(soon.map(\.id), ["pg.comingoff.\(x2d.serial).t1", "pg.comingoff.\(x2d.serial).t2"])
+        XCTAssertEqual(soon.last?.fireIn, 106 * 60)
     }
 
     func testLeadTimeMovesTheFinishingSoonNotice() throws {
@@ -358,8 +418,23 @@ final class GlanceModelTests: XCTestCase {
         let link = try XCTUnwrap(h.add(x2d).first)
         link.accept()
         link.report(Report.running(minutesLeft: 84))
-        XCTAssertEqual(h.notifications.posted.first { $0.title == "Print finishing soon" }?.fireIn, 54 * 60)
+        XCTAssertEqual(h.notifications.posted.first { $0.title == "X2D finishing soon" }?.fireIn, 54 * 60)
         XCTAssertEqual(PrintNotifyPrefs.load(h.defaults).comingOffLead, 30)
+    }
+
+    /// The printer's time left ends with the last layer; the app adds what it learned the printer
+    /// runs past it, so the card and the finishing-soon notice aim at Finished.
+    func testLearnedLatenessMovesTheFinishTimeAndTheNotice() throws {
+        let h = ModelHarness(self)
+        var learned = Overrun()
+        learned.late[x2d.serial] = [280, 300, 320]
+        learned.save(h.defaults)
+        h.relaunch()
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running(minutesLeft: 84))
+        XCTAssertEqual(h.row(x2d.serial)?.remainingS, 84 * 60 + 300)
+        XCTAssertEqual(h.notifications.posted.first { $0.title == "X2D finishing soon" }?.fireIn, 74 * 60 + 300)
     }
 
     func testLowFilamentNotifiesOncePerSpoolAndJob() throws {
@@ -387,12 +462,12 @@ final class GlanceModelTests: XCTestCase {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)
         link.accept()
-        // Two points of spool per percent of progress: empty at 25%.
-        for p in 10...17 {
-            link.report(Report.running(percent: p, minutesLeft: 100 - p).merging(Report.ams(remain: 50 - p * 2)))
+        // A point of spool per percent of an 8-hour print, 125 g an hour: empty at 30%.
+        for p in 10...19 {
+            link.report(Report.running(percent: p, minutesLeft: (100 - p) * 5).merging(Report.ams(remain: 30 - p)))
         }
         let runout = try XCTUnwrap(h.row(x2d.serial)?.runout)
-        XCTAssertTrue((24...25).contains(runout.percent), "\(runout.percent)")
+        XCTAssertTrue((29...30).contains(runout.percent), "\(runout.percent)")
         XCTAssertEqual(runout.tray, "A1")
         XCTAssertEqual(runout.name, "PLA Matte")
         let notices = h.notifications.posted.filter { $0.title == "Filament may run out" }

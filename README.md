@@ -95,6 +95,8 @@ Click the printer icon to open the print card.
 
 Times follow your Mac's 12- or 24-hour setting. If the job finishes after today, the finish time includes the day, such as **4:25 PM tomorrow**.
 
+A printer's own time left ends with the last layer. It then takes a few more minutes, to unload the filament for one, before it reports the print finished. PrintGlance learns how many from the prints it watches finish, and adds them to the finish time, the time left, and **Print Finishing Soon**. It uses the middle of that printer's last five prints. Until it has watched one finish, it shows the printer's own number.
+
 ## Watch more than one printer
 
 PrintGlance watches up to four printers. To add one, click **…** and choose **Add Printer…**.
@@ -115,7 +117,7 @@ To change or remove a printer, Control-click its row and choose **Edit…** or *
 
 ## See recent prints
 
-To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac, newest first. Each row shows the job name, when it started (such as **14:02 yesterday**), how long it took when PrintGlance saw it start and finish, and **Finished**, **Failed**, or **Printing**. Failed prints are red. With more than one printer, each row also names the printer.
+To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac, newest first. Each row shows the job name, when it started (such as **14:02 yesterday**), how long it took when PrintGlance saw it start and finish, and **Finished**, **Failed**, or **Printing**. Failed prints are red, with the reason when the printer gave one, such as **The print was canceled.** A print that paused says how often and why, such as **Paused: The build plate is missing or out of place.** With more than one printer, each row also names the printer.
 
 To save the list, click **Export CSV**. To clear it, click **Clear History…** below the list, then click **Clear**. A print in progress stays. To return to the print card, click the back arrow next to **History**, or press Esc.
 
@@ -131,7 +133,11 @@ Click **…** and open **Notifications**. Turn on the events you want:
 - **Low Filament**
 - **Quiet Hours**, shown with its hours, such as **Quiet Hours (10 PM–7 AM)**
 
-**Quiet Hours** starts turned off. The others start turned on. **Print Paused** and **Print Failed** start with a short reason for common problems, such as **Filament ran out in AMS A, slot 2.** They end with the error code when the printer sends one.
+**Quiet Hours** starts turned off. The others start turned on.
+
+Each notice names the printer first, then the job and how far it got, then why. A paused print reads **X2D paused**, then **Benchy · 52%**, then a short reason for common problems, such as **Filament ran out in AMS A, slot 2.** When PrintGlance has no reason for the error code, the notice gives the code instead. The print card always lists the codes, each with **Look up**. Notification Center stacks each printer's notices on their own.
+
+A notice leaves Notification Center once it's no longer true. When a printer starts or resumes printing, its finished, paused, and failed notices go. When PrintGlance hears from a printer again, its lost connection notice goes. **History** keeps what happened to each print.
 
 **Print Finishing Soon** tells you shortly before the print ends, so you can be at the printer. To choose how early, open **Lead Time** under it and choose **5 Minutes**, **10 Minutes**, **15 Minutes**, or **30 Minutes**. It starts at 10 minutes. If less time is left when PrintGlance first sees the print, the notice comes right away and says how much is left. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is canceled.
 
@@ -139,7 +145,7 @@ Click **…** and open **Notifications**. Turn on the events you want:
 
 **Low Filament** tells you when the spool in use drops below 20% while a print is starting or running. It also tells you once per print when a spool looks set to run out before the print ends, and about when.
 
-PrintGlance estimates the runout from the trend in the spool's remaining percent as the print progresses. It needs a Bambu spool with an RFID tag and **Update Remaining Capacity** turned on for the AMS, and it waits until the trend is clear. It ignores readings below 5%, where the AMS estimate swings by a couple of points and can read 0% with filament left, so a spool that starts the print nearly empty gets only the 20% warning. If another AMS slot holds the same filament and color, the line adds that the AMS may switch to it, which depends on the AMS backup setting on your printer.
+PrintGlance estimates the runout from the trend in the spool's remaining percent as the print progresses. It needs a Bambu spool with an RFID tag and **Update Remaining Capacity** turned on for the AMS. That percent is a rough gauge: it can swing by ten points while a spool feeds. So PrintGlance waits until the spool has fallen by twice those swings, no faster than a nozzle can melt filament, and has used about a third of what it had when the print started. The notice comes later that way, and is rarely wrong. If a spool runs out without one, the printer pauses and you get **Print Paused**. The time is worked out from how fast the print has really moved so far. It ignores readings below 5%, where the AMS estimate swings by a couple of points and can read 0% with filament left, so a spool that starts the print nearly empty gets only the 20% warning. If another AMS slot holds the same filament and color, the line adds that the AMS may switch to it, which depends on the AMS backup setting on your printer.
 
 **Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM. **Print Finishing Soon** is skipped in that window. **Print Failed**, **Print Paused**, **Lost Connection**, and **Low Filament** still appear.
 
@@ -176,6 +182,25 @@ Your printer IP, serial, and access code stay on this Mac.
 - If you entered the IP address, it matches the printer's LAN or Network page
 
 You do not need **LAN Only Mode** or **Developer Mode**. PrintGlance only reads status, which Bambu allows while the printer is connected to Bambu's cloud. LAN Only Mode turns off Bambu Handy and printing from outside your network.
+
+## iPhone widget (build it yourself)
+
+The `iOS` folder has a small iPhone app with a Home Screen and Lock Screen widget. It watches up to four printers, like the Mac app, and shows their progress, finish times, and why a print paused. The widget shows the printer that needs you, the same one the menu bar picks. The medium size shows two printers side by side. There is no download. You build it with Xcode onto your own iPhone.
+
+The iPhone talks to the printer on your Wi-Fi, the same way the Mac does. It does not need the Mac. The iPhone shows the printer's own time left, without the minutes the Mac app learns to add. It reads the printer when you open the app and about every 15 minutes in the widget, when iOS allows. Away from that Wi-Fi, the widget shows what the printer last said and when, and counts down to the finish time.
+
+1. Create `iOS/Local.xcconfig` with your Apple team ID and a bundle ID that nobody else has registered:
+
+   ```
+   DEVELOPMENT_TEAM = ABCDE12345
+   PG_ID = com.yourname.PrintGlance
+   ```
+
+2. Open `iOS/PrintGlance.xcodeproj`, choose your iPhone, and click **Run**.
+3. Open the app. When iOS asks to find devices on your local network, tap **Allow**. Under **Printers on this Wi-Fi**, tap your printer, enter its access code, then tap **Connect**. If your printer is not listed, tap **Search Again**, or type its IP address and serial number. To add another printer, tap it in the list, enter its access code, and tap **Connect** again. To remove one, swipe left on it under **Your printers**.
+4. Touch and hold the Home Screen or Lock Screen, tap **Edit**, then **Add Widget**, and choose **PrintGlance**.
+
+The access code you enter stays on that iPhone. Like the Mac app, the iPhone app only reads status and never pauses, stops, or starts a print. With a free Apple account, an app you build yourself stops opening after 7 days. Run it from Xcode again to renew it.
 
 ## License
 

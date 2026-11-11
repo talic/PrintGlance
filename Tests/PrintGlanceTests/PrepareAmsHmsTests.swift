@@ -172,7 +172,7 @@ final class PrepareAmsHmsTests: XCTestCase {
             printers: [failed]
         ))))
         XCTAssertEqual(out.alert?.kind, .fail)
-        XCTAssertEqual(out.alert?.body, "Print in Parts on X2D · Error 0300-0000-0100-0001")
+        XCTAssertEqual(out.alert?.body, "Error 0300-0000-0100-0001", "no reason, so the code")
     }
 
     func testPrintErrorFormatsLikeBambuStudio() {
@@ -267,7 +267,7 @@ final class PrepareAmsHmsTests: XCTestCase {
         var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", job: "Benchy", jobId: "t1")
         paused.hmsCode = "0700-2100-0002-0001"
         let out = n.observe(GlanceContent(result: .doc(PrintDoc(v: 1, updatedAt: nil, focusId: "x2d", printers: [paused]))))
-        XCTAssertEqual(out.alert?.body, "Filament ran out in AMS A, slot 2. Benchy on X2D · Error 0700-2100-0002-0001")
+        XCTAssertEqual(out.alert?.body, "Filament ran out in AMS A, slot 2.")
     }
 
     func testFailWithoutHMSUnchanged() {
@@ -290,7 +290,8 @@ final class PrepareAmsHmsTests: XCTestCase {
                 jobId: "t1"
             )]
         ))))
-        XCTAssertEqual(out.alert?.body, "Print in Parts on X2D")
+        XCTAssertEqual(out.alert?.subtitle, "Print in Parts")
+        XCTAssertEqual(out.alert?.body, "The printer didn't say why.")
     }
 
     func testHeatingUnderRunningIsStarting() {
