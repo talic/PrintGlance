@@ -35,3 +35,7 @@ A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu La
 | Rule | What enforces it |
 |---|---|
 | The feed's job label, second-AMS tray, and 30-day remaining cap match `BambuPrint` | `Tests/PrintGlanceTests/Fixtures/parser-parity.json`, read by `ParserParityTests` and `Tests/Feed/test_parser_parity.py`. A failure names the `BambuPrint` function in `Sources/PrintGlance/BambuSnapshot.swift` to copy into `bambu.py`. |
+
+## Verifying a UI change
+
+Use `.cursor/skills/verify-printglance/SKILL.md` to drive the print card, the printer list, History, and Add Printer. Attach that run's proof to a UI pull request if you have it. When those screens change, keep the map honest with `/maintain-verification-skill`.
