@@ -38,4 +38,4 @@ A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu La
 
 ## Verifying a UI change
 
-Use `.cursor/skills/verify-printglance/SKILL.md` to drive the print card, the printer list, History, and Add Printer. Attach that run's proof to a UI pull request. When those screens change, keep the map honest with `/maintain-verification-skill`.
+Use `.cursor/skills/verify-printglance/SKILL.md` to drive the print card, the printer list, History, and Add Printer. Attach that run's proof to a UI pull request if you have it. When those screens change, keep the map honest with `/maintain-verification-skill`.
