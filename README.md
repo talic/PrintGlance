@@ -27,7 +27,7 @@ See your Bambu Lab print's progress and finish time in the Mac menu bar. You do 
 - **Get notified.** When a print is finishing soon, finishes, pauses, or fails, when PrintGlance loses the printer, and when filament runs low. **Quiet Hours** holds the finish notice until morning.
 - **Watch up to four printers.** The menu bar shows the one that needs you. The print card lists them all.
 - **See your filament.** Each AMS slot shows its color, filament, and how much is left, plus the AMS humidity when the AMS reports it.
-- **Private and read-only.** PrintGlance talks to your printers on your Wi-Fi. It never pauses, stops, or starts a print. Your access code stays on your Mac. The only thing it fetches from the internet is a daily check on GitHub for a newer version.
+- **Private and read-only.** PrintGlance talks to your printers on your Wi-Fi. It never pauses, stops, or starts a print. Your access code stays on your Mac. Other apps on your Mac, such as a print-queue app, can read what your printers are doing from `~/Library/Application Support/PrintGlance/printers.json`; it holds no access code. The only thing it fetches from the internet is a daily check on GitHub for a newer version.
 
 PrintGlance works with Bambu Lab printers that show an access code on their LAN or Network page, such as the A1, P1, P2S, X1, H2, and X2D.
 

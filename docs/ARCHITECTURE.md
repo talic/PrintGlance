@@ -63,6 +63,7 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`. The iPhone
 | `ComingOff.swift` | `QuietHours` and `ComingOff`, the once-per-job "Print finishing soon" notice scheduled ahead of time. |
 | `Overrun.swift` | `Overrun`: how long each printer runs past its own time left, learned from the prints the app watches finish and added to the row's time left and finish time. |
 | `FilamentAlert.swift` | `FilamentAlert` (spool under 20%), `RunoutTracker` (where a spool runs out, from its AMS percent against progress), and `Pace` (how fast the print moves by the clock). |
+| `PrinterFile.swift` | `printers.json` for other apps on this Mac (see [What is stored where](#what-is-stored-where)). |
 | `JobLog.swift` | Print history: opens a row when a job starts, closes it on finish/fail/idle, caps at 50, saves `jobs.json`, exports CSV. Gives the finished time for "40m ago". |
 | `PrinterSettings.swift` | `PrinterSettings` (one saved printer), `SavedPrinters` (the list, focus, cap of 4, edits, persistence, legacy migration), `AccessCodeStore` (reads the 1.1.7 Keychain item once, then deletes it). |
 | `PrinterDiscovery.swift` | SSDP discovery of Bambu printers on the Wi-Fi (UDP multicast), reply parsing, model code names, `ipChanges` for rediscovery. |
@@ -287,6 +288,7 @@ Preferences live in the `local.PrintGlance` domain (`UserDefaults.standard` in t
 | `pg.overrun` | `Overrun` as JSON: seconds late for each printer's last five watched finishes. |
 | `pg.update.lastCheck`, `.remoteTag`, `.remoteZip` | Update check cache. |
 | `~/Library/Application Support/PrintGlance/jobs.json` | History. |
+| `~/Library/Application Support/PrintGlance/printers.json` | Written for other apps on this Mac (Model Browser plans its print queue from it), never read back: `PrinterFile`, one entry per printer with the card's state word, the raw `gcode_state`, `subtask_name` as sent, the plate from `gcode_file`, finish time (remaining time from now, with lateness), start and end from History, pause or fail codes and reason, and AMS trays. No IP or access code. Rewritten only when a row or History changes; emptied when no printer is set up. |
 | iPhone: App Group `group.<PG_ID>` defaults, `printers` and `pg.phone.statuses` | The iPhone's printers (same shape and cap of four as the Mac's, codes included) and each one's last `PhoneStatus`, as a JSON array. |
 | `~/Library/Logs/PrintGlance.log` | Connection log (connects, drops, IP changes, skipped alerts). Wiped at launch when over 1 MB. Serials and IPs appear here; access codes never do. |
 
