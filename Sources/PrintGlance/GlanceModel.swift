@@ -180,6 +180,11 @@ final class GlanceModel: ObservableObject {
         jobLog.occupancyEndedAt(serial: row.id, state: row.state, jobId: row.jobId)
     }
 
+    /// When the finished print the card shows started, for "Took 4h 43m".
+    func occupancyStartedAt(for row: Printer) -> Date? {
+        jobLog.occupancyStartedAt(serial: row.id, state: row.state, jobId: row.jobId)
+    }
+
     func exportHistory(to url: URL) {
         try? jobLog.csv().write(to: url, atomically: true, encoding: .utf8)
     }

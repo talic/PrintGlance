@@ -154,25 +154,101 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(hero("RUNNING"), "16:25")
         XCTAssertEqual(GlanceContent.remainingLine(row), "1h 24m left")
         XCTAssertEqual(hero("PREPARE"), "16:25")
-        XCTAssertEqual(hero("PAUSE"), "1h 24m left")
-        XCTAssertNil(GlanceContent.remainingLine(with("PAUSE")), "paused shows time left once, as the hero")
+        XCTAssertEqual(hero("PAUSE"), "1h 24m left", "the iPhone's paused card leads with time left")
+        XCTAssertNil(GlanceContent.cardHero(with("PAUSE")), "the Mac's paused card leads with the reason")
+        XCTAssertEqual(GlanceContent.cardHero(row), "16:25")
+        XCTAssertEqual(GlanceContent.remainingLine(with("PAUSE")), "1h 24m left", "under the paused bar instead")
         var pausedUnknown = with("PAUSE")
         pausedUnknown.remainingS = nil
         XCTAssertNil(GlanceContent.hero(pausedUnknown))
+        XCTAssertNil(GlanceContent.remainingLine(pausedUnknown))
         XCTAssertEqual(hero("FINISH", endedAt: ended), "40m ago")
         XCTAssertNil(hero("FINISH"), "unknown finish time shows no hero, not Finished twice")
         XCTAssertNil(hero("FAILED"))
         XCTAssertNil(hero("IDLE"))
 
-        XCTAssertEqual(GlanceContent.caption(with("FINISH")), "X2D")
-        XCTAssertEqual(GlanceContent.caption(with("FAILED")), "X2D")
-        XCTAssertNil(GlanceContent.caption(with("IDLE")))
-        XCTAssertNil(GlanceContent.caption(row))
-
         XCTAssertEqual(
             ["RUNNING", "PREPARE", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE"].filter { GlanceContent.showsAMS(with($0)) },
             ["PAUSE", "FINISH", "FAILED", "IDLE"]
         )
+        XCTAssertEqual(
+            ["RUNNING", "PREPARE", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE"].filter { GlanceContent.showsProgress(with($0)) },
+            ["RUNNING", "PAUSE"],
+            "Starting has no bar or layer yet"
+        )
+    }
+
+    func testSubtitleNamesThePrinterWhenThereAreSeveral() {
+        var row = Printer(id: "x2d", name: "X2D", state: "RUNNING", percent: 52, job: "Benchy", jobId: "t1")
+        XCTAssertEqual(GlanceContent.subtitle(row, namingPrinter: true), "X2D · Printing")
+        XCTAssertEqual(GlanceContent.subtitle(row, namingPrinter: false), "Printing", "one printer needs no name")
+        row.state = "PREPARE"
+        row.stage = "Heating"
+        XCTAssertEqual(GlanceContent.subtitle(row, namingPrinter: true), "X2D · Heating")
+        row.state = "PAUSE"
+        XCTAssertEqual(GlanceContent.subtitle(row, namingPrinter: true), "X2D · Paused")
+        row.state = "FINISH"
+        XCTAssertEqual(GlanceContent.subtitle(row, namingPrinter: true), "X2D · Finished")
+        row.state = "IDLE"
+        XCTAssertEqual(GlanceContent.subtitle(row, namingPrinter: true), "Idle", "the headline already names it")
+        row.state = "RUNNING"
+        row.job = nil
+        XCTAssertEqual(GlanceContent.subtitle(row, namingPrinter: true), "Printing", "no job: the headline is the printer")
+    }
+
+    func testFinishedHeroTurnsIntoTheClockTimeAfterTwoHours() {
+        let gb = Locale(identifier: "en_GB")
+        // Saturday 2026-08-22 10:00 GMT; the print finished 14:02 the day before.
+        let now = Date(timeIntervalSince1970: 1_787_392_800)
+        let ended = Date(timeIntervalSince1970: 1_787_320_920)
+        var row = Printer(id: "x2d", name: "X2D", state: "FINISH", job: "Benchy", jobId: "t1")
+        func hero(_ ended: Date) -> String? {
+            GlanceContent.cardHero(row, occupancyEndedAt: ended, now: now, calendar: gmt, locale: gb)
+        }
+        XCTAssertEqual(hero(now - 40 * 60), "40m ago")
+        XCTAssertEqual(hero(now - GlanceContent.finishTitleFor + 60), "1h 59m ago")
+        XCTAssertEqual(hero(now - GlanceContent.finishTitleFor), "08:00", "the menu bar's cutoff")
+        XCTAssertEqual(hero(ended), "14:02 yesterday")
+        XCTAssertNil(GlanceContent.cardHero(row, now: now), "no time when PrintGlance didn't see it end")
+
+        XCTAssertEqual(GlanceContent.tookLine(row, startedAt: ended - 283 * 60, endedAt: ended), "Took 4h 43m")
+        XCTAssertNil(GlanceContent.tookLine(row, startedAt: ended - 283 * 60, endedAt: nil), "the end wasn't seen")
+        XCTAssertNil(GlanceContent.tookLine(row, startedAt: nil, endedAt: ended))
+        XCTAssertNil(GlanceContent.tookLine(row, startedAt: ended - 30, endedAt: ended), "not \"Took 0m\"")
+        row.state = "FAILED"
+        XCTAssertNil(GlanceContent.tookLine(row, startedAt: ended - 283 * 60, endedAt: ended))
+    }
+
+    func testFailedSaysWhereItStopped() {
+        var row = Printer(id: "x2d", name: "X2D", state: "FAILED", percent: 52, job: "Benchy", jobId: "t1")
+        row.layer = 18
+        row.layerTotal = 29
+        XCTAssertEqual(GlanceContent.stoppedLine(row), "Stopped at 52% · Layer 18 / 29")
+        row.layer = 0
+        XCTAssertEqual(GlanceContent.stoppedLine(row), "Stopped at 52%", "no layer 0")
+        row.layer = nil
+        XCTAssertEqual(GlanceContent.stoppedLine(row), "Stopped at 52%")
+        row.percent = 0
+        XCTAssertNil(GlanceContent.stoppedLine(row), "it never got going")
+        row.percent = nil
+        XCTAssertNil(GlanceContent.stoppedLine(row))
+        row.percent = 52
+        row.state = "PAUSE"
+        XCTAssertNil(GlanceContent.stoppedLine(row), "a paused card has the bar")
+    }
+
+    func testFilamentDotsKeepAnEdgeAgainstThePanel() {
+        func edge(_ hex: String, dark: Bool) -> Double { GlanceContent.dotOutline(hex: hex, dark: dark) }
+        XCTAssertGreaterThan(edge("000000FF", dark: true), edge("000000FF", dark: false), "black in dark mode needs the edge")
+        XCTAssertGreaterThan(edge("FFFFFFFF", dark: false), edge("FFFFFFFF", dark: true), "white in light mode needs it")
+        XCTAssertEqual(edge("333333FF", dark: true), edge("000000FF", dark: true), "dark gray too")
+        XCTAssertEqual(edge("F5C6A0FF", dark: false), edge("FFFFFFFF", dark: false), "pale colors in light mode")
+        XCTAssertLessThan(edge("F5C6A0FF", dark: false), edge("000000FF", dark: true), "lighter, so pale colors don't look heavy")
+        XCTAssertEqual(edge("2850E0FF", dark: false), 0.15, "a color that stands out keeps a faint edge")
+        XCTAssertEqual(edge("FF6600FF", dark: true), 0.15)
+        XCTAssertEqual(edge("FFFFFF10", dark: true), edge("000000FF", dark: true), "nearly clear takes the panel's color")
+        XCTAssertEqual(edge("00000010", dark: false), edge("FFFFFFFF", dark: false))
+        XCTAssertEqual(edge("not hex", dark: true), 0)
     }
 
     func testOfflineCardKeepsLastKnownProgress() {

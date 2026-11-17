@@ -50,12 +50,12 @@ final class PanelScreenTests: XCTestCase {
         links[0].report(Report.running(minutesLeft: 30))
         links[1].report(Report.running(minutesLeft: 90, job: "Gears", task: "t9"))
         let s = try panel(h)
-        XCTAssertEqual(Array(s.texts.prefix(2)), ["Benchy", "Printing"], "the printer finishing soonest")
+        XCTAssertEqual(Array(s.texts.prefix(2)), ["Benchy", "X2D · Printing"], "the printer finishing soonest, named")
         let rows = s.controls.filter { $0.label.hasPrefix("X2D,") || $0.label.hasPrefix("P1S,") }
         XCTAssertEqual(rows.count, 2)
 
         try s.press(try XCTUnwrap(rows.last).label)
-        XCTAssertEqual(Array(s.texts.prefix(2)), ["Gears", "Printing"])
+        XCTAssertEqual(Array(s.texts.prefix(2)), ["Gears", "P1S · Printing"])
         XCTAssertEqual(h.model.settings.focusId, PrinterSettings.p1s().serial, "the menu bar follows the click")
     }
 

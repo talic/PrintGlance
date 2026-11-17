@@ -19,6 +19,23 @@ final class LayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(height, smallScreenHeight, "four AMS units, an AMS HT, two external spools, and four printers")
     }
 
+    func testTallestPausedPanelFitsASmallDisplay() throws {
+        let h = ModelHarness(self)
+        let links = h.add(.x2d(), .p1s(), PrinterSettings(ip: "192.0.2.12", serial: "0309DA123456789", accessCode: "a", name: "A1 mini"),
+                          PrinterSettings(ip: "192.0.2.13", serial: "22E8BJ5A2900042", accessCode: "b", name: "H2D"))
+        links.forEach { $0.accept() }
+        links[0].report(Report.running().merging(Rows.fullAMS) { $1 })
+        // Two codes with two reasons, the tallest error block.
+        links[0].report([
+            "gcode_state": "PAUSE",
+            "print_error": 0x0700_8002,
+            "hms": [["attr": 0x0700_2000, "code": 0x0002_0001]],
+        ])
+        let s = try Screen(GlanceView(model: h.model))
+        XCTAssertTrue(s.has("The filament cutter is stuck."), "\(s.texts)")
+        XCTAssertLessThanOrEqual(s.size.height, smallScreenHeight, "a paused print with every AMS slot and four printers")
+    }
+
     func testLongNamesTruncateInsteadOfGrowingTheCard() throws {
         for (label, row) in [("printing", Rows.printing()), ("idle", Rows.idle()), ("paused", Rows.paused()),
                              ("finished", Rows.finished()), ("failed", Rows.failed())] {
@@ -30,6 +47,10 @@ final class LayoutTests: XCTestCase {
             let grown = try Screen(Rows.card(hostile)).size
             XCTAssertEqual(grown.width, 248, label)
             XCTAssertEqual(grown.height, normal.height, accuracy: 1, "\(label): names stay on one line")
+            // With several printers the subtitle carries the printer name too.
+            let named = try Screen(Rows.card(hostile, namingPrinter: true))
+            XCTAssertEqual(named.size.width, 248, label)
+            XCTAssertEqual(named.size.height, normal.height, accuracy: 1, "\(label): the named subtitle stays on one line")
         }
     }
 

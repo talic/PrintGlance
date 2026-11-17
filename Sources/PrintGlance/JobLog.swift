@@ -76,13 +76,23 @@ struct JobLog {
     }
 
     func occupancyEndedAt(serial: String, state: String, jobId: String?) -> Date? {
+        occupancyRow(serial: serial, state: state, jobId: jobId)?.endedAt
+    }
+
+    /// When the print behind `occupancyEndedAt` started, for "Took 4h 43m". Nil when its end wasn't seen.
+    func occupancyStartedAt(serial: String, state: String, jobId: String?) -> Date? {
+        occupancyRow(serial: serial, state: state, jobId: jobId).flatMap { $0.endedAt == nil ? nil : $0.startAt }
+    }
+
+    /// The newest finished row for a printer that shows Finished.
+    private func occupancyRow(serial: String, state: String, jobId: String?) -> JobLogRow? {
         guard state.uppercased() == "FINISH" else { return nil }
         let id = jobId ?? ""
         return rows.first { row in
             row.serial == serial
                 && row.outcome == Self.outcomeOK
                 && (id.isEmpty || row.jobId.isEmpty || row.jobId == id)
-        }?.endedAt
+        }
     }
 
     func csv() -> String {

@@ -76,7 +76,11 @@ final class PrepareAmsHmsTests: XCTestCase {
 
         let groups = GlanceContent.amsGroups(row)
         XCTAssertEqual(groups.map(\.header), ["AMS A · Humid", nil])
-        XCTAssertEqual(groups.map { $0.trays.count }, [3, 1])
+        XCTAssertEqual(groups.map(\.humid), [true, false])
+        XCTAssertEqual(groups.first?.trays.map(GlanceContent.trayLine),
+                       ["A1 · PLA Matte  80%", "A2 · PLA  10%", "A3 · Empty", "A4 · PETG  40%"],
+                       "the slot the printer left out shows as empty, in its place")
+        XCTAssertEqual(trays.map(\.label), ["A1", "A2", "A4", "External"], "only the card fills it in")
     }
 
     func testTwoAMSAndHTAndDualExternal() throws {
@@ -116,7 +120,9 @@ final class PrepareAmsHmsTests: XCTestCase {
         var row = Printer(id: "a1", name: "A1", state: "IDLE")
         row.trays = [AMSTray(id: "0", name: "PLA", remain: nil, color: nil, label: "A1", unit: "A")]
         row.amsUnits = [AMSUnit(id: "A")]
-        XCTAssertEqual(GlanceContent.amsGroups(row), [AMSGroup(header: nil, trays: row.trays!)])
+        let groups = GlanceContent.amsGroups(row)
+        XCTAssertEqual(groups.map(\.header), [nil])
+        XCTAssertEqual(groups.first?.trays.first, row.trays![0])
         XCTAssertEqual(GlanceContent.trayLine(row.trays![0]), "A1 · PLA")
     }
 
@@ -125,6 +131,46 @@ final class PrepareAmsHmsTests: XCTestCase {
                        ["Humid", "Humid", "OK", "Dry", "Dry"])
         XCTAssertEqual(GlanceContent.humidityText(AMSUnit(id: "A", humidityLevel: 1, humidityPercent: 61)), "61%")
         XCTAssertNil(GlanceContent.humidityText(AMSUnit(id: "A")))
+    }
+
+    func testHumidAMSIsAWarning() {
+        XCTAssertEqual((1...5).map { GlanceContent.isHumid(AMSUnit(id: "A", humidityLevel: $0)) },
+                       [true, true, false, false, false], "the levels that read Humid")
+        XCTAssertTrue(GlanceContent.isHumid(AMSUnit(id: "A", humidityPercent: 60)), "Bambu Studio's level 2 starts at 60%")
+        XCTAssertFalse(GlanceContent.isHumid(AMSUnit(id: "A", humidityPercent: 59)))
+        XCTAssertFalse(GlanceContent.isHumid(AMSUnit(id: "A", humidityLevel: 2, humidityPercent: 45)), "the percent shown decides")
+        XCTAssertFalse(GlanceContent.isHumid(AMSUnit(id: "A")))
+
+        var row = Printer(id: "x2d", name: "X2D", state: "IDLE")
+        row.trays = [AMSTray(id: "0", name: "PLA", remain: 50, color: nil, label: "A1", unit: "A")]
+        row.amsUnits = [AMSUnit(id: "A", humidityLevel: 2, humidityPercent: 65)]
+        let group = GlanceContent.amsGroups(row)[0]
+        XCTAssertEqual(group.header, "AMS A · 65%")
+        XCTAssertEqual(group.title, "AMS A")
+        XCTAssertEqual(group.humidity, "65%")
+        XCTAssertTrue(group.humid)
+    }
+
+    func testEmptySlotsKeepTheirPlace() {
+        let tray = { (id: String, type: String) -> [String: Any] in ["id": id, "tray_type": type, "remain": 50] }
+        let printObj: [String: Any] = ["ams": ["ams": [
+            ["id": "0", "humidity": "4", "tray": [tray("3", "PETG"), tray("0", "PLA"), ["id": "1"], ["id": "2"]]],
+            ["id": "1", "humidity": "4", "tray": [["id": "0"], ["id": "1"], ["id": "2"], ["id": "3"]]],
+            ["id": "128", "info": "4", "humidity": "3", "humidity_raw": "45", "tray": [tray("0", "PA-CF")]],
+        ]], "vt_tray": ["id": "254", "tray_type": "TPU"]]
+        let row = BambuPrint.row(id: "h2d", name: "H2D", printObj: printObj, online: true)
+        XCTAssertEqual(row.trays?.map(\.label), ["A4", "A1", "HT-A", "External"], "parsing still leaves empty slots out")
+
+        let groups = GlanceContent.amsGroups(row)
+        XCTAssertEqual(groups.map(\.header), ["AMS A · Dry", "AMS HT-A · 45%", nil],
+                       "an AMS with nothing loaded may have sent no slots at all, so it stays out")
+        XCTAssertEqual(groups.map { $0.trays.map(GlanceContent.trayLine) }, [
+            ["A1 · PLA  50%", "A2 · Empty", "A3 · Empty", "A4 · PETG  50%"],
+            ["HT-A · PA-CF  50%"],
+            ["External · TPU"],
+        ])
+        XCTAssertEqual(groups[0].trays.map(GlanceContent.isEmptySlot), [false, true, true, false])
+        XCTAssertEqual(Set(groups[0].trays.map(\.id)).count, 4, "each slot has its own id for the list")
     }
 
     func testHostileNumbersDoNotTrap() throws {
@@ -254,6 +300,38 @@ final class PrepareAmsHmsTests: XCTestCase {
         XCTAssertEqual(GlanceContent.errorReason(row), "The filament cutter is stuck.", "the first code that has a reason")
         row.state = "RUNNING"
         XCTAssertNil(GlanceContent.errorReason(row), "only while paused or failed")
+    }
+
+    func testEveryCodeShowsItsOwnReason() {
+        typealias Line = GlanceContent.CodeLine
+        var row = Printer(id: "x2d", name: "X2D", state: "PAUSE")
+        row.hmsCode = "0700-2000-0002-0001"
+        row.printError = "0700-8002"
+        XCTAssertEqual(GlanceContent.codeLines(row), [
+            Line(reason: "Filament ran out in AMS A, slot 1.", code: "0700-2000-0002-0001"),
+            Line(reason: "The filament cutter is stuck.", code: "0700-8002"),
+        ], "the second code's reason isn't hidden behind the first")
+
+        row.hmsCode = "0700-4500-0002-0003"
+        XCTAssertEqual(GlanceContent.codeLines(row), [
+            Line(reason: "The filament cutter is stuck.", code: "0700-4500-0002-0003"),
+            Line(reason: nil, code: "0700-8002"),
+        ], "the same reason isn't said twice")
+
+        row.hmsCode = "0300-0000-0100-0001"
+        XCTAssertEqual(GlanceContent.codeLines(row), [
+            Line(reason: "The filament cutter is stuck.", code: "0700-8002"),
+            Line(reason: nil, code: "0300-0000-0100-0001"),
+        ], "the explained code leads, like the notification")
+        XCTAssertEqual(GlanceContent.leadErrorCode(row), GlanceContent.codeLines(row).first?.code)
+
+        row.printError = nil
+        XCTAssertEqual(GlanceContent.codeLines(row), [Line(reason: nil, code: "0300-0000-0100-0001")])
+        row.hmsCode = nil
+        XCTAssertEqual(GlanceContent.codeLines(row), [])
+        row.hmsCode = "0700-2000-0002-0001"
+        row.state = "RUNNING"
+        XCTAssertEqual(GlanceContent.codeLines(row), [], "only while paused or failed")
     }
 
     func testPauseBodyStartsWithTheReason() {

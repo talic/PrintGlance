@@ -105,6 +105,39 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(GlanceContent.finishTitleFor, 2 * 3600)
     }
 
+    func testCardExamplesReadAsTheREADMEShowsThem() throws {
+        var row = Printer(id: "x2d", name: "X2D", state: "RUNNING", percent: 52, job: "Benchy", jobId: "t1")
+        row.layer = 18
+        row.layerTotal = 29
+        try readme(contains: "the line under it names the printer, such as **X2D · Printing**")
+        XCTAssertEqual(GlanceContent.subtitle(row, namingPrinter: true), "X2D · Printing")
+
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        // Saturday 2026-08-22 10:00 GMT; the print ran 4h 43m and finished 14:02 the day before.
+        let now = Date(timeIntervalSince1970: 1_787_392_800)
+        let ended = Date(timeIntervalSince1970: 1_787_320_920)
+        row.state = "FINISH"
+        try readme(contains: "After 2 hours, the time it finished instead, such as **14:02 yesterday**")
+        XCTAssertEqual(GlanceContent.cardHero(row, occupancyEndedAt: ended, now: now, calendar: cal, locale: Locale(identifier: "en_GB")),
+                       "14:02 yesterday")
+        try readme(contains: "**Took 4h 43m**, when PrintGlance saw it start and finish")
+        XCTAssertEqual(GlanceContent.tookLine(row, startedAt: ended - 283 * 60, endedAt: ended), "Took 4h 43m")
+        XCTAssertNil(GlanceContent.tookLine(row, startedAt: ended - 283 * 60, endedAt: nil))
+
+        row.state = "FAILED"
+        try readme(contains: "**Stopped at 52% · Layer 18 / 29**")
+        XCTAssertEqual(GlanceContent.stoppedLine(row), "Stopped at 52% · Layer 18 / 29")
+
+        try readme(contains: "or **Empty**")
+        XCTAssertEqual(GlanceContent.trayLine(AMSTray(id: "A3", name: nil, remain: nil, color: nil, label: "A3", unit: "A")), "A3 · Empty")
+        try readme(contains: "orange when the AMS is humid: **Humid**, or 60% and up")
+        XCTAssertTrue(GlanceContent.isHumid(AMSUnit(id: "A", humidityLevel: 2)))
+        XCTAssertEqual(GlanceContent.humidityText(AMSUnit(id: "A", humidityLevel: 2)), "Humid")
+        XCTAssertTrue(GlanceContent.isHumid(AMSUnit(id: "A", humidityPercent: 60)))
+        XCTAssertFalse(GlanceContent.isHumid(AMSUnit(id: "A", humidityPercent: 59)))
+    }
+
     func testDailyUpdateCheck() throws {
         try readme(contains: "Once a day PrintGlance checks GitHub.")
         XCTAssertEqual(AppUpdate.day, 24 * 60 * 60)

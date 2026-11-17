@@ -13,12 +13,12 @@ See your Bambu Lab print's progress and finish time in the Mac menu bar. You do 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/print-card-dark.png">
-    <img src="docs/print-card-light.png" alt="Print card for a running print: finish time 16:25, 1h 24m left, 52%, layer 18 of 29, PLA Matte. Below, three printers: X2D printing, P1S paused, A1 mini idle" width="248">
+    <img src="docs/print-card-light.png" alt="Print card for a running print on the X2D: finish time 16:25, 1h 24m left, 52%, layer 18 of 29, PLA Matte. Below, three printers: X2D printing, P1S paused, A1 mini idle" width="248">
   </picture>
   &nbsp;&nbsp;
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/paused-card-dark.png">
-    <img src="docs/paused-card-light.png" alt="Print card for a paused print: 1h 24m left, Filament ran out in AMS A, slot 1, the error codes with Look up links, and the AMS slots" width="248">
+    <img src="docs/paused-card-light.png" alt="Print card for a paused print: Filament ran out in AMS A, slot 1, and The filament cutter is stuck, each over its error code with a Look up link. Then 52%, layer 18 of 29, 1h 24m left, and the AMS slots" width="248">
   </picture>
 </p>
 
@@ -85,12 +85,12 @@ Click the printer icon to open the print card.
 
 | Printer | Menu bar | Print card |
 |---|---|---|
-| Starting | The stage: **Heating**, **Leveling**, **Loading**, **Unloading**, **Calibrating**, **Cleaning**, **Homing**, or **Starting** | The full stage, such as **Loading filament**, plus the finish time and time left when the printer sends them. How far the heaters have got, such as **Nozzle 186 / 220° · Bed 48 / 60°**, and the chamber while it heats. On a dual-nozzle printer, the nozzle shown is the one in use |
+| Starting | The stage: **Heating**, **Leveling**, **Loading**, **Unloading**, **Calibrating**, **Cleaning**, **Homing**, or **Starting** | The full stage, such as **Loading filament**, plus the finish time and time left when the printer sends them. Right under them, how far the heaters have got, such as **Nozzle 186 / 220° · Bed 48 / 60°**, and the chamber while it heats. Then the filament. The progress bar and layer appear once printing starts. On a dual-nozzle printer, the nozzle shown is the one in use |
 | Printing | Percent and finish time | Finish time, time left, percent, layer, filament name, remaining filament, and color. On a dual-nozzle printer such as H2D, **Left** or **Right** next to the filament. If a spool looks set to run out first, an orange mark on the progress bar where it should run out and a line such as **PLA Matte in A2 runs out around 15:45.** |
-| Paused | A pause icon and percent | Time left (not a finish time, because it moves while paused), percent, layer, and the AMS trays. For common problems, a short reason, such as **Filament ran out in AMS A, slot 2.** Then the error code, such as **Error 0700-2100-0002-0001**, with **Look up** to open Bambu's page for it in your browser, or **No error reported.** |
-| Finished | A checkmark and how long ago it finished, such as **40m ago**. After 2 hours, only the checkmark | How long ago it finished, the printer name, and the AMS trays. If PrintGlance was not running when the print finished, no elapsed time |
-| Failed | An X | **Failed**, a short reason for common problems, the error code with **Look up**, and the AMS trays. The **Print Failed** notice starts with the reason and ends with the error code |
-| Idle | A printer icon | The printer name and each loaded slot, named like the printer screen (**A1**…**D4**, **HT-A**, **External**): color, filament, and remaining percent. Slots sit under a header such as **AMS A · Dry** or **AMS B · 23%** when there is more than one AMS or the AMS reports humidity |
+| Paused | A pause icon and percent | Why it paused comes first. For common problems, a short reason, such as **Filament ran out in AMS A, slot 2.** Under it, the error code, such as **Error 0700-2100-0002-0001**, with **Look up** to open Bambu's page for it in your browser. When the printer sends two codes, each has its own reason. With no code, **No error reported.** Then the percent, layer, filament, time left (not a finish time, because it moves while paused), and the AMS trays |
+| Finished | A checkmark and how long ago it finished, such as **40m ago**. After 2 hours, only the checkmark | How long ago it finished, such as **40m ago**. After 2 hours, the time it finished instead, such as **14:02 yesterday**. Then how long the print took, such as **Took 4h 43m**, when PrintGlance saw it start and finish, and the AMS trays. If PrintGlance was not running when the print finished, no time |
+| Failed | An X | **Failed**, a short reason for common problems, and the error code with **Look up**. Then how far it got, such as **Stopped at 52% · Layer 18 / 29**, and the AMS trays. The **Print Failed** notice starts with the reason and ends with the error code |
+| Idle | A printer icon | The printer name and each slot, named like the printer screen (**A1**…**D4**, **HT-A**, **External**): color, filament, and remaining percent, or **Empty**. Slots sit under a header such as **AMS A · Dry** or **AMS B · 23%** when there is more than one AMS or the AMS reports humidity. The humidity is orange when the AMS is humid: **Humid**, or 60% and up |
 | Offline | A Wi-Fi icon with a slash | When PrintGlance last heard from the printer, such as **Last update 14:02**, and what it was doing: **Was printing · 52% · Layer 18 / 29** with **Expected to finish 16:25**, or **Was paused at 52%**. Then why PrintGlance cannot reach the printer, when it knows |
 
 Times follow your Mac's 12- or 24-hour setting. If the job finishes after today, the finish time includes the day, such as **4:25 PM tomorrow**.
@@ -109,7 +109,7 @@ The menu bar shows the printer that needs you most:
 4. A finished printer
 5. The printer you last clicked, otherwise the first one
 
-The print card opens on the same printer. Below it, each printer has a row, in the order you added them. A printing row shows the percent and finish time, such as **52% · 4:25 PM**. Other rows show the state, such as **Paused** or **Idle**. A paused printer's icon is orange, and a failed printer's icon is red.
+The print card opens on the same printer. When the card's title is the job, the line under it names the printer, such as **X2D · Printing**. Below the card, each printer has a row, in the order you added them. A printing row shows the percent and finish time, such as **52% · 4:25 PM**. Other rows show the state, such as **Paused** or **Idle**. A paused printer's icon is orange, and a failed printer's icon is red.
 
 Click a row to see that printer on the card. The next time you open the card, it shows the menu bar's printer again.
 

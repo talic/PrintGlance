@@ -14,6 +14,11 @@ final class RenderStatesTests: XCTestCase {
         for (name, row, endedAt, reason) in Self.detailStates() {
             try write("detail-\(name)", card(row: row, endedAt: endedAt, reason: reason), to: dir)
         }
+        // History saw these start too: "Took 4h 43m" under the finish.
+        for (name, ended) in [("finished-40m-took", Self.now - 40 * 60), ("finished-3h-took", Self.now - 3 * 3600)] {
+            let view = card(row: Self.finished(), endedAt: ended, startedAt: ended - 283 * 60, reason: nil)
+            try write("detail-\(name)", view, to: dir)
+        }
         let rejected = Printer(id: "x2d", name: "X2D", state: "OFFLINE")
         try write("detail-offline-code-rejected", card(row: rejected, endedAt: nil, reason: "MQTT CONNACK 5", onUpdateCode: {}), to: dir)
     }
@@ -46,11 +51,15 @@ final class RenderStatesTests: XCTestCase {
         var idle = Self.idle(Self.oneAMS)
         idle.id = "a1"
         idle.name = "A1 mini"
+        var long = Self.running("RUNNING")
+        long.id = "long"
+        long.name = "Garage printer by the window"
         let printers = [Self.running("RUNNING"), paused, idle]
-        for (name, shown) in [("paused-shown", "p1s"), ("printing-shown", "x2d")] {
+        for (name, shown, printers) in [("paused-shown", "p1s", printers), ("printing-shown", "x2d", printers),
+                                        ("long-name-shown", "long", [long, paused, idle])] {
             let row = try XCTUnwrap(printers.first { $0.id == shown })
             let view = VStack(alignment: .leading, spacing: 12) {
-                CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row), state: row.state)
+                CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row, namingPrinter: true), state: row.state)
                 PrinterDetail(row: row, endedAt: nil, now: Self.now, disconnectReason: nil)
                 Divider()
                 PrinterList(printers: printers, shownId: row.id, onSelect: { _ in }, onEdit: { _ in }, onRemove: { _ in })
@@ -92,14 +101,20 @@ final class RenderStatesTests: XCTestCase {
         }
     }
 
-    private func card(row: Printer, endedAt: Date?, reason: String?, onUpdateCode: (() -> Void)? = nil) -> some View {
+    private func card(
+        row: Printer,
+        endedAt: Date?,
+        startedAt: Date? = nil,
+        reason: String?,
+        onUpdateCode: (() -> Void)? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             CardHeader(
                 headline: GlanceContent.headline(row),
                 subtitle: GlanceContent.subtitle(row),
                 state: row.state
             )
-            PrinterDetail(row: row, endedAt: endedAt, now: Self.now, disconnectReason: reason, onUpdateCode: onUpdateCode)
+            PrinterDetail(row: row, endedAt: endedAt, startedAt: startedAt, now: Self.now, disconnectReason: reason, onUpdateCode: onUpdateCode)
         }
         .padding(14)
         .frame(width: 248, alignment: .leading)
@@ -135,6 +150,10 @@ final class RenderStatesTests: XCTestCase {
         var paused = running("PAUSE")
         paused.hmsCode = "0700-2000-0002-0001"
         paused.printError = "0700-8002"
+        var pausedSameReason = paused
+        pausedSameReason.hmsCode = "0700-4500-0002-0003"
+        var pausedUnknownFirst = paused
+        pausedUnknownFirst.hmsCode = "0300-0000-0100-0001"
         var pausedBare = running("PAUSE")
         pausedBare.hmsCode = nil
 
@@ -146,12 +165,19 @@ final class RenderStatesTests: XCTestCase {
         var overheated = failed
         overheated.hmsCode = nil
         overheated.printError = "0300-806E"
+        var canceled = failed
+        canceled.percent = 52
+        canceled.hmsCode = nil
+        canceled.printError = "0300-400C"
+        var failedAtStart = overheated
+        failedAtStart.percent = 0
+        failedAtStart.layer = 0
 
-        var finished = idle(oneAMS)
-        finished.state = "FINISH"
-        finished.percent = 100
-        finished.job = "Benchy"
-        finished.jobId = "t1"
+        let finished = Self.finished()
+
+        let humidPro: [String: Any] = ["ams": ["ams": [
+            ["id": "0", "info": "1003", "humidity": "2", "humidity_raw": "65", "tray": fourTrays],
+        ]]]
 
         var offlinePrinting = running("RUNNING")
         offlinePrinting.state = "OFFLINE"
@@ -176,13 +202,18 @@ final class RenderStatesTests: XCTestCase {
             ("starting", starting, nil, nil),
             ("starting-chamber", soaking, nil, nil),
             ("paused-code", paused, nil, nil),
+            ("paused-same-reason", pausedSameReason, nil, nil),
+            ("paused-unknown-first", pausedUnknownFirst, nil, nil),
             ("paused-bare", pausedBare, nil, nil),
             ("failed-code", failed, nil, nil),
             ("failed-reason", overheated, nil, nil),
+            ("failed-canceled", canceled, nil, nil),
+            ("failed-at-start", failedAtStart, nil, nil),
             ("finished-40m", finished, now - 40 * 60, nil),
             ("finished-unknown", finished, nil, nil),
             ("finished-2d", finished, now - 51 * 3600, nil),
             ("idle-one-ams", idle(oneAMS), nil, nil),
+            ("idle-humid-percent", idle(humidPro), nil, nil),
             ("idle-two-ams-ext", idle(twoAMSExternal), nil, nil),
             ("idle-ht-dual-ext", idle(htDualExternal), nil, nil),
             ("idle-ams-no-humidity", idle(["ams": ["ams": [["id": "0", "tray": fourTrays]]]]), nil, nil),
@@ -271,6 +302,15 @@ final class RenderStatesTests: XCTestCase {
         p.filamentColor = "F5C6A0FF"
         p.trays = BambuPrint.trays(oneAMS)
         p.amsUnits = BambuPrint.amsUnits(oneAMS)
+        return p
+    }
+
+    private static func finished() -> Printer {
+        var p = idle(oneAMS)
+        p.state = "FINISH"
+        p.percent = 100
+        p.job = "Benchy"
+        p.jobId = "t1"
         return p
     }
 
