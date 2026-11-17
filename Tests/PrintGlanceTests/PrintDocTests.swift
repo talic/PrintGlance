@@ -76,6 +76,54 @@ final class PrintDocTests: XCTestCase {
 
         pause.state = "FAILED"
         XCTAssertEqual(GlanceContent.strip(row: pause).systemImage, "xmark")
+        XCTAssertEqual(GlanceContent.strip(row: pause).accessibilityLabel, "X2D, failed, 9 percent")
+
+        pause.printError = GlanceContent.cancelCode
+        XCTAssertEqual(GlanceContent.strip(row: pause).systemImage, "stop.circle")
+        XCTAssertEqual(GlanceContent.strip(row: pause).title, "")
+        XCTAssertEqual(GlanceContent.strip(row: pause).accessibilityLabel, "X2D, canceled, 9 percent")
+    }
+
+    /// Before any report, one printer switched off mustn't show the moon over another that refuses its code.
+    func testFeedDownReasonPutsARejectedCodeFirst() {
+        XCTAssertEqual(GlanceCopy.feedDownReason(focused: "connect timed out", all: ["connect timed out", "MQTT CONNACK 5"]), "MQTT CONNACK 5")
+        XCTAssertEqual(GlanceCopy.feedDownReason(focused: "ECONNREFUSED", all: ["connect timed out", "ECONNREFUSED"]), "ECONNREFUSED")
+        XCTAssertEqual(GlanceCopy.feedDownReason(focused: nil, all: ["connect timed out"]), "connect timed out")
+        XCTAssertNil(GlanceCopy.feedDownReason(focused: nil, all: []))
+        XCTAssertEqual(GlanceContent.strip(.feedDown, feedDownReason: "MQTT CONNACK 5").systemImage, GlanceContent.offlineImage)
+    }
+
+    func testCanceledIsAFailureWithTheCancelCode() {
+        var row = Printer(id: "x2d", name: "X2D", state: "FAILED", percent: 37, job: "Benchy", jobId: "t1")
+        XCTAssertFalse(GlanceContent.isCanceled(row))
+        XCTAssertEqual(GlanceContent.stateWord(row), "Failed")
+        XCTAssertEqual(GlanceContent.listDetail(row), "Failed")
+
+        row.printError = "0300-400C"
+        XCTAssertTrue(GlanceContent.isCanceled(row))
+        XCTAssertEqual(GlanceContent.stateWord(row), "Canceled")
+        XCTAssertEqual(GlanceContent.listDetail(row), "Canceled")
+        XCTAssertEqual(row.state, "FAILED", "the row keeps the printer's own state")
+        XCTAssertEqual(GlanceContent.humanState(row.printState), "Failed", "printers.json says what the printer said")
+
+        XCTAssertEqual(GlanceContent.subtitle(row), "Canceled")
+        XCTAssertEqual(GlanceContent.subtitle(row, namingPrinter: true), "X2D · Canceled")
+        XCTAssertEqual(GlanceContent.codeLines(row), [], "nothing to look up for a cancel")
+        XCTAssertFalse(GlanceContent.showsErrors(row), "no codes block, not even No error reported.")
+        XCTAssertEqual(GlanceContent.stoppedLine(row), "Stopped at 37%")
+
+        row.hmsCode = "0300-9600-0001-0001"
+        XCTAssertTrue(GlanceContent.isCanceled(row), "an HMS code beside the cancel doesn't make it a failure")
+        XCTAssertEqual(GlanceContent.codeLines(row).map(\.code), ["0300-9600-0001-0001"], "the other code still shows")
+        XCTAssertTrue(GlanceContent.showsErrors(row))
+        row.hmsCode = nil
+        row.state = "PAUSE"
+        XCTAssertFalse(GlanceContent.isCanceled(row), "only a stopped print is canceled")
+        XCTAssertEqual(GlanceContent.stateWord(row), "Paused")
+        row.state = "OFFLINE"
+        row.lastState = "FAILED"
+        XCTAssertFalse(GlanceContent.isCanceled(row))
+        XCTAssertEqual(GlanceContent.stateWord(row), "Offline")
     }
 
     func testFinishedTitleCollapsesAfterTwoHours() {
@@ -91,11 +139,65 @@ final class PrintDocTests: XCTestCase {
     }
 
     func testOfflineStripIsNotIdle() {
-        let offline = Printer(id: "x2d", name: "X2D", state: "OFFLINE", percent: 62)
+        var offline = Printer(id: "x2d", name: "X2D", state: "OFFLINE", percent: 62)
+        offline.lastState = "RUNNING"
         let idle = Printer(id: "x2d", name: "X2D", state: "IDLE")
         XCTAssertEqual(GlanceContent.strip(row: offline).systemImage, "wifi.slash")
         XCTAssertEqual(GlanceContent.strip(row: offline).title, "")
         XCTAssertEqual(GlanceContent.strip(row: idle).systemImage, "printer")
+    }
+
+    func testOfflineSaysLostOnlyForAPrintAndSleepsOtherwise() {
+        var row = Printer(id: "x2d", name: "X2D", state: "OFFLINE", percent: 62)
+        func kind(_ last: String?, rejected: Bool? = nil) -> GlanceContent.OfflineKind? {
+            row.lastState = last
+            row.codeRejected = rejected
+            return GlanceContent.offlineKind(row)
+        }
+        XCTAssertEqual(kind("RUNNING"), .lost)
+        XCTAssertEqual(kind("PREPARE"), .lost)
+        XCTAssertEqual(kind("PAUSE"), .lost)
+        XCTAssertEqual(kind("PAUSE", rejected: true), .lost, "a print in progress comes first")
+        XCTAssertEqual(kind(nil, rejected: true), .codeRejected)
+        XCTAssertEqual(kind("IDLE", rejected: true), .codeRejected)
+        for last in ["IDLE", "FINISH", "FAILED", nil] {
+            XCTAssertEqual(kind(last), .switchedOff, last ?? "never reached")
+        }
+
+        XCTAssertEqual(GlanceContent.strip(row: row).systemImage, "powersleep")
+        XCTAssertEqual(GlanceContent.strip(row: row).title, "")
+        XCTAssertEqual(GlanceContent.strip(row: row).accessibilityLabel, "X2D, offline")
+        XCTAssertEqual(GlanceContent.subtitle(row), "Offline")
+        XCTAssertEqual(GlanceContent.listDetail(row), "Offline")
+        row.codeRejected = true
+        XCTAssertEqual(GlanceContent.strip(row: row).systemImage, "wifi.slash", "a rejected code needs you")
+        row.state = "IDLE"
+        XCTAssertNil(GlanceContent.offlineKind(row))
+    }
+
+    func testOfflineDetailIsCalmWhenThePrinterIsProbablySwitchedOff() {
+        let calm = "It may be switched off. If it's on, check Wi-Fi and the IP address."
+        var row = Printer(id: "x2d", name: "X2D", state: "OFFLINE")
+        row.lastState = "IDLE"
+        XCTAssertEqual(GlanceCopy.offlineDetail(row, reason: "connect timed out"), calm)
+        XCTAssertEqual(GlanceCopy.offlineDetail(row, reason: nil), calm)
+        XCTAssertEqual(
+            GlanceCopy.offlineDetail(row, reason: "ECONNREFUSED"),
+            "It may be switched off or still starting up. If it's on, check the IP address on the printer's LAN or Network page."
+        )
+        XCTAssertEqual(
+            GlanceCopy.offlineDetail(row, reason: "MQTT CONNACK 5"),
+            GlanceCopy.feedDownDetail(reason: "MQTT CONNACK 5"),
+            "the link knows before the row does"
+        )
+
+        row.lastState = "RUNNING"
+        for reason in ["connect timed out", "ECONNREFUSED", "MQTT CONNACK 5"] {
+            XCTAssertEqual(GlanceCopy.offlineDetail(row, reason: reason), GlanceCopy.feedDownDetail(reason: reason), "lost mid-print: \(reason)")
+        }
+
+        XCTAssertEqual(GlanceCopy.offlineDetail(nil, reason: "connect timed out"), calm, "no printer answered at launch")
+        XCTAssertEqual(GlanceCopy.offlineDetail(nil, reason: "MQTT CONNACK 5"), GlanceCopy.feedDownDetail(reason: "MQTT CONNACK 5"))
     }
 
     func testStartingShowsShortStage() {
@@ -116,6 +218,13 @@ final class PrintDocTests: XCTestCase {
             GlanceContent.strip(.connecting).systemImage,
             GlanceContent.strip(.needsSetup).systemImage,
         ]
+        images.insert(GlanceContent.strip(.feedDown, feedDownReason: "MQTT CONNACK 5").systemImage)
+        var canceled = Printer(id: "x", name: "X", state: "FAILED")
+        canceled.printError = GlanceContent.cancelCode
+        images.insert(GlanceContent.strip(row: canceled).systemImage)
+        var lost = Printer(id: "x", name: "X", state: "OFFLINE")
+        lost.lastState = "RUNNING"
+        images.insert(GlanceContent.strip(row: lost).systemImage)
         for state in ["PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE"] {
             images.insert(GlanceContent.strip(row: Printer(id: "x", name: "X", state: state)).systemImage)
         }
@@ -292,8 +401,12 @@ final class PrintDocTests: XCTestCase {
     }
 
     func testFeedDownStrip() {
-        XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "wifi.slash")
+        XCTAssertEqual(GlanceContent.strip(.feedDown).systemImage, "powersleep", "printers switched off overnight")
+        XCTAssertEqual(GlanceContent.strip(.feedDown, feedDownReason: "connect timed out").systemImage, "powersleep")
+        XCTAssertEqual(GlanceContent.strip(.feedDown, feedDownReason: "ECONNREFUSED").systemImage, "powersleep")
+        XCTAssertEqual(GlanceContent.strip(.feedDown, feedDownReason: "MQTT CONNACK 5").systemImage, "wifi.slash")
         XCTAssertEqual(GlanceContent.strip(.feedDown).accessibilityLabel, "Can't reach printer")
+        XCTAssertEqual(GlanceContent.strip(.feedDown).title, "")
     }
 
     func testOneWordPerState() {
@@ -305,6 +418,8 @@ final class PrintDocTests: XCTestCase {
 
     func testConnectingStripIsNotFeedDown() {
         XCTAssertEqual(GlanceContent.strip(.connecting).systemImage, "printer")
+        XCTAssertEqual(GlanceContent.strip(.connecting).title, "…", "not the idle printer")
+        XCTAssertEqual(GlanceContent.strip(.connecting).accessibilityLabel, "Connecting to printer")
         XCTAssertNotEqual(
             GlanceContent.strip(.connecting).systemImage,
             GlanceContent.strip(.feedDown).systemImage
@@ -332,6 +447,8 @@ final class PrintDocTests: XCTestCase {
 
     func testNeedsSetupStrip() {
         XCTAssertEqual(GlanceContent.strip(.needsSetup).systemImage, "printer")
+        XCTAssertEqual(GlanceContent.strip(.needsSetup).title, "Set Up", "not the idle printer")
+        XCTAssertEqual(GlanceContent.strip(.needsSetup).accessibilityLabel, "Add your Bambu printer")
     }
 
     func testMigrateSingularSettings() throws {
@@ -365,9 +482,16 @@ final class PrintDocTests: XCTestCase {
             return row
         }
         let idle = p("idle", "IDLE")
+        let idle2 = p("idle2", "IDLE")
         let offline = p("off", "OFFLINE")
+        var lost = p("lost", "OFFLINE")
+        lost.lastState = "RUNNING"
+        var rejected = p("rejected", "OFFLINE")
+        rejected.codeRejected = true
         let done = p("done", "FINISH")
         let failed = p("fail", "FAILED")
+        var canceled = p("cancel", "FAILED")
+        canceled.printError = GlanceContent.cancelCode
         let paused = p("pause", "PAUSE", left: 600)
         let paused2 = p("pause2", "PAUSE", left: 60)
         let long = p("long", "RUNNING", left: 7200)
@@ -389,8 +513,20 @@ final class PrintDocTests: XCTestCase {
             ("failed does not beat printing", [failed, long], nil, "long"),
             ("failed beats finished", [done, failed], nil, "fail"),
             ("finished beats idle and offline", [idle, offline, done], nil, "done"),
-            ("focused idle beats the first", [idle, offline], "off", "off"),
+            ("lost mid-print beats failed", [failed, lost], nil, "lost"),
+            ("printing beats lost mid-print", [lost, long], nil, "long"),
+            ("paused beats lost mid-print", [lost, paused], nil, "pause"),
+            ("canceled is below failed", [canceled, failed], nil, "fail"),
+            ("canceled ranks with finished: saved order", [canceled, done], nil, "cancel"),
+            ("canceled ranks with finished: focus", [canceled, done], "done", "done"),
+            ("canceled beats idle", [idle, canceled], nil, "cancel"),
+            ("focused idle beats the first", [idle, idle2], "idle2", "idle2"),
             ("nothing going on: the first", [idle, offline], nil, "idle"),
+            ("idle beats switched off", [offline, idle], nil, "idle"),
+            ("focus doesn't lift switched off over idle", [offline, idle], "off", "idle"),
+            ("a rejected code ranks with idle: saved order", [rejected, idle], nil, "rejected"),
+            ("a rejected code ranks with idle: focus", [idle, rejected], "rejected", "rejected"),
+            ("switched off alone still shows", [offline], nil, "off"),
             ("focus on a missing printer", [idle], "gone", "idle"),
             ("no printers", [], nil, nil),
         ]

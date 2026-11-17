@@ -36,6 +36,8 @@ struct JobLog {
     static let cap = 50
     static let outcomeOK = "ok"
     static let outcomeFail = "fail"
+    /// CSV only. A canceled print is saved as `outcomeFail` with the cancel code as its `failCode`.
+    static let outcomeCanceled = "canceled"
 
     /// On-disk shape of jobs.json.
     private struct Envelope: Codable { var rows: [JobLogRow] }
@@ -130,7 +132,7 @@ struct JobLog {
                     csvEscape(row.name),
                     csvEscape(row.job ?? ""),
                     csvEscape(row.filament ?? ""),
-                    row.outcome ?? "",
+                    GlanceContent.isCanceled(row) ? Self.outcomeCanceled : row.outcome ?? "",
                 ].joined(separator: ",")
             )
         }
@@ -171,7 +173,8 @@ struct JobLog {
                 outcome: Self.outcomeFail,
                 now: now,
                 live: hadTimed[printer.id] == true,
-                failCode: GlanceContent.leadErrorCode(printer)
+                // The cancel code even beside an HMS code with a reason, so History says Canceled.
+                failCode: GlanceContent.isCanceled(printer) ? GlanceContent.cancelCode : GlanceContent.leadErrorCode(printer)
             )
             hadTimed[printer.id] = false
         case .idle:

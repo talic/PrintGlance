@@ -43,7 +43,7 @@ These are product promises (README, "Private and read-only") or hard-won constra
 | Don't edit `bambu.py`, `print_loop.*`, or `.env.example` unless the owner asks; never `.env` or launchd. | The feed runs as a LaunchAgent on the owner's Mac and may feed another device. | Review; `Tests/Feed` covers its behavior |
 | Don't restructure the [load-bearing workarounds](#macos-integration-and-load-bearing-workarounds). | Each one fixes a macOS 26/27 menu bar bug that only shows with real clicks. | Manual checks in TESTING.md |
 | Presentation decisions live in pure `static` functions on `GlanceContent` (report parsing on `BambuPrint`), each with tests. Views stay thin. | Every state can be tested and rendered without a printer. | `PrintDocTests`, `PrepareAmsHmsTests`, UI tests |
-| Copy is English, short plain sentences. Menu items use title case ("Add Printer…"); everything else sentence case. States are **Starting, Printing, Paused, Finished, Failed, Idle, Offline**; no connection at all is **Can't reach printer**; slots are **A1…D4**, **HT-A**, **External**; codes are **Error 0700-2000-0002-0001**. | Consistent vocabulary across menu bar, card, notifications, README. | UI and shipping tests |
+| Copy is English, short plain sentences. Menu items use title case ("Add Printer…"); everything else sentence case. States are **Starting, Printing, Paused, Finished, Failed, Canceled, Idle, Offline**; no connection at all is **Can't reach printer**; slots are **A1…D4**, **HT-A**, **External**; codes are **Error 0700-2000-0002-0001**. | Consistent vocabulary across menu bar, card, notifications, README. | UI and shipping tests |
 
 ## Repository map
 
@@ -109,11 +109,11 @@ flowchart LR
 
 1. **Receive.** `MQTT311Client` reassembles frames from the TLS socket, and hands each PUBLISH's payload to `onMessage` on the main queue.
 2. **Merge.** `GlanceModel.didMessage` parses JSON (anything that isn't an object is dropped) and calls `BambuSnapshot.ingest`, which merges the `print` object into the snapshot like Bambu Studio's `json_diff`: nested objects merge key by key, arrays and values replace. Printers send a full report after `pushall`, then deltas. When `task_id`, `subtask_id`, or `subtask_name` changes, the old `layer_num`, `total_layer_num`, and `gcode_file` are dropped so a new job can't show the last one's layer.
-3. **Rows.** `publishSnapshot` runs after every message, connect, disconnect, and every 5 s (so a silent printer goes offline on time). It builds a `PrintDoc` with one `Printer` per complete saved printer, in saved order, via `BambuPrint.row`. A printer that never reported is an `OFFLINE` row. Each pass reads the clock once and hands that `now` to every step after it. A message rebuilds only its printer's row and reuses the others' (`parsedRows`); the 5 s tick and every connection change rebuild them all, so a reused row is at most 5 s behind on going Offline or on its finish time's minute. `GlanceContent.dayTime` keeps its `DateFormatter`s, and the job-label regexes are built once.
+3. **Rows.** `publishSnapshot` runs after every message, connect, disconnect, and every 5 s (so a silent printer goes offline on time). It builds a `PrintDoc` with one `Printer` per complete saved printer, in saved order, via `BambuPrint.row`. A printer that never reported is an `OFFLINE` row. Each pass reads the clock once and hands that `now` to every step after it. A message rebuilds only its printer's row and reuses the others' (`parsedRows`); the 5 s tick and every connection change rebuild them all, so a reused row is at most 5 s behind on going Offline or on its finish time's minute. `GlanceContent.dayTime` keeps its `DateFormatter`s, and the job-label regexes are built once. An `OFFLINE` row whose link failed with a rejected code gets `codeRejected`, the one link fact the row needs (see [Printer states](#printer-states)); it is set after the cache, on every pass.
 4. **Side effects, in this order:** `Overrun.observe` (moves `row.remainingS` and `row.eta` to when the printer should report Finished, so everything after it sees that), `RunoutTracker.observe` (sets `row.runout`), `JobLog.observe` (saves `jobs.json` on change), `ComingOff.consider` (schedules or cancels "finishing soon"), `apply` (publishes `content`; `PrintNotify.observe` turns state edges into alerts), the minute clock for "40m ago" and "Last update", `FilamentAlert.consider` and the runout notice.
 5. **Draw.** `GlanceModel.strip` feeds the menu bar `StripLabel`. `GlanceView` shows `PrintDoc.displayRow()` (or the printer clicked in the list during this panel visit), `PrinterDetail` for the card, and `PrinterList` when there are two or more printers. Every string comes from a `GlanceContent` function.
 
-Before any printer has reported, `content` is `.needsSetup` (no complete printer), `.connecting` (some link not failed), or `.feedDown` (every link failed). The card shows **Add your printer**, **Connecting**, or **Can't reach printer** with the reason from `GlanceCopy.feedDownDetail`.
+Before any printer has reported, `content` is `.needsSetup` (no complete printer), `.connecting` (some link not failed), or `.feedDown` (every link failed). The card shows **Add your printer**, **Connecting**, or **Can't reach printer** with the reason from `GlanceCopy.offlineDetail(nil, reason:)`. The menu bar shows `printer` with **Set Up**, `printer` with **…**, or, for `.feedDown`, `powersleep`: at launch that is usually a printer switched off overnight. Only a rejected code (`GlanceModel.strip` passes the focused printer's reason as `feedDownReason`) keeps `wifi.slash`, the access code copy, and **Update Access Code…**.
 
 ## Printer states
 
@@ -121,17 +121,21 @@ Before any printer has reported, `content` is `.needsSetup` (no complete printer
 
 | Report | `state` | Menu bar | Card hero / subtitle |
 |---|---|---|---|
-| link not trusted (see below), or empty `gcode_state` | `OFFLINE` | `wifi.slash` | Last known job, "Offline", "Last update …", what it was doing |
+| link not trusted (see below), or empty `gcode_state`, and last heard printing or paused (lost) or with a rejected code | `OFFLINE` | `wifi.slash` | Last known job, "Offline", "Last update …", what it was doing, why it can't connect |
+| as above, otherwise (probably switched off) | `OFFLINE` | `powersleep` | "Offline", "Last update …", "It may be switched off. If it's on, check Wi-Fi and the IP address." |
 | `RUNNING` with `stg_cur` ≠ 0 and `layer_num` 0 | `PREPARE` | `printer.fill` + first word of the stage ("Heating") | Finish time, time left, stage ("Loading filament"), then heaters "Nozzle 186 / 220° · Bed 48 / 60°" and filament; no bar or layer yet |
 | `PREPARE` | `PREPARE` | as above | as above |
 | `RUNNING` | `RUNNING` | `printer.fill` + " 52%  16:25" | Finish time, time left, bar, layer, filament, runout line |
 | `PAUSE` | `PAUSE` | `pause.fill` + percent | No hero (`cardHero`): each code under its reason first, then bar, layer, filament, runout line, time left as a small line (not finish time: it slides), AMS |
 | `FINISH` | `FINISH` | `checkmark` + "40m ago" for 2 h | "40m ago" for 2 h, then the finish time ("14:02 yesterday"), when PrintGlance saw it end; "Took 4h 43m" when it saw the start too; AMS |
 | `FAILED` | `FAILED` | `xmark` | Each code under its reason, "Stopped at 52% · Layer 18 / 29" above 0%, AMS |
+| `FAILED` with `print_error` `0300-400C` (canceled) | `FAILED` | `stop.circle` | "Canceled" in grey, "Stopped at 52% · Layer 18 / 29" above 0%, AMS; no codes |
 | `IDLE` | `IDLE` | `printer` | Printer name, AMS slots (a four-slot unit's gaps as "A3 · Empty") |
 | anything else (e.g. `SLICING`) | passed through | `printer` | The raw word |
 
 With two or more printers, a card whose headline is the job names the printer in the subtitle, "X2D · Printing" (`GlanceContent.subtitle(_:namingPrinter:)`), as the iPhone does; one printer needs no name.
+
+**Canceled.** Bambu reports a print canceled on the printer or in an app as `FAILED` with `print_error` `0300-400C`. The row keeps `FAILED`, so `printers.json` still says what the printer said; `GlanceContent.isCanceled` spots it, and `stateWord` (not `humanState`) gives the word wherever a row's state is shown: **Canceled**, in grey, not red. It ranks with Finished, sends no Failed notice, and History calls it **Canceled**.
 
 Printers heat, level, and calibrate under `RUNNING` with layer 0 and `stg_cur` naming the stage; PREPARE itself only covers fetching the file. Both show as **Starting**. A stage after layer 0 (a filament change) stays Printing. `BambuPrint.stageLabel` maps `stg_cur` numbers to Heating, Leveling, Loading filament, Unloading filament, Calibrating, Cleaning nozzle, Homing, or Starting.
 
@@ -150,6 +154,14 @@ Temperatures are only filled while Starting, so rows stay equal between reports 
 - `willSleep` freezes an online printer online (`.distantFuture`); `didWake` gives it 30 s to report again. A printer that was already offline stays offline.
 
 An offline row keeps the last report's fields and adds `lastSeen` and `lastState`, so the card can say "Was printing · 52% · Layer 18 / 29" and "Expected to finish 16:25". `lastSeen` is nil while online so rows stay equal between messages.
+
+`GlanceContent.offlineKind` splits Offline three ways, because a printer switched off at night isn't a problem:
+
+- **Lost:** `lastState` is `RUNNING`, `PREPARE`, or `PAUSE`. `wifi.slash`, the "Was printing" lines, `GlanceCopy.feedDownDetail`'s troubleshooting words. Ranks right after Printing.
+- **Code rejected:** `codeRejected`, which `GlanceModel.publishSnapshot` sets on an `OFFLINE` row whose `linkStatus` is `.failed` with `MQTT CONNACK …`. `wifi.slash`, the access code words, **Update Access Code…**. Ranks with Idle.
+- **Switched off:** everything else: idle, finished, failed, or canceled when last heard from, or never reached this launch. `powersleep`, and `GlanceCopy.offlineDetail` leads with "It may be switched off." Ranks below Idle.
+
+The card's words come from `PrinterDetail.disconnectReason` (`GlanceModel.disconnectReason`), so a rejected code shows there before the next `publishSnapshot` sets the row's flag.
 
 ## Connection lifecycle
 
@@ -190,11 +202,13 @@ stateDiagram-v2
 
 1. Paused
 2. Printing or Starting: the focused one, else the one finishing soonest
-3. Failed
-4. Finished
-5. Anything else: the focused one, else the first saved
+3. Offline and lost mid-print
+4. Failed
+5. Finished or Canceled
+6. Anything else (Idle, a rejected code): the focused one, else the first saved
+7. Offline and probably switched off
 
-Focus (`SavedPrinters.focusId`) is set when the user clicks a printer in the list; it only breaks ties. A failed printer doesn't take the menu bar from a printing one, because the failure notification already told the user and live progress is more useful.
+Focus (`SavedPrinters.focusId`) is set when the user clicks a printer in the list; it only breaks ties. A failed printer doesn't take the menu bar from a printing one, because the failure notification already told the user and live progress is more useful. A printer lost mid-print outranks a failed one so it can't hide behind it, and a switched-off printer never takes the menu bar from a healthy one. `PrintDoc.ranked()` also orders the iPhone's cards.
 
 The panel opens on the menu bar's printer each time. Clicking a list row changes the card for that visit only (`GlanceView.selectedId`), and sets focus. A clicked notification sets `PendingSelection`, and the next panel open shows that printer once.
 
@@ -207,7 +221,7 @@ Print alerts read printer and state first, then the job, then why: the title is 
 | Notice | Trigger | Identifier | Default | Quiet Hours |
 |---|---|---|---|---|
 | Finished | `RUNNING`/`PREPARE` → `FINISH` | `pg.finish.<serial>` | on | Delayed to 7 AM (`UNCalendarNotificationTrigger`) |
-| Failed | `RUNNING`/`PREPARE` → `FAILED` | `pg.fail.<serial>` | on | Delivered |
+| Failed | `RUNNING`/`PREPARE` → `FAILED`, unless canceled (`0300-400C`) | `pg.fail.<serial>` | on | Delivered |
 | Paused | `RUNNING`/`PREPARE` → `PAUSE` | `pg.pause.<serial>` | on | Delivered |
 | Lost connection | `RUNNING`/`PREPARE`/`PAUSE` → `OFFLINE` | `pg.offline.<serial>` | on | Delivered |
 | Finishing soon | Scheduled lead time before the end of a `RUNNING` job | `pg.comingoff.<serial>.<jobId>` | on, 10 min | Skipped if it would fire in the window |
@@ -253,9 +267,11 @@ Only paused and failed printers show codes (`print_error` can linger after the p
 
 ## History
 
-`JobLog` opens a row when a printer starts a job (Starting or Printing) and closes it when it finishes (ok), fails (fail), or goes idle (ok, no end time). A new job ID while a row is open closes the old row. `endedAt` is set only if PrintGlance saw the job running, and `sawStart` only if it saw the job begin (Starting, or Printing at 1% or less). The duration (`JobLogRow.duration`, History's "4h 43m", the card's "Took 4h 43m", the CSV's `duration_min`) needs both, so a print first seen part-way through never reads short. Rows saved before `sawStart` existed keep their duration. Up to 50 rows are kept (the oldest closed rows go first; an open row never does) in `~/Library/Application Support/PrintGlance/jobs.json`. A row's filament lists each filament the print fed, in order (`JobLog.adding`), so a multi-color print isn't just its last spool. History shows them newest first and exports CSV (`started,ended,duration_min,printer,job,filament,outcome`, RFC 4180 quoting). The newest successful row's `endedAt` gives the menu bar's "40m ago".
+`JobLog` opens a row when a printer starts a job (Starting or Printing) and closes it when it finishes (ok), fails (fail), or goes idle (ok, no end time). A new job ID while a row is open closes the old row. `endedAt` is set only if PrintGlance saw the job running, and `sawStart` only if it saw the job begin (Starting, or Printing at 1% or less). The duration (`JobLogRow.duration`, History's "4h 43m", the card's "Took 4h 43m", the CSV's `duration_min`) needs both, so a print first seen part-way through never reads short. Rows saved before `sawStart` existed keep their duration. Up to 50 rows are kept (the oldest closed rows go first; an open row never does) in `~/Library/Application Support/PrintGlance/jobs.json`. A row's filament lists each filament the print fed, in order (`JobLog.adding`), so a multi-color print isn't just its last spool. History shows them newest first and exports CSV (`started,ended,duration_min,printer,job,filament,outcome`, RFC 4180 quoting; outcome is `ok`, `fail`, or `canceled`). The newest successful row's `endedAt` gives the menu bar's "40m ago".
 
-A row also keeps what went wrong, as codes so the words improve with the reasons table: `pauses` gets one entry per Printing or Starting → Paused change, looking through Offline, so a pause seen right after a reconnect counts (`GlanceContent.leadErrorCode`, or "" when the printer gave none), and a failed row gets `failCode`. `JobLog.lastState` is process-local, so a relaunch mid-pause doesn't count it again. `GlanceContent.historyNotes` turns them into lines under the caption: the failure's reason, then "Paused: <reason>", "Paused twice. Last: <reason>", or "Paused 3 times." The CSV leaves them out.
+A row also keeps what went wrong, as codes so the words improve with the reasons table: `pauses` gets one entry per Printing or Starting → Paused change, looking through Offline, so a pause seen right after a reconnect counts (`GlanceContent.leadErrorCode`, or "" when the printer gave none), and a failed row gets `failCode` (`0300-400C` for a cancel, even beside an HMS code with a reason). `JobLog.lastState` is process-local, so a relaunch mid-pause doesn't count it again. `GlanceContent.historyNotes` turns them into lines under the caption: the failure's reason, then "Paused: <reason>", "Paused twice. Last: <reason>", or "Paused 3 times." The CSV leaves them out.
+
+A row's title is `historyTitle` (the job, else the printer's name); `historyCaption` names the printer only when the log has several and the title isn't already its name. The outcome word (`historyOutcome`) is **Printing**, **Finished**, **Failed**, or **Canceled**: a failed row whose `failCode` is the cancel code, with no schema change and no reason note. Only the word is tinted, and only **Failed**, red (`historyCaptionParts`, `historyFailed`).
 
 **Clear History…** under the list (shown when there is an ended print) asks first, then drops every ended row from memory and `jobs.json` (`JobLog.clearEnded`, `GlanceModel.clearHistory`). A print in progress stays: dropping its open row would make the next report reopen it with the wrong start time. Clearing also clears a finished printer's "40m ago", which comes from the same rows.
 
@@ -293,7 +309,7 @@ Preferences live in the `local.PrintGlance` domain (`UserDefaults.standard` in t
 | `pg.overrun` | `Overrun` as JSON: seconds late for each printer's last five watched finishes. |
 | `pg.update.lastCheck`, `.remoteTag`, `.remoteZip` | Update check cache. |
 | `~/Library/Application Support/PrintGlance/jobs.json` | History. |
-| `~/Library/Application Support/PrintGlance/printers.json` | Written for other apps on this Mac (Model Browser plans its print queue from it), never read back: `PrinterFile`, one entry per printer with the card's state word, the raw `gcode_state`, `subtask_name` as sent, the plate from `gcode_file`, finish time (remaining time from now, with lateness), start and end from History, pause or fail codes and reason, and AMS trays. No IP or access code. Rewritten only when a row or History changes; emptied when no printer is set up. |
+| `~/Library/Application Support/PrintGlance/printers.json` | Written for other apps on this Mac (Model Browser plans its print queue from it), never read back: `PrinterFile`, one entry per printer with the state in the card's words (a canceled print stays Failed, as the printer reports it), the raw `gcode_state`, `subtask_name` as sent, the plate from `gcode_file`, finish time (remaining time from now, with lateness), start and end from History, pause or fail codes and reason, and AMS trays. No IP or access code. Rewritten only when a row or History changes; emptied when no printer is set up. |
 | iPhone: App Group `group.<PG_ID>` defaults, `printers` and `pg.phone.statuses` | The iPhone's printers (same shape and cap of four as the Mac's, codes included) and each one's last `PhoneStatus`, as a JSON array. |
 | `~/Library/Logs/PrintGlance.log` | Connection log (connects, drops, IP changes, skipped alerts). Wiped at launch when over 1 MB. Serials and IPs appear here; access codes never do. |
 
@@ -359,6 +375,7 @@ Deliberate shortcuts carry a `ponytail:` comment in the code naming the ceiling 
 - **Error reasons** cover about 30 common codes; add rows as codes show up.
 - **The filament SKU table** is static; add a row when a Bambu ID shows as generic PLA.
 - **Runout treats 0% as empty**, though an X2D printed on at 0%. Weighing spools at 0% would let an offset per AMS model move the guess.
+- **Canceled is read from the first FAILED report.** The Failed notice and History decide on the edge into FAILED, so a printer that sent `print_error` `0300-400C` one report after `FAILED` would get a Failed notice and a Failed History row while the card turns to Canceled. Real reports haven't shown this order; if they do, hold the Failed decision for a report.
 - **The log** is wiped at 1 MB rather than rotated.
 - **Release signing** falls back to ad-hoc without secrets.
 - **iPhone: the widget picks the printer.** It shows the one that needs you; there's no choosing a printer per widget. Upgrade: a printer parameter on the widget's intent.

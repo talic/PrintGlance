@@ -161,6 +161,35 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(h.model.linkStatus[x2d.serial], .failed(reason: "MQTT CONNACK 5"), "stays failed through retries")
     }
 
+    func testAPrinterSwitchedOffAtLaunchSleepsInTheMenuBar() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        XCTAssertEqual(h.model.strip.title, "…", "connecting")
+        link.drop("connect timed out")
+        XCTAssertEqual(h.model.content.result, .feedDown)
+        XCTAssertEqual(h.model.strip.systemImage, "powersleep")
+        XCTAssertEqual(h.model.strip.accessibilityLabel, "Can't reach printer")
+    }
+
+    func testAPrinterThatNeverAnsweredRanksBelowAnIdleOneUnlessItsCodeWasRejected() throws {
+        let h = ModelHarness(self)
+        let links = h.add(p1s, x2d)
+        links[1].accept()
+        links[1].report(Report.state("IDLE"))
+        links[0].drop("connect timed out")
+        XCTAssertEqual(h.row(p1s.serial)?.state, "OFFLINE")
+        XCTAssertNil(h.row(p1s.serial)?.codeRejected)
+        XCTAssertEqual(h.doc?.displayRow()?.id, x2d.serial, "the switched-off printer was saved first but sleeps")
+        XCTAssertEqual(h.model.strip.systemImage, "printer")
+        XCTAssertEqual(GlanceContent.strip(row: try XCTUnwrap(h.row(p1s.serial))).systemImage, "powersleep")
+
+        links[0].drop("MQTT CONNACK 5")
+        XCTAssertEqual(h.row(p1s.serial)?.codeRejected, true)
+        XCTAssertEqual(h.doc?.displayRow()?.id, p1s.serial, "a rejected code ranks with idle, so saved order wins")
+        XCTAssertEqual(h.model.strip.systemImage, "wifi.slash")
+        XCTAssertNil(h.row(x2d.serial)?.codeRejected, "only offline rows carry it")
+    }
+
     func testAnotherPrintersCertificateSaysWhichSerialAnswered() async throws {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)

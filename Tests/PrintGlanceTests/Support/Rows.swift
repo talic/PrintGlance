@@ -103,7 +103,8 @@ enum Rows {
             CardHeader(
                 headline: GlanceContent.headline(row),
                 subtitle: GlanceContent.subtitle(row, namingPrinter: namingPrinter),
-                state: row.state
+                state: row.state,
+                canceled: GlanceContent.isCanceled(row)
             )
             PrinterDetail(row: row, endedAt: endedAt, startedAt: startedAt, now: now, disconnectReason: reason, onUpdateCode: onUpdateCode)
         }
