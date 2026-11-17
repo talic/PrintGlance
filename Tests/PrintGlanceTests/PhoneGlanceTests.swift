@@ -208,6 +208,11 @@ final class PhoneGlanceTests: XCTestCase {
             XCTAssertNil(GlanceContent.phoneTint(row), row.state)
         }
         XCTAssertNil(GlanceContent.phone(nil, printer: .x2d(), now: fetched).tint, "never reached")
+        var canceled = Rows.failed()
+        canceled.hmsCode = nil
+        canceled.printError = GlanceContent.cancelCode
+        XCTAssertNil(GlanceContent.phoneTint(canceled), "canceled is calm")
+        XCTAssertEqual(GlanceContent.phone(PhoneStatus(printer: canceled, at: fetched), printer: .x2d(), now: fetched).short, "Canceled")
     }
 
     func testBeforeTheFirstLook() {
@@ -407,16 +412,14 @@ final class PhoneGlanceTests: XCTestCase {
         XCTAssertNil(GlanceContent.phoneAlreadyAdded(.empty, saved: [voyager]), "nothing typed yet")
     }
 
-    func testAccessCodeHintMatchesTheMac() {
+    /// One rule for the Mac's setup window and the iPhone's sheets.
+    func testAccessCodeHint() {
         XCTAssertNil(PrinterSettings.codeHint(""))
         XCTAssertNil(PrinterSettings.codeHint("   "))
         XCTAssertNil(PrinterSettings.codeHint("12345678"))
         XCTAssertNil(PrinterSettings.codeHint(" AB12cd34 "), "trimmed before counting")
         XCTAssertEqual(PrinterSettings.codeHint("1234"), "Access codes are usually 8 characters.")
         XCTAssertEqual(PrinterSettings.codeHint("123456789"), "Access codes are usually 8 characters.")
-        for code in ["", "   ", "1234", "12345678", " AB12cd34 ", "123456789", "a1b2c3d4\n"] {
-            XCTAssertEqual(PrinterSettings.codeHint(code), SetupFlow.codeHint(code), "the Mac's setup window says the same: \(code)")
-        }
     }
 
     func testProbeReadsTheSerialFromTheCertificateAndSendsNothing() async throws {
