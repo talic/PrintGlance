@@ -42,6 +42,7 @@ final class GlanceModel: ObservableObject {
         didSet {
             notify.prefs = notifyPrefs
             notifyPrefs.save(defaults)
+            withdrawTurnedOff(was: oldValue)
         }
     }
     /// The user turned PrintGlance's notifications off in System Settings.
@@ -83,14 +84,13 @@ final class GlanceModel: ObservableObject {
 
     private var links: [String: Link] = [:]
     private var adoptScan: Task<Void, Never>?
-    private var adoptGeneration: UInt64 = 0
     private var lastAdoptScanAt: Date?
     private var waitingOnScan: Set<String> = []
     private var rediscoverPausedSerial: String?
     private static let adoptGap: TimeInterval = 60
     private static let instanceTag = String(UInt16.random(in: .min ... .max), radix: 16)
     private let updates = AppUpdateChecker()
-    private var filament = FilamentAlert()
+    private var filament: FilamentAlert
     private var runout: RunoutTracker
     private var overrun: Overrun
     private var staleTask: Task<Void, Never>?
@@ -99,6 +99,9 @@ final class GlanceModel: ObservableObject {
     private var pendingSelection = PendingSelection()
     private var jobLog: JobLog
     private let jobLogURL: URL
+    /// Each printer's row as its report reads, before lateness and runout: reused for the printers that didn't
+    /// report this pass.
+    private var parsedRows: [String: Printer] = [:]
     /// What `printers.json` last got, so it is written only when a printer or its history changes.
     private var printerFileInput: ([Printer], [JobLogRow])?
     private var occupancyTask: Task<Void, Never>?
@@ -135,11 +138,8 @@ final class GlanceModel: ObservableObject {
         let prefs = PrintNotifyPrefs.load(defaults)
         self.settings = settings
         self.notifyPrefs = prefs
-        self.notify = PrintNotify(
-            serial: settings.focusId ?? settings.printers.first?.serial ?? "",
-            prefs: prefs,
-            stamps: PrintNotifyStamp.loadAll(defaults)
-        )
+        self.notify = PrintNotify(prefs: prefs)
+        PrintNotify.forgetStamps(defaults)
         self.jobLogURL = jobLogURL
         let log = JobLog.load(from: jobLogURL)
         self.jobLog = log
@@ -147,6 +147,7 @@ final class GlanceModel: ObservableObject {
         self.comingOff = ComingOff.load(defaults)
         self.runout = RunoutTracker.load(defaults)
         self.overrun = Overrun.load(defaults)
+        self.filament = FilamentAlert.load(defaults)
     }
 
     nonisolated static let defaultLogURL = FileManager.default.homeDirectoryForCurrentUser
@@ -248,6 +249,20 @@ final class GlanceModel: ObservableObject {
         log("mac network changed: \(signature)")
     }
 
+    /// A notice turned off doesn't come later either: finishing soon is already scheduled, and Quiet Hours
+    /// may be holding a finish for the morning.
+    private func withdrawTurnedOff(was old: PrintNotifyPrefs) {
+        var ids: [String] = []
+        if old.comingOff, !notifyPrefs.comingOff {
+            ids += comingOff.cancelScheduled()
+            comingOff.save(defaults)
+        }
+        if old.finish, !notifyPrefs.finish {
+            ids += settings.printers.map { PrintNotifyAlert.identifier(.finish, serial: $0.serial) }
+        }
+        if !ids.isEmpty { notifier.removePending(ids) }
+    }
+
     func refreshNotificationStatus() {
         let isDenied = notifier.isDenied
         Task {
@@ -281,31 +296,53 @@ final class GlanceModel: ObservableObject {
     }
 
     func setRediscoverPausedSerial(_ serial: String?) {
-        rediscoverPausedSerial = serial
+        rediscoverPausedSerial = serial.map(PrinterSettings.normalizedSerial)
     }
 
     func saveSettings(_ next: SavedPrinters) {
+        let before = settings
         next.save(to: defaults)
         settings = next
-        applySettingsAndConnect()
+        applySettingsAndConnect(before: before)
     }
 
-    private func applySettingsAndConnect() {
-        cancelAdoptScan()
-        for link in links.values {
-            link.tearDown()
-        }
-        links.removeAll()
+    /// A printer whose IP and access code didn't change keeps its connection and its last report, so editing
+    /// or adding one printer doesn't drop the others (whose first rows would read as Offline after Printing).
+    /// A kept printer that is failing dials again at once, so Connect in the setup window is a fresh try.
+    private func applySettingsAndConnect(before: SavedPrinters? = nil) {
         let complete = settings.printers.filter(\.isComplete)
-        let fresh = Dictionary(complete.map { ($0.serial, LinkStatus.connecting) }) { first, _ in first }
-        if linkStatus != fresh { linkStatus = fresh }
+        let wanted = Dictionary(complete.map { ($0.serial, $0) }) { first, _ in first }
+        var redial: [String] = []
+        var removed: [String] = []
+        for (id, link) in links {
+            if let next = wanted[id], let old = before?.printers.first(where: { $0.serial == id }),
+               old.ip == next.ip, old.accessCode == next.accessCode
+            {
+                link.printer.name = next.name
+                link.snapshot.name = next.displayName
+                if link.failed { redial.append(id) }
+                continue
+            }
+            link.tearDown()
+            links[id] = nil
+            parsedRows[id] = nil
+            waitingOnScan.remove(id)
+            // A new connection: its first rows are not print edges.
+            notify.forget(id)
+            if wanted[id] == nil { removed.append(id) }
+        }
+        forgetPrinters(removed)
+        let status = Dictionary(complete.map { p in
+            let kept = links[p.serial] != nil && !redial.contains(p.serial)
+            return (p.serial, kept ? linkStatus[p.serial] ?? .connecting : LinkStatus.connecting)
+        }) { first, _ in first }
+        if linkStatus != status { linkStatus = status }
         guard !complete.isEmpty else {
             writePrinterFile(PrintDoc(v: 1, printers: []), [:])
             apply(GlanceContent(result: .needsSetup))
             return
         }
-        apply(GlanceContent(result: .connecting))
-        for printer in complete {
+        for printer in complete where links[printer.serial] == nil {
             let id = printer.serial
             let link = Link(printer: printer, mqtt: makeClient())
             link.mqtt.onConnect = { [weak self] in self?.didConnect(id) }
@@ -314,6 +351,36 @@ final class GlanceModel: ObservableObject {
             links[id] = link
             beginConnect(id)
         }
+        for id in redial {
+            guard let link = links[id] else { continue }
+            link.reconnectAttempt = 0
+            waitingOnScan.remove(id)
+            beginConnect(id)
+        }
+        publishSnapshot()
+    }
+
+    /// Removed printers: their pending notices are canceled and what PrintGlance learned about them goes.
+    /// History keeps their ended prints; a print still open would never close, so it goes too.
+    private func forgetPrinters(_ serials: [String]) {
+        guard !serials.isEmpty else { return }
+        var pending: [String] = []
+        for id in serials {
+            pending += comingOff.forget(serial: id)
+            pending.append(PrintNotifyAlert.identifier(.finish, serial: id))
+            notify.forget(id)
+            runout.jobs[id] = nil
+            overrun.forget(id)
+            filament.forget(id)
+            jobLog.forgetOpen(serial: id)
+        }
+        notifier.removePending(pending)
+        comingOff.save(defaults)
+        runout.save(defaults)
+        overrun.save(defaults)
+        filament.save(defaults)
+        jobLog.save(to: jobLogURL)
+        historyRows = jobLog.recent(JobLog.cap)
     }
 
     private func reconnectAfterWake() {
@@ -348,7 +415,8 @@ final class GlanceModel: ObservableObject {
             port: 8883,
             clientID: "pg-app-\(id.suffix(6))-\(Self.instanceTag)",
             username: "bblp",
-            password: printer.accessCode
+            password: printer.accessCode,
+            serial: id
         )
         link.timeout = Task { @MainActor [weak self, connectTimeout] in
             try? await Task.sleep(for: connectTimeout)
@@ -395,12 +463,10 @@ final class GlanceModel: ObservableObject {
     }
 
     private func startAdoptScan() {
-        adoptGeneration &+= 1
-        let generation = adoptGeneration
         lastAdoptScanAt = Date()
         adoptScan = Task { @MainActor [weak self, scan] in
             let hits = await scan()
-            guard let self, !Task.isCancelled, generation == self.adoptGeneration else { return }
+            guard let self else { return }
             self.adoptScan = nil
             self.finishAdoptScan(hits: hits)
         }
@@ -415,7 +481,7 @@ final class GlanceModel: ObservableObject {
             guard let link = links[serial], link.failed, !link.authRejected, link.candidateIP == nil else {
                 continue
             }
-            if formBlocksRediscover(serial) { continue }
+            if serial == rediscoverPausedSerial { continue }
             link.candidateIP = ip
             var printer = link.printer
             printer.ip = ip
@@ -431,29 +497,8 @@ final class GlanceModel: ObservableObject {
         }
     }
 
-    private func cancelAdoptScan() {
-        adoptGeneration &+= 1
-        adoptScan?.cancel()
-        adoptScan = nil
-        waitingOnScan = []
-    }
-
-    private func formBlocksRediscover(_ serial: String) -> Bool {
-        guard let paused = rediscoverPausedSerial?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !paused.isEmpty
-        else { return false }
-        return paused.caseInsensitiveCompare(
-            serial.trimmingCharacters(in: .whitespacesAndNewlines)
-        ) == .orderedSame
-    }
-
     private func savedPrinter(serial: String) -> PrinterSettings? {
-        let key = serial.trimmingCharacters(in: .whitespacesAndNewlines)
-        return settings.printers.first {
-            $0.serial.trimmingCharacters(in: .whitespacesAndNewlines)
-                .caseInsensitiveCompare(key) == .orderedSame
-        }
+        settings.printers.first { $0.serial == serial }
     }
 
     private func revertCandidate(_ id: String) {
@@ -483,7 +528,6 @@ final class GlanceModel: ObservableObject {
         link.connectedAt = Date()
         link.authRejected = false
         commitCandidate(id)
-        setLink(id, .connected)
         log("connected \(id)")
         link.mqtt.subscribe("device/\(id)/report")
         let body = Data(#"{"pushing":{"command":"pushall","sequence_id":"0"}}"#.utf8)
@@ -520,14 +564,22 @@ final class GlanceModel: ObservableObject {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
+        // Connected once the printer talks, not at CONNACK: the access code alone gets a CONNACK, and a
+        // serial that isn't the printer's subscribes to a topic it never sends on.
+        setLink(id, .connected)
         link.snapshot.ingest(obj)
-        publishSnapshot()
+        publishSnapshot(reported: id)
     }
 
-    private func publishSnapshot() {
+    /// One pass from the snapshots to `content` and its side effects, all on one clock. `reported` is the
+    /// printer whose report started the pass: only its row is built again, and the others are reused until the
+    /// 5-second tick, which rebuilds every row so a silent printer goes Offline and finish times move on time.
+    private func publishSnapshot(reported: String? = nil) {
+        let now = Date()
         let complete = settings.printers.filter(\.isComplete)
         guard !complete.isEmpty else {
-            apply(GlanceContent(result: .needsSetup))
+            parsedRows = [:]
+            apply(GlanceContent(result: .needsSetup), now: now)
             return
         }
         let snaps = Dictionary(uniqueKeysWithValues: links.map { ($0.key, $0.value.snapshot) })
@@ -535,80 +587,78 @@ final class GlanceModel: ObservableObject {
             var doc = BambuSnapshot.fleetDoc(
                 printers: complete,
                 snapshots: snaps,
-                focusId: settings.focusId
+                focusId: settings.focusId,
+                now: now,
+                reusing: reported.map { id in parsedRows.filter { $0.key != id } } ?? [:]
             )
+            parsedRows = Dictionary(doc.printers.map { ($0.id, $0) }) { first, _ in first }
             // First, so everything after it sees when the printer should really report Finished.
             let lateBefore = overrun.late
             for i in doc.printers.indices {
-                overrun.observe(&doc.printers[i])
+                overrun.observe(&doc.printers[i], now: now)
             }
             if overrun.late != lateBefore {
                 overrun.save(defaults)
             }
             let runoutBefore = runout
             for i in doc.printers.indices {
-                doc.printers[i].runout = runout.observe(doc.printers[i])
+                doc.printers[i].runout = runout.observe(doc.printers[i], now: now)
             }
             let rowsBefore = jobLog.rows
-            jobLog.observe(printers: doc.printers)
+            jobLog.observe(printers: doc.printers, now: now)
             if jobLog.rows != rowsBefore {
                 jobLog.save(to: jobLogURL)
                 historyRows = jobLog.recent(JobLog.cap)
             }
-            writePrinterFile(doc, snaps)
+            writePrinterFile(doc, snaps, now: now)
             let comingOffBefore = comingOff
             for row in doc.printers {
-                if let action = comingOff.consider(printer: row, prefs: notifyPrefs) {
+                if let action = comingOff.consider(printer: row, prefs: notifyPrefs, now: now) {
                     deliverComingOff(action, serial: row.id)
                 }
             }
             if comingOff != comingOffBefore {
                 comingOff.save(defaults)
             }
-            apply(GlanceContent(result: .doc(doc)))
+            apply(GlanceContent(result: .doc(doc)), now: now)
             syncOccupancyClock()
-            for row in doc.printers {
-                guard let snap = snaps[row.id] else { continue }
-                let fil = BambuPrint.activeFilament(snap.printObj)
-                if let notice = filament.consider(
-                    serial: row.id,
-                    name: row.name,
-                    state: row.state,
-                    filament: fil.type,
-                    tray: fil.tray,
-                    remain: fil.remain,
-                    taskId: BambuPrint.jobIdentity(snap.printObj),
-                    enabled: notifyPrefs.lowFilament
-                ) {
-                    post(id: notice.identifier, title: notice.title, body: notice.body, serial: row.id)
+            let filamentBefore = filament
+            for row in doc.printers where notifyPrefs.lowFilament {
+                if let notice = filament.consider(row) {
+                    post(id: notice.identifier, title: notice.title, subtitle: notice.subtitle, body: notice.body, serial: row.id)
                 }
-                if let r = row.runout, notifyPrefs.lowFilament, runout.shouldNotify(serial: row.id, runout: r) {
+                if let r = row.runout, runout.shouldNotify(serial: row.id, runout: r) {
                     post(
                         id: "runout.\(row.id).\(row.jobId ?? "").\(r.tray ?? "")",
-                        title: "Filament may run out",
-                        body: "\(row.name): \(GlanceContent.runoutLine(r))",
+                        title: "\(row.name) may run out of filament",
+                        subtitle: row.job ?? "",
+                        body: GlanceContent.runoutLine(r),
                         serial: row.id
                     )
                 }
+            }
+            if filament != filamentBefore {
+                filament.save(defaults)
             }
             if runout != runoutBefore {
                 runout.save(defaults)
             }
             return
         }
+        parsedRows = [:]
         if links.values.contains(where: { !$0.failed }) {
-            apply(GlanceContent(result: .connecting))
+            apply(GlanceContent(result: .connecting), now: now)
         } else {
-            apply(GlanceContent(result: .feedDown))
+            apply(GlanceContent(result: .feedDown), now: now)
         }
     }
 
     /// Hands the printers to other apps on this Mac. Rows stay equal between reports, so this writes about once a
     /// minute while printing and not at all while idle.
-    private func writePrinterFile(_ doc: PrintDoc, _ snaps: [String: BambuSnapshot]) {
+    private func writePrinterFile(_ doc: PrintDoc, _ snaps: [String: BambuSnapshot], now: Date = Date()) {
         if let last = printerFileInput, last.0 == doc.printers, last.1 == jobLog.rows { return }
         printerFileInput = (doc.printers, jobLog.rows)
-        PrinterFile.make(doc: doc, reports: snaps.mapValues(\.printObj), history: jobLog.rows)
+        PrinterFile.make(doc: doc, reports: snaps.mapValues(\.printObj), history: jobLog.rows, now: now)
             .save(to: PrinterFile.url(besideHistory: jobLogURL))
     }
 
@@ -646,14 +696,9 @@ final class GlanceModel: ObservableObject {
         return id.flatMap { reason(linkStatus[$0]) } ?? linkStatus.values.lazy.compactMap(reason).first
     }
 
-    private func apply(_ next: GlanceContent) {
+    private func apply(_ next: GlanceContent, now: Date = Date()) {
         if content != next {
-            let stampsBefore = notify.stamps
-            let outcome = notify.observe(next)
-            if notify.stamps != stampsBefore {
-                notify.persistStamp(defaults)
-            }
-            deliver(outcome)
+            deliver(notify.observe(next), now: now)
             content = next
         }
         if case .doc = next.result {
@@ -698,18 +743,21 @@ final class GlanceModel: ObservableObject {
         }
     }
 
-    private func deliver(_ outcome: PrintNotifyOutcome) {
+    private func deliver(_ outcome: PrintNotifyOutcome, now: Date) {
         if outcome.requestPermission {
             requestNotificationPermission()
         }
         if !outcome.clears.isEmpty {
             notifier.removeDelivered(outcome.clears)
         }
+        if !outcome.unsent.isEmpty {
+            notifier.removePending(outcome.unsent)
+        }
         for alert in outcome.alerts {
             if alert.kind == .offline, !PrintNotify.offlineAlertAllowed(
                 macOnline: macOnline,
                 networkChangedAt: networkChangedAt,
-                now: Date()
+                now: now
             ) {
                 log("skipped lost connection alert \(alert.serial): this Mac's network")
                 continue
@@ -720,14 +768,13 @@ final class GlanceModel: ObservableObject {
                 subtitle: alert.subtitle,
                 body: alert.body,
                 serial: alert.serial,
-                trigger: finishTrigger(alert)
+                trigger: finishTrigger(alert, now: now)
             )
         }
     }
 
-    private func finishTrigger(_ alert: PrintNotifyAlert) -> UNNotificationTrigger? {
+    private func finishTrigger(_ alert: PrintNotifyAlert, now: Date) -> UNNotificationTrigger? {
         guard alert.kind == .finish, notifyPrefs.quietHours else { return nil }
-        let now = Date()
         guard QuietHours.contains(now) else { return nil }
         let fire = QuietHours.nextMorning(from: now)
         let comps = Calendar.current.dateComponents(

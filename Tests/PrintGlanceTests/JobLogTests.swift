@@ -295,6 +295,16 @@ final class JobLogTests: XCTestCase {
         XCTAssertTrue(GlanceContent.clearHistoryMessage(cleared: 3, running: 2).hasSuffix(" The prints in progress stay."))
     }
 
+    /// The printer paused while PrintGlance couldn't reach it: the pause still happened while printing.
+    func testAPauseSeenAfterAReconnectCountsOnce() {
+        var log = JobLog()
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        for (i, state) in ["RUNNING", "OFFLINE", "PAUSE", "OFFLINE", "PAUSE"].enumerated() {
+            log.observe(printers: [row(state, jobId: "t1")], now: t0.addingTimeInterval(Double(i) * 60))
+        }
+        XCTAssertEqual(log.rows.first?.pauses?.count, 1)
+    }
+
     private func row(_ state: String, jobId: String?, job: String? = "Print in Parts") -> Printer {
         Printer(id: "x2d", name: "X2D", state: state, percent: 16, job: job, jobId: jobId)
     }

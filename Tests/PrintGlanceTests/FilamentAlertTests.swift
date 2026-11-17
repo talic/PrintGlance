@@ -2,19 +2,6 @@ import XCTest
 @testable import PrintGlance
 
 final class FilamentAlertTests: XCTestCase {
-    func testLowFilamentOffSendsNothingAndOnStillFires() {
-        var alert = FilamentAlert()
-        func low(_ enabled: Bool) -> FilamentAlert.Notice? {
-            alert.consider(
-                serial: "x2d", name: "X2D", state: "RUNNING", filament: "PLA",
-                tray: 0, remain: 5, taskId: "t1", enabled: enabled
-            )
-        }
-        XCTAssertNil(low(false))
-        XCTAssertEqual(low(true)?.title, "Low filament", "turning it on during the print still warns once")
-        XCTAssertNil(low(true))
-    }
-
     func testLowFilamentWarning() {
         let unknown = BambuPrint.activeFilament(
             ams(now: 1, trays: [(0, "ABS", 5), (1, "PLA", -1)])
@@ -37,59 +24,18 @@ final class FilamentAlertTests: XCTestCase {
         XCTAssertEqual(ext.tray, 254)
 
         var alert = FilamentAlert()
-        let unused = BambuPrint.activeFilament(
-            ams(now: 1, trays: [(0, "ABS", 5), (1, "PLA", 42)])
-        )
-        XCTAssertEqual(unused.tray, 1)
-        XCTAssertEqual(unused.remain, 42)
-        XCTAssertNil(
-            alert.consider(
-                serial: "x2d",
-                name: "X2D",
-                state: "RUNNING",
-                filament: unused.type,
-                tray: unused.tray,
-                remain: unused.remain,
-                taskId: "task-1"
-            )
-        )
+        XCTAssertNil(alert.consider(spool("PLA", 42, slot: "A2")), "42% is plenty")
+        XCTAssertNil(alert.consider(spool("PLA", nil, slot: "A2")), "no reading")
+        XCTAssertNil(alert.consider(spool("PETG", 15, slot: "External", state: "PAUSE")), "only while starting or printing")
 
-        XCTAssertNil(
-            alert.consider(
-                serial: "x2d",
-                name: "X2D",
-                state: "RUNNING",
-                filament: unknown.type,
-                tray: unknown.tray,
-                remain: unknown.remain,
-                taskId: "task-1"
-            )
-        )
-
-        let first = alert.consider(
-            serial: "x2d",
-            name: "X2D",
-            state: "RUNNING",
-            filament: ext.type,
-            tray: ext.tray,
-            remain: ext.remain,
-            taskId: "task-1"
-        )
-        XCTAssertEqual(first?.title, "Low filament")
-        XCTAssertEqual(first?.body, "X2D is using PETG at 15%.")
-        XCTAssertEqual(first?.identifier, "filament.x2d|254|task-1")
-
-        XCTAssertNil(
-            alert.consider(
-                serial: "x2d",
-                name: "X2D",
-                state: "RUNNING",
-                filament: ext.type,
-                tray: ext.tray,
-                remain: 10,
-                taskId: "task-1"
-            )
-        )
+        let first = alert.consider(spool("PETG", 15, slot: "External"))
+        XCTAssertEqual(first?.title, "X2D low on filament", "the printer first, like the other notices")
+        XCTAssertEqual(first?.subtitle, "Benchy")
+        XCTAssertEqual(first?.body, "PETG in External is at 15%.")
+        XCTAssertEqual(first?.identifier, "filament.x2d|External|task-1")
+        XCTAssertNil(alert.consider(spool("PETG", 10, slot: "External")), "once per slot and print")
+        XCTAssertEqual(alert.consider(spool("PLA", 12, slot: nil))?.body, "PLA is at 12%.")
+        XCTAssertNotNil(alert.consider(spool("PETG", 10, slot: "External", job: "task-2")), "the next print warns again")
 
         XCTAssertEqual(
             BambuPrint.jobIdentity(["subtask_id": "sub-9"]),
@@ -98,6 +44,35 @@ final class FilamentAlertTests: XCTestCase {
         XCTAssertEqual(
             BambuPrint.jobIdentity(["task_id": "task-1", "subtask_id": "sub-9"]),
             "task-1"
+        )
+    }
+
+    /// Saved, so a relaunch mid-print doesn't send it again.
+    func testLowFilamentNoticeSurvivesARelaunch() throws {
+        let name = "PrintGlance.filament.\(UUID().uuidString)"
+        let d = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { d.removePersistentDomain(forName: name) }
+        var alert = FilamentAlert()
+        XCTAssertNotNil(alert.consider(spool("PLA", 15, slot: "A1")))
+        alert.save(d)
+        var relaunched = FilamentAlert.load(d)
+        XCTAssertNil(relaunched.consider(spool("PLA", 14, slot: "A1")))
+        relaunched.forget("x2d")
+        XCTAssertNotNil(relaunched.consider(spool("PLA", 14, slot: "A1")), "a removed printer's notices go")
+    }
+
+    func testHistoryListsEachFilamentOnce() {
+        XCTAssertEqual(JobLog.adding("PLA Basic", to: nil), "PLA Basic")
+        XCTAssertEqual(JobLog.adding("PETG HF", to: "PLA Basic"), "PLA Basic, PETG HF")
+        XCTAssertEqual(JobLog.adding("PLA Basic", to: "PLA Basic, PETG HF"), "PLA Basic, PETG HF")
+    }
+
+    private func spool(
+        _ filament: String?, _ remain: Int?, slot: String?, state: String = "RUNNING", job: String = "task-1"
+    ) -> Printer {
+        Printer(
+            id: "x2d", name: "X2D", state: state, job: "Benchy", filament: filament, filamentRemain: remain,
+            filamentSlot: slot, jobId: job
         )
     }
 

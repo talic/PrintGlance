@@ -5,6 +5,7 @@ struct JobLogRow: Codable, Equatable, Sendable, Identifiable {
     var name: String
     var jobId: String
     var job: String?
+    /// Every filament the print used, comma-separated, in the order each first fed.
     var filament: String?
     var startAt: Date
     var endedAt: Date?
@@ -32,8 +33,9 @@ struct JobLog {
     var rows: [JobLogRow] = []
     /// Process-local. Not written to disk.
     var hadTimed: [String: Bool] = [:]
-    /// Each printer's last state, process-local, so a pause counts once and a relaunch doesn't recount it.
-    var lastState: [String: String] = [:]
+    /// Each printer's last state it reported, process-local, so a pause counts once and a relaunch doesn't
+    /// recount it. Offline isn't one: a pause seen right after a reconnect happened while printing.
+    var lastState: [String: PrintState] = [:]
 
     static func fileURL() -> URL {
         let fm = FileManager.default
@@ -71,12 +73,19 @@ struct JobLog {
         rows.removeAll { !$0.isOpen }
     }
 
+    /// A removed printer's print in progress, which would otherwise stay open for good.
+    mutating func forgetOpen(serial: String) {
+        rows.removeAll { $0.serial == serial && $0.isOpen }
+        hadTimed[serial] = nil
+        lastState[serial] = nil
+    }
+
     func recent(_ n: Int) -> [JobLogRow] {
         Array(rows.prefix(n))
     }
 
     func occupancyEndedAt(serial: String, state: String, jobId: String?) -> Date? {
-        guard state.uppercased() == "FINISH" else { return nil }
+        guard PrintState(state) == .finished else { return nil }
         let id = jobId ?? ""
         return rows.first { row in
             row.serial == serial
@@ -114,12 +123,12 @@ struct JobLog {
     }
 
     private mutating func observeOne(_ printer: Printer, now: Date) {
-        let next = printer.state.uppercased()
+        let next = printer.printState
         let jobId = printer.jobId ?? ""
         let prev = lastState[printer.id]
-        lastState[printer.id] = next
+        if next != .offline { lastState[printer.id] = next }
         switch next {
-        case "RUNNING", "PREPARE":
+        case .printing, .starting:
             hadTimed[printer.id] = true
             if let i = openIndex(serial: printer.id),
                !rows[i].jobId.isEmpty, !jobId.isEmpty, rows[i].jobId != jobId
@@ -127,7 +136,7 @@ struct JobLog {
                 rows[i].outcome = Self.outcomeOK
             }
             openOrUpdate(printer, jobId: jobId, now: now)
-        case "FINISH":
+        case .finished:
             close(
                 serial: printer.id,
                 jobId: jobId,
@@ -136,11 +145,11 @@ struct JobLog {
                 live: hadTimed[printer.id] == true
             )
             hadTimed[printer.id] = false
-        case "PAUSE":
-            if prev == "RUNNING" || prev == "PREPARE", let i = openIndex(serial: printer.id, jobId: jobId) {
+        case .paused:
+            if prev?.isActive == true, let i = openIndex(serial: printer.id, jobId: jobId) {
                 rows[i].pauses = (rows[i].pauses ?? []) + [GlanceContent.leadErrorCode(printer) ?? ""]
             }
-        case "FAILED":
+        case .failed:
             close(
                 serial: printer.id,
                 jobId: jobId,
@@ -150,7 +159,7 @@ struct JobLog {
                 failCode: GlanceContent.leadErrorCode(printer)
             )
             hadTimed[printer.id] = false
-        case "IDLE":
+        case .idle:
             close(
                 serial: printer.id,
                 jobId: jobId,
@@ -170,7 +179,7 @@ struct JobLog {
                 rows[i].jobId = jobId
             }
             if let job = printer.job, !job.isEmpty { rows[i].job = job }
-            if let fil = printer.filament, !fil.isEmpty { rows[i].filament = fil }
+            if let fil = printer.filament, !fil.isEmpty { rows[i].filament = Self.adding(fil, to: rows[i].filament) }
             rows[i].name = printer.name
             return
         }
@@ -187,6 +196,13 @@ struct JobLog {
             ),
             at: 0
         )
+    }
+
+    /// Each filament a print used, in the order it first fed: "PLA Basic, PETG HF". A multi-color print
+    /// changes spools many times; the list changes only when a new filament feeds.
+    static func adding(_ filament: String, to list: String?) -> String {
+        guard let list, !list.isEmpty else { return filament }
+        return list.components(separatedBy: ", ").contains(filament) ? list : "\(list), \(filament)"
     }
 
     private func openIndex(serial: String, jobId: String? = nil) -> Int? {

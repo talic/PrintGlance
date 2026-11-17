@@ -1,45 +1,48 @@
 import Foundation
 
-/// One low-filament notice per printer, tray, and task while starting or printing.
-struct FilamentAlert {
+/// One low-filament notice per printer, slot, and print while starting or printing. Saved, so a relaunch
+/// mid-print doesn't send it again.
+struct FilamentAlert: Codable, Equatable {
     static let thresholdPercent = 20
+    static let defaultsKey = "pg.filament"
 
     struct Notice: Equatable, Sendable {
         var title: String
+        var subtitle: String
         var body: String
         var identifier: String
     }
 
+    /// `serial|slot|job` for each notice sent.
     private var fired: Set<String> = []
 
-    mutating func consider(
-        serial: String,
-        name: String,
-        state: String,
-        filament: String?,
-        tray: Int?,
-        remain: Int?,
-        taskId: String?,
-        enabled: Bool = true
-    ) -> Notice? {
-        guard enabled else { return nil }
-        switch state.uppercased() {
-        case "RUNNING", "PREPARE":
-            break
-        default:
-            return nil
-        }
-        guard let tray, let remain, remain < Self.thresholdPercent else { return nil }
-        let task = taskId ?? ""
-        let key = "\(serial)|\(tray)|\(task)"
-        if fired.contains(key) { return nil }
-        fired.insert(key)
-        let trimmed = filament?.trimmingCharacters(in: .whitespaces) ?? ""
-        let material = trimmed.isEmpty ? "filament" : trimmed
-        let who = name.isEmpty ? "Printer" : name
+    static func load(_ d: UserDefaults) -> FilamentAlert {
+        d.data(forKey: defaultsKey).flatMap { try? JSONDecoder().decode(FilamentAlert.self, from: $0) } ?? FilamentAlert()
+    }
+
+    func save(_ d: UserDefaults) {
+        d.set(try? JSONEncoder().encode(self), forKey: Self.defaultsKey)
+    }
+
+    mutating func forget(_ serial: String) {
+        fired = fired.filter { !$0.hasPrefix("\(serial)|") }
+    }
+
+    /// The spool in use under 20%: "X2D low on filament", the job, then "PLA Matte in A2 is at 15%."
+    mutating func consider(_ row: Printer) -> Notice? {
+        guard row.printState.isActive else { return nil }
+        let job = row.jobId ?? ""
+        // This printer's earlier prints are done with.
+        fired = fired.filter { !$0.hasPrefix("\(row.id)|") || $0.hasSuffix("|\(job)") }
+        guard let remain = row.filamentRemain, remain < Self.thresholdPercent else { return nil }
+        let key = "\(row.id)|\(row.filamentSlot ?? "")|\(job)"
+        guard fired.insert(key).inserted else { return nil }
+        let material = row.filament.flatMap { $0.isEmpty ? nil : $0 } ?? "Filament"
+        let what = [material, row.filamentSlot.map { "in \($0)" }].compactMap { $0 }.joined(separator: " ")
         return Notice(
-            title: "Low filament",
-            body: "\(who) is using \(material) at \(remain)%.",
+            title: "\(row.name.isEmpty ? "Printer" : row.name) low on filament",
+            subtitle: row.job ?? "",
+            body: "\(what) is at \(remain)%.",
             identifier: "filament.\(key)"
         )
     }
@@ -229,11 +232,11 @@ struct RunoutTracker: Codable, Equatable {
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> Runout? {
-        let state = row.state.uppercased()
+        let state = row.printState
         switch state {
-        case "RUNNING", "PAUSE":
+        case .printing, .paused:
             break
-        case "FINISH", "FAILED", "IDLE":
+        case .finished, .failed, .idle:
             jobs[row.id] = nil
             return nil
         default:
@@ -242,7 +245,7 @@ struct RunoutTracker: Codable, Equatable {
         }
         guard let jobId = row.jobId, let percent = row.percent else { return nil }
         var job = jobs[row.id].flatMap { $0.id == jobId ? $0 : nil } ?? Job(id: jobId)
-        if state == "RUNNING" {
+        if state == .printing {
             if job.pace == nil { job.pace = Pace(percent: percent, now: now) }
             job.pace?.printing(percent, now: now)
         } else {
@@ -298,7 +301,7 @@ struct RunoutTracker: Codable, Equatable {
                 $0.id != best.tray.id && $0.unit != nil && $0.name == name && $0.color == color
             }?.label
         }
-        if state == "RUNNING" {
+        if state == .printing {
             let s = (best.out - p) * pace
             if s < 300 {
                 runout.soon = true

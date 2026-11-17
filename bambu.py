@@ -206,6 +206,18 @@ def eta_hm(state: str, remaining_s: int | None) -> str | None:
     return t.strftime("%H:%M")
 
 
+def is_start_sequence(raw: str, print_obj: dict[str, Any]) -> bool:
+    """Printers heat, level and calibrate under RUNNING with the layer still 0 and `stg_cur` naming the stage
+    (0 is printing). Like BambuPrint.isStartSequence, that is PREPARE (Starting); a stage after layer 0, such as
+    a filament change, is printing."""
+    if raw != "RUNNING":
+        return False
+    stage = _int_or_none(print_obj.get("stg_cur"))
+    if stage is None or stage == 0:
+        return False
+    return (_int_or_none(print_obj.get("layer_num")) or 0) == 0
+
+
 def printer_row(
     printer_id: str,
     name: str,
@@ -216,6 +228,8 @@ def printer_row(
     raw = str(print_obj.get("gcode_state") or "").upper()
     if not online:
         state = "OFFLINE"
+    elif is_start_sequence(raw, print_obj):
+        state = "PREPARE"
     elif raw in KNOWN_STATES:
         state = raw
     elif raw:

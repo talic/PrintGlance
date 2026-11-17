@@ -50,20 +50,34 @@ final class AccessCodeStoreTests: XCTestCase {
     func testChangingIPTouchesOnlyThatRow() {
         let saved = SavedPrinters(
             printers: [
-                PrinterSettings(ip: "192.0.2.10", serial: "aaa", accessCode: "a", name: "A"),
-                PrinterSettings(ip: "192.0.2.11", serial: "bbb", accessCode: "b", name: "B"),
+                PrinterSettings(ip: "192.0.2.10", serial: "AAA", accessCode: "a", name: "A"),
+                PrinterSettings(ip: "192.0.2.11", serial: "BBB", accessCode: "b", name: "B"),
             ],
-            focusId: "bbb"
+            focusId: "BBB"
         )
-        let next = saved.changingIP(serial: "AAA", to: "192.0.2.20")
+        let next = saved.changingIP(serial: " aaa ", to: "192.0.2.20")
         XCTAssertEqual(next?.printers.count, 2)
         XCTAssertEqual(next?.printers[0].ip, "192.0.2.20")
-        XCTAssertEqual(next?.printers[0].serial, "aaa")
+        XCTAssertEqual(next?.printers[0].serial, "AAA")
         XCTAssertEqual(next?.printers[0].accessCode, "a")
         XCTAssertEqual(next?.printers[0].name, "A")
         XCTAssertEqual(next?.printers[1], saved.printers[1])
-        XCTAssertEqual(next?.focusId, "bbb")
+        XCTAssertEqual(next?.focusId, "BBB")
         XCTAssertNil(saved.changingIP(serial: "missing", to: "192.0.2.30"))
-        XCTAssertNil(saved.changingIP(serial: "aaa", to: "192.0.2.10"))
+        XCTAssertNil(saved.changingIP(serial: "AAA", to: "192.0.2.10"))
+    }
+
+    /// MQTT topics are case-sensitive and Bambu's serials are upper case: a serial typed in lower case, or
+    /// saved that way by an older build, is dialed upper case.
+    func testSerialsAreSavedUpperCase() throws {
+        XCTAssertEqual(PrinterSettings(ip: " 192.0.2.10 ", serial: " 20p9aj5b0700123\n", accessCode: "a", name: "").trimmed.serial, "20P9AJ5B0700123")
+        let name = "PrintGlance.prefs.\(UUID().uuidString)"
+        let d = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { d.removePersistentDomain(forName: name) }
+        d.set([["ip": "192.0.2.10", "serial": "20p9aj5b0700123", "name": "", "accessCode": "a"]], forKey: SavedPrinters.printersKey)
+        d.set("20p9aj5b0700123", forKey: SavedPrinters.focusKey)
+        let loaded = SavedPrinters.load(from: d)
+        XCTAssertEqual(loaded.printers.map(\.serial), ["20P9AJ5B0700123"])
+        XCTAssertEqual(loaded.focusId, "20P9AJ5B0700123")
     }
 }

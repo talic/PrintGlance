@@ -63,16 +63,16 @@ struct PrinterFile: Codable, Equatable, Sendable {
     static func make(doc: PrintDoc, reports: [String: [String: Any]], history: [JobLogRow], now: Date = Date()) -> PrinterFile {
         PrinterFile(printers: doc.printers.map { row in
             let report = reports[row.id] ?? [:]
-            let state = row.state.uppercased()
-            let timed = ["PREPARE", "RUNNING", "PAUSE"].contains(state)
+            let state = row.printState
+            let timed = state.isTimed
             let codes = GlanceContent.errorCodes(row)
             // The newest history row for this print.
             let logged = history.first { $0.serial == row.id && row.jobId != nil && $0.jobId == row.jobId }
             return Entry(
                 id: row.id,
                 name: row.name,
-                state: GlanceContent.humanState(row.state),
-                code: state,
+                state: GlanceContent.humanState(state),
+                code: state.raw,
                 stage: row.stage,
                 project: projectName(report),
                 plate: plateNumber(report["gcode_file"]),
@@ -82,7 +82,7 @@ struct PrinterFile: Codable, Equatable, Sendable {
                 remainingS: row.remainingS,
                 finishAt: timed ? row.remainingS.map { minute(now.addingTimeInterval(TimeInterval($0))) } : nil,
                 startedAt: logged?.startAt,
-                endedAt: ["FINISH", "FAILED"].contains(state) ? logged?.endedAt : nil,
+                endedAt: state == .finished || state == .failed ? logged?.endedAt : nil,
                 reason: GlanceContent.errorReason(row),
                 errorCodes: codes.isEmpty ? nil : codes,
                 lastSeen: row.lastSeen,

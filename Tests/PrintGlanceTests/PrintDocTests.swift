@@ -339,15 +339,27 @@ final class PrintDocTests: XCTestCase {
         XCTAssertFalse(SavedPrinters.load(from: d).isComplete)
     }
 
+    func testPrintStateReadsThePrintersWords() {
+        let words = ["PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE"]
+        XCTAssertEqual(words.map { PrintState($0) }, [.starting, .printing, .paused, .finished, .failed, .idle, .offline])
+        XCTAssertEqual(words.map { PrintState($0).raw }, words)
+        XCTAssertEqual(PrintState("running"), .printing)
+        XCTAssertEqual(PrintState("SLICING"), .other("SLICING"))
+        XCTAssertEqual(GlanceContent.humanState(PrintState("SLICING")), "SLICING", "a word PrintGlance doesn't know passes through")
+        XCTAssertEqual([PrintState.starting, .printing, .paused].map(\.isTimed), [true, true, true])
+        XCTAssertEqual([PrintState.finished, .failed, .idle, .offline].map(\.isTimed), [false, false, false, false])
+        XCTAssertFalse(PrintState.paused.isActive)
+    }
+
     func testReplacingOntoExistingSerialDropsTheOtherRow() {
-        let a = PrinterSettings(ip: "192.0.2.10", serial: "aaa", accessCode: "x", name: "Alpha")
-        let b = PrinterSettings(ip: "192.0.2.11", serial: "bbb", accessCode: "y", name: "Beta")
-        let c = PrinterSettings(ip: "192.0.2.12", serial: "ccc", accessCode: "z", name: "Gamma")
+        let a = PrinterSettings(ip: "192.0.2.10", serial: "AAA", accessCode: "x", name: "Alpha")
+        let b = PrinterSettings(ip: "192.0.2.11", serial: "BBB", accessCode: "y", name: "Beta")
+        let c = PrinterSettings(ip: "192.0.2.12", serial: "CCC", accessCode: "z", name: "Gamma")
         var edited = c
         edited.serial = "aaa"
-        let next = SavedPrinters(printers: [a, b, c], focusId: "aaa").replacing(edited, serial: "ccc")
-        XCTAssertEqual(next.printers, [b, edited])
-        XCTAssertEqual(next.focusId, "aaa")
+        let next = SavedPrinters(printers: [a, b, c], focusId: "AAA").replacing(edited, serial: "CCC")
+        XCTAssertEqual(next.printers, [b, edited.trimmed])
+        XCTAssertEqual(next.focusId, "AAA")
     }
 
     func testTwoPrintersBothInDoc() {
@@ -451,6 +463,20 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(at(7 * 24, us), "Aug 29")
         XCTAssertEqual(at(-7 * 24, gb), "15 Aug")
         XCTAssertEqual(spaced(at(-12, us)), "10:00 PM yesterday")
+    }
+
+    /// Formatters are kept per pattern, locale, and time zone, so a changed time zone or clock style isn't
+    /// served the last one's.
+    func testDayTimeKeepsEachTimeZoneAndClockApart() throws {
+        let now = Date(timeIntervalSince1970: 1_787_392_800) // 10:00 GMT
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let gb = Locale(identifier: "en_GB")
+        for _ in 0..<2 {
+            XCTAssertEqual(GlanceContent.dayTime(now, now: now, calendar: gmt, locale: gb), "10:00")
+            XCTAssertEqual(GlanceContent.dayTime(now, now: now, calendar: tokyo, locale: gb), "19:00")
+            XCTAssertEqual(spaced(GlanceContent.dayTime(now, now: now, calendar: gmt, locale: Locale(identifier: "en_US"))), "10:00 AM")
+        }
     }
 
     func testFormatRemainUsesDaysPastADay() {

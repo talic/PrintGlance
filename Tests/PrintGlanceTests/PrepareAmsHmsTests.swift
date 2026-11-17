@@ -155,7 +155,7 @@ final class PrepareAmsHmsTests: XCTestCase {
         let row = BambuPrint.row(id: "x2d", name: "X2D", printObj: printObj, online: true)
         XCTAssertEqual(row.hmsCode, "0300-0000-0100-0001")
 
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         _ = n.observe(GlanceContent(result: .doc(PrintDoc(
             v: 1,
             updatedAt: nil,
@@ -257,7 +257,7 @@ final class PrepareAmsHmsTests: XCTestCase {
     }
 
     func testPauseBodyStartsWithTheReason() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         _ = n.observe(GlanceContent(result: .doc(PrintDoc(
             v: 1,
             updatedAt: nil,
@@ -271,7 +271,7 @@ final class PrepareAmsHmsTests: XCTestCase {
     }
 
     func testFailWithoutHMSUnchanged() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         _ = n.observe(GlanceContent(result: .doc(PrintDoc(
             v: 1,
             updatedAt: nil,

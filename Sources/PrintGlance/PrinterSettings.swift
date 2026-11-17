@@ -61,10 +61,16 @@ struct PrinterSettings: Equatable {
 
     static let empty = PrinterSettings(ip: "", serial: "", accessCode: "", name: "")
 
+    /// Bambu serials are upper case, and MQTT topics are case-sensitive, so a serial typed in lower case would
+    /// subscribe to a topic the printer never sends on. Serials are saved, compared, and dialed in this form.
+    static func normalizedSerial(_ serial: String) -> String {
+        serial.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
     var trimmed: PrinterSettings {
         PrinterSettings(
             ip: ip.trimmingCharacters(in: .whitespacesAndNewlines),
-            serial: serial.trimmingCharacters(in: .whitespacesAndNewlines),
+            serial: Self.normalizedSerial(serial),
             accessCode: accessCode.trimmingCharacters(in: .whitespacesAndNewlines),
             name: name.trimmingCharacters(in: .whitespacesAndNewlines)
         )
@@ -171,11 +177,9 @@ struct SavedPrinters: Equatable {
     /// Returns a copy with only this serial's IP replaced, or nil if that serial is absent or the IP is unchanged.
     func changingIP(serial: String, to ip: String) -> SavedPrinters? {
         let ip = ip.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = serial.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = PrinterSettings.normalizedSerial(serial)
         guard !key.isEmpty, !ip.isEmpty else { return nil }
-        guard let i = printers.firstIndex(where: {
-            $0.serial.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(key) == .orderedSame
-        }) else { return nil }
+        guard let i = printers.firstIndex(where: { $0.serial == key }) else { return nil }
         guard printers[i].ip != ip else { return nil }
         var copy = printers
         copy[i].ip = ip
@@ -198,7 +202,8 @@ struct SavedPrinters: Equatable {
     }
 
     /// 1.1.7 stored the MQTT password in Keychain. Copy it back onto the row
-    /// once, then delete the Keychain item so ad-hoc zips stop prompting.
+    /// once, then delete the Keychain item so ad-hoc zips stop prompting. The item is named by the serial as
+    /// it was saved; the loaded list has serials in `normalizedSerial` form.
     fileprivate func hydratingCodes(from d: UserDefaults) -> SavedPrinters {
         var dirty = false
         let printers = self.printers.map { p -> PrinterSettings in
@@ -208,9 +213,10 @@ struct SavedPrinters: Equatable {
                 AccessCodeStore.delete(p.serial)
                 dirty = true
             }
+            p.serial = PrinterSettings.normalizedSerial(p.serial)
             return p
         }
-        let next = SavedPrinters(printers: printers, focusId: focusId)
+        let next = SavedPrinters(printers: printers, focusId: focusId.map(PrinterSettings.normalizedSerial))
         if dirty {
             next.save(to: d)
         }
