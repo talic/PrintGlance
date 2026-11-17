@@ -72,11 +72,16 @@ struct ComingOffAction: Equatable {
 struct ComingOff: Equatable {
     static let jumpS = 120
     static let listKey = "pg.comingoff.phase"
-    /// Before lead times this key held the remaining time; a notice saved then reschedules once.
-    static let fireInKey = "pg.comingoff.remain"
+    static let fireInKey = "pg.comingoff.fireAt"
+    /// Held the delay from scheduling, which a steady print outran by a minute a minute. Dropped on
+    /// save; a notice saved then has no fire time, so it reschedules once.
+    static let oldFireInKey = "pg.comingoff.remain"
 
     var phase: [String: ComingOffPhase] = [:]
-    /// Seconds from scheduling to the notice. It moves when the remaining time jumps or the lead time changes.
+    /// When the scheduled notice fires, in whole seconds since 1970. It moves when the remaining
+    /// time jumps or the lead time changes.
+    // ponytail: named for the delay it used to hold, kept so #79 merges cleanly; rename it
+    // `scheduledFireAt` once that lands.
     var scheduledFireInS: [String: Int] = [:]
 
     static func notificationId(serial: String, jobId: String) -> String {
@@ -104,6 +109,7 @@ struct ComingOff: Equatable {
             raw[k] = v.rawValue
         }
         d.set(raw, forKey: Self.listKey)
+        d.removeObject(forKey: Self.oldFireInKey)
         d.set(scheduledFireInS, forKey: Self.fireInKey)
     }
 
@@ -216,9 +222,17 @@ struct ComingOff: Equatable {
         let minutes = fireInS > 0 ? prefs.comingOffLead : max(1, (remainingS + 59) / 60)
         let body = "About \(minutes) \(minutes == 1 ? "minute" : "minutes") left."
 
+        // Compared as a date: the delay shrinks with the clock, the fire time doesn't. The printer
+        // counts in whole minutes, so a steady print wobbles by under one. Every lead time is at
+        // least 5 minutes from the next, so changing it moves the date past `jumpS` too.
+        let fireAt = Int(now.timeIntervalSince1970.rounded()) + fireInS
+        let pending = phase[key] == .scheduled ? scheduledFireInS[key] : nil
+
         if fireInS == 0 {
             phase[key] = .done
             scheduledFireInS[key] = nil
+            // The notice already scheduled is due, or came: no second one.
+            if let pending, pending - fireAt <= Self.jumpS { return nil }
             return ComingOffAction(
                 identifier: id,
                 cancelIds: [id],
@@ -230,14 +244,11 @@ struct ComingOff: Equatable {
             )
         }
 
-        if phase[key] == .scheduled {
-            let prev = scheduledFireInS[key] ?? fireInS
-            if abs(prev - fireInS) <= Self.jumpS {
-                return nil
-            }
+        if let pending, abs(pending - fireAt) <= Self.jumpS {
+            return nil
         }
         phase[key] = .scheduled
-        scheduledFireInS[key] = fireInS
+        scheduledFireInS[key] = fireAt
         return ComingOffAction(
             identifier: id,
             cancelIds: [id],
