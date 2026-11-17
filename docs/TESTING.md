@@ -130,7 +130,7 @@ Run these by hand before a release, or when touching the area. Ask the owner bef
 | The 20 s keep-alive ping and "ping timeout" | Too slow for the suite; the code path is small (`MQTT311Client.startPing`). |
 | `PrinterDiscovery.scan` on a real Wi-Fi, including while Bambu Studio holds UDP 2021 | Real multicast sockets. |
 | **Update available** and **Download PrintGlance x.y.z** | `GlanceModel.availableUpdate` is set only from `start()`. `UpdateCheckTests` covers the checker itself. |
-| Installing a real release over `/Applications/PrintGlance.app`, and the quit and reopen | Needs a signed release on GitHub and the installed app. macOS may ask about App Management, and only the real app quits and reopens. |
+| Installing a real release over the app in Applications, and the quit and reopen | Needs a signed release and the running app. Checked by hand on 2026-11-17 on macOS 27.2: a 1.5.90 test build in `/Applications/PrintGlance Test.app`, pointed at a local server, installed a 1.5.91 zip signed with the real key. It kept its name, quit, and reopened within a second. The new copy had no quarantine flag, macOS logged no App Management request, and it reconnected to both printers. Not checked yet: a copy that was quarantined and opened with **Open Anyway**, as real downloads are. |
 | Gatekeeper on the downloaded zip, notarization | `release.yml` checks this for signed builds. |
 | **Clear History…** asks first, and **Cancel** keeps the list | The confirmation is a modal `NSAlert`. `PanelScreenTests` presses the button with a stand-in action; `GlanceModelTests` covers the clearing. |
 
