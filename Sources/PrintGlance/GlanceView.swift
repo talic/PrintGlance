@@ -127,18 +127,27 @@ struct GlanceView: View {
                 Toggle("Print Paused", isOn: $model.notifyPrefs.pause)
                 Toggle("Print Failed", isOn: $model.notifyPrefs.fail)
                 Toggle("Print Finished", isOn: $model.notifyPrefs.finish)
-                Toggle("Print Finishing Soon", isOn: $model.notifyPrefs.comingOff)
-                Picker("Lead Time", selection: $model.notifyPrefs.comingOffLead) {
-                    ForEach(PrintNotifyPrefs.comingOffLeads, id: \.self) { minutes in
-                        Text("\(minutes) Minutes").tag(minutes)
+                Picker(
+                    GlanceContent.finishingSoonTitle(lead: model.notifyPrefs.finishingSoonLead),
+                    selection: $model.notifyPrefs.finishingSoonLead
+                ) {
+                    ForEach(PrintNotifyPrefs.finishingSoonChoices, id: \.self) { lead in
+                        Text(GlanceContent.finishingSoonChoice(lead: lead)).tag(lead)
                     }
                 }
                 .pickerStyle(.menu)
-                .disabled(!model.notifyPrefs.comingOff)
                 Toggle("Lost Connection", isOn: $model.notifyPrefs.offline)
                 Toggle("Low Filament", isOn: $model.notifyPrefs.lowFilament)
                 Divider()
-                Toggle(GlanceContent.quietHoursTitle(), isOn: $model.notifyPrefs.quietHours)
+                Picker(
+                    GlanceContent.quietHoursTitle(model.notifyPrefs.quietWindow),
+                    selection: $model.notifyPrefs.quietWindow
+                ) {
+                    ForEach(PrintNotifyPrefs.quietHoursChoices, id: \.self) { window in
+                        Text(GlanceContent.quietHoursChoice(window)).tag(window)
+                    }
+                }
+                .pickerStyle(.menu)
             }
             Toggle("Open at Login", isOn: $openAtLogin)
             Divider()

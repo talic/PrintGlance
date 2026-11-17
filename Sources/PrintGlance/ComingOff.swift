@@ -1,16 +1,27 @@
 import Foundation
 
-enum QuietHours {
-    static let startHour = 22
-    static let endHour = 7
+/// Nine hours from `startHour` on this Mac's clock: the finished notice waits for the end, and
+/// finishing soon is skipped inside.
+struct QuietHours: Hashable, Sendable {
+    /// 0–23. One of `starts`.
+    var startHour: Int
 
-    static func contains(_ date: Date, calendar: Calendar = .current) -> Bool {
+    static let hours = 9
+    /// The Notifications menu's choices: 9 PM, 10 PM, 11 PM, and midnight.
+    static let starts = [21, 22, 23, 0]
+    static let `default` = QuietHours(startHour: 22)
+
+    /// 7 for a 10 PM start.
+    var endHour: Int { (startHour + Self.hours) % 24 }
+
+    func contains(_ date: Date, calendar: Calendar = .current) -> Bool {
         let hour = calendar.component(.hour, from: date)
+        if startHour < endHour { return hour >= startHour && hour < endHour }
         return hour >= startHour || hour < endHour
     }
 
-    /// Next 7 AM local on or after `date`. If `date` is before 7 AM, that morning.
-    static func nextMorning(from date: Date, calendar: Calendar = .current) -> Date {
+    /// Next `endHour`:00 local on or after `date`. If `date` is before `endHour`, that morning.
+    func nextMorning(from date: Date, calendar: Calendar = .current) -> Date {
         var comps = calendar.dateComponents([.year, .month, .day], from: date)
         comps.hour = endHour
         comps.minute = 0
@@ -160,7 +171,7 @@ struct ComingOff: Equatable {
         if phase[key] == .done { return nil }
 
         let fireInS = max(0, remainingS - prefs.comingOffLead * 60)
-        if prefs.quietHours, QuietHours.contains(now.addingTimeInterval(TimeInterval(fireInS)), calendar: calendar) {
+        if let quiet = prefs.quietWindow, quiet.contains(now.addingTimeInterval(TimeInterval(fireInS)), calendar: calendar) {
             phase[key] = .done
             scheduledFireInS[key] = nil
             return ComingOffAction.cancelOnly(id)

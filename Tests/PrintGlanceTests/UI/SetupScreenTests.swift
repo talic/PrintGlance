@@ -36,7 +36,7 @@ final class SetupScreenTests: XCTestCase {
             "Garage P1S, P1S · 192.0.2.20",
             "Office X1C, X1 Carbon · 192.0.2.21, Added",
             "A1 mini, 192.0.2.22",
-            "Enter IP and serial instead",
+            "Printer not listed?",
             "Access code",
             "Name",
             "Cancel",
@@ -111,14 +111,46 @@ final class SetupScreenTests: XCTestCase {
         XCTAssertTrue(try s.control("Try Again").enabled)
     }
 
-    func testEditOffersRemoveAndSave() throws {
-        let f = SetupFlow(mode: .edit(serial: "00M09A350100123"), saved: saved)
+    func testPrinterNotListedOpensIPAndSerialUnderTheList() throws {
+        let f = SetupFlow(mode: .add, saved: saved)
+        f.found = [garage]
         let s = try screen(f)
-        XCTAssertEqual(try s.control("IP address").value, "192.0.2.21")
+        XCTAssertNil(s.find("IP address"), "folded while the list has printers")
+        try s.press("Printer not listed?")
+        XCTAssertTrue(f.manual)
+        XCTAssertEqual(s.controls.map(\.label), [
+            "Search Again",
+            "Garage P1S, P1S · 192.0.2.20",
+            "Printer not listed?",
+            "IP address",
+            "Serial number",
+            "Access code",
+            "Name",
+            "Cancel",
+            "Connect",
+        ])
+    }
+
+    /// Edit is for the access code and IP: no search, no list to swap the printer for another, and the
+    /// serial can't be typed over.
+    func testEditStartsWithTheAccessCodeAndShowsTheSerial() throws {
+        let f = SetupFlow(mode: .edit(serial: "00M09A350100123"), saved: saved)
+        f.found = [garage, office]
+        let s = try screen(f)
+        XCTAssertEqual(s.controls.map(\.label), ["Access code", "Name", "IP address", "Remove…", "Cancel", "Save"])
+        XCTAssertEqual(s.texts, [
+            "Update the access code or IP address. On the printer, open Settings, then LAN or Network.",
+            "00M09A350100123",
+        ])
         XCTAssertEqual(try s.control("Access code").value, "12345678")
+        XCTAssertEqual(try s.control("Name").value, "Office X1C")
+        XCTAssertEqual(try s.control("IP address").value, "192.0.2.21")
         XCTAssertTrue(try s.control("Remove…").enabled)
         XCTAssertTrue(try s.control("Save").enabled)
-        XCTAssertNil(s.find("Connect"))
+
+        try s.type("1234", into: "Access code")
+        XCTAssertTrue(s.has("Access codes are usually 8 characters."))
+        XCTAssertEqual(f.draft.serial, "00M09A350100123")
     }
 
     func testCancelCloses() throws {

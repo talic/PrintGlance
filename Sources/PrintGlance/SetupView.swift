@@ -26,8 +26,8 @@ final class SetupFlow: ObservableObject {
     @Published var draft: PrinterSettings
     @Published var found: [PrinterDiscovery.Hit] = []
     @Published var scanning = false
-    /// "Enter IP and serial instead" is open.
-    @Published var manual: Bool
+    /// "Printer not listed?" is open. Adding only.
+    @Published var manual = false
     @Published var phase = Phase.form
     @Published var openAtLogin = true
     @Published var loginNeedsApproval = false
@@ -57,7 +57,6 @@ final class SetupFlow: ObservableObject {
             model?.setRediscoverPausedSerial(serial)
         }
         self.draft = draft
-        manual = mode != .add
     }
 
     var title: String {
@@ -67,6 +66,17 @@ final class SetupFlow: ObservableObject {
     var editingSerial: String? {
         if case let .edit(serial) = mode { return serial }
         return nil
+    }
+
+    var intro: String {
+        editingSerial == nil
+            ? "Pick your printer, then enter its access code. On the printer, open Settings, then LAN or Network."
+            : "Update the access code or IP address. On the printer, open Settings, then LAN or Network."
+    }
+
+    /// The window opened. Adding searches the Wi-Fi; editing already knows its printer.
+    func opened() {
+        if editingSerial == nil { scan() }
     }
 
     func scan() {
@@ -240,12 +250,17 @@ struct SetupView: View {
                 welcome
             } else {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Pick your printer, then enter its access code. On the printer, open Settings, then LAN or Network.")
+                    Text(flow.intro)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Group {
-                        foundList
-                        fields
+                        if flow.editingSerial == nil {
+                            printerPicker
+                            Divider()
+                            codeAndName
+                        } else {
+                            editFields
+                        }
                     }
                     .disabled(flow.phase == .connecting)
                     status
@@ -315,7 +330,8 @@ struct SetupView: View {
         }
     }
 
-    private var foundList: some View {
+    /// The printer: one found on the Wi-Fi, or its IP and serial typed under "Printer not listed?".
+    private var printerPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Printers on this Wi-Fi")
@@ -342,6 +358,16 @@ struct SetupView: View {
             } else if !flow.scanning {
                 Text("No printers found on this Wi-Fi.")
                     .foregroundStyle(.secondary)
+            }
+            // The fields sit below the group, not in it: a disclosure group clips its content, and that
+            // cut off the fields' right edge.
+            DisclosureGroup("Printer not listed?", isExpanded: $flow.manual) {}
+            if flow.manual {
+                VStack(alignment: .leading, spacing: 8) {
+                    field("IP address", $flow.draft.ip)
+                    field("Serial number", $flow.draft.serial)
+                }
+                .padding(.top, 2)
             }
         }
     }
@@ -379,23 +405,40 @@ struct SetupView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var fields: some View {
+    private var codeAndName: some View {
         VStack(alignment: .leading, spacing: 8) {
-            DisclosureGroup("Enter IP and serial instead", isExpanded: $flow.manual) {
-                VStack(alignment: .leading, spacing: 8) {
-                    field("IP address", $flow.draft.ip)
-                    field("Serial number", $flow.draft.serial)
-                }
-                .padding(.top, 4)
-            }
-            field("Access code", $flow.draft.accessCode, monospaced: true)
-            if let hint = SetupFlow.codeHint(flow.draft.accessCode) {
-                Text(hint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, Self.labelWidth + 8)
-            }
+            accessCode
             field("Name", $flow.draft.name, prompt: "Optional")
+        }
+    }
+
+    /// The access code first: it's why people open Edit. The serial can't change, or it would be another printer.
+    private var editFields: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            accessCode
+            field("Name", $flow.draft.name, prompt: "Optional")
+            field("IP address", $flow.draft.ip)
+            HStack(spacing: 8) {
+                Text("Serial number")
+                    .frame(width: Self.labelWidth, alignment: .trailing)
+                    .accessibilityHidden(true)
+                Text(flow.draft.serial)
+                    .font(.body.monospaced())
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Serial number")
+                    .accessibilityValue(flow.draft.serial)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var accessCode: some View {
+        field("Access code", $flow.draft.accessCode, monospaced: true)
+        if let hint = SetupFlow.codeHint(flow.draft.accessCode) {
+            Text(hint)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.leading, Self.labelWidth + 8)
         }
     }
 

@@ -69,11 +69,11 @@ The **Add Printer** window opens the first time you open PrintGlance, and whenev
 
 PrintGlance waits for the printer to answer. When the window shows **Connected**, the printer is set up. After your first printer, the window says PrintGlance is in your menu bar and offers **Open at login**, which starts turned on. Click **Done**. When macOS asks to send notifications, click **Allow**.
 
-If your printer is not in the list, click **Search Again**. If it still does not appear, click **Enter IP and serial instead**, then type the IP address and serial number from the printer.
+If your printer is not in the list, click **Search Again**. If it still does not appear, click **Printer not listed?** under the list, then type the IP address and serial number from the printer.
 
 If the printer does not connect, the window says why, such as **The access code was rejected.** Fix the entry and click **Try Again**. To leave without adding the printer, click **Cancel**.
 
-To change a printer's access code or IP address later, click **…** and choose **Edit** followed by the printer's name. To remove it, click **Remove…** in that window. If the printer rejects its access code, the print card shows **Update Access Code…**, which opens the same window.
+To change a printer's access code or IP address later, click **…** and choose **Edit** followed by the printer's name. Enter the new value and click **Save**. The window shows the serial number but can't change it, because another serial is another printer. Add that one instead. To remove the printer, click **Remove…** in that window. If the printer rejects its access code, the print card shows **Update Access Code…**, which opens the same window.
 
 The access code stays on this Mac. PrintGlance does not send it to the internet.
 
@@ -128,10 +128,10 @@ Click **…** and open **Notifications**. Turn on the events you want:
 - **Print Paused**
 - **Print Failed**
 - **Print Finished**
-- **Print Finishing Soon**
+- **Print Finishing Soon**, shown with how early, such as **Print Finishing Soon (10 Min Before)**
 - **Lost Connection**
 - **Low Filament**
-- **Quiet Hours**, shown with its hours, such as **Quiet Hours (10 PM–7 AM)**
+- **Quiet Hours**, shown with its hours, such as **Quiet Hours (10 PM–7 AM)** or **Quiet Hours (Off)**
 
 **Quiet Hours** starts turned off. The others start turned on.
 
@@ -139,7 +139,7 @@ Each notice names the printer first, then the job and how far it got, then why. 
 
 A notice leaves Notification Center once it's no longer true. When a printer starts or resumes printing, its finished, paused, and failed notices go. When PrintGlance hears from a printer again, its lost connection notice goes. **History** keeps what happened to each print.
 
-**Print Finishing Soon** tells you shortly before the print ends, so you can be at the printer. To choose how early, open **Lead Time** under it and choose **5 Minutes**, **10 Minutes**, **15 Minutes**, or **30 Minutes**. It starts at 10 minutes. If less time is left when PrintGlance first sees the print, the notice comes right away and says how much is left. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is canceled.
+**Print Finishing Soon** tells you shortly before the print ends, so you can be at the printer. To choose how early, open it and choose **5 Minutes Before**, **10 Minutes Before**, **15 Minutes Before**, or **30 Minutes Before**. To stop it, choose **Off**. It starts at 10 minutes. If less time is left when PrintGlance first sees the print, the notice comes right away and says how much is left. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is canceled.
 
 **Lost Connection** tells you when PrintGlance stops hearing from a printer during a print, such as **Lost connection to X2D** with **Benchy was at 52%. PrintGlance keeps trying.** It is not sent while this Mac has no network, or for 2 minutes after this Mac's network changes, because then the Mac lost the connection, not the printer.
 
@@ -147,9 +147,9 @@ A notice leaves Notification Center once it's no longer true. When a printer sta
 
 PrintGlance estimates the runout from the trend in the spool's remaining percent as the print progresses. It needs a Bambu spool with an RFID tag and **Update Remaining Capacity** turned on for the AMS. That percent is a rough gauge: it can swing by ten points while a spool feeds. So PrintGlance waits until the spool has fallen by twice those swings, no faster than a nozzle can melt filament, and has used about a third of what it had when the print started. The notice comes later that way, and is rarely wrong. If a spool runs out without one, the printer pauses and you get **Print Paused**. The time is worked out from how fast the print has really moved so far. It ignores readings below 5%, where the AMS estimate swings by a couple of points and can read 0% with filament left, so a spool that starts the print nearly empty gets only the 20% warning. If another AMS slot holds the same filament and color, the line adds that the AMS may switch to it, which depends on the AMS backup setting on your printer.
 
-**Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM. **Print Finishing Soon** is skipped in that window. **Print Failed**, **Print Paused**, **Lost Connection**, and **Low Filament** still appear.
+**Quiet Hours** keeps the night quiet. To choose the hours, open it and choose **9 PM–6 AM**, **10 PM–7 AM**, **11 PM–8 AM**, or **Midnight–9 AM** on this Mac's clock. On a 24-hour clock they read **22:00–07:00**. To stop it, choose **Off**. In those hours, **Print Finished** waits until the hours end, and **Print Finishing Soon** is skipped. **Print Failed**, **Print Paused**, **Lost Connection**, and **Low Filament** still appear.
 
-To see the printer a notice is about, click the notice, then click the printer icon in the menu bar. The print card opens on that printer.
+To see the printer a notice is about, click the notice, then click the printer icon in the menu bar. The print card opens on that printer. A paused or failed notice with an error code also has **Look Up**. It opens Bambu's page for that code in your browser, like **Look up** on the print card.
 
 When macOS asks for notification permission, click **Allow**. PrintGlance asks when you finish adding your first printer, or the first time a print starts. If notifications for PrintGlance are turned off in System Settings, the **Notifications** menu starts with **Notifications Are Off…**. Choose it to open System Settings at PrintGlance.
 

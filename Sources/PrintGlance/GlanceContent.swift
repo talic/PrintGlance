@@ -158,15 +158,32 @@ struct GlanceContent: Equatable, Sendable {
         string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "local.PrintGlance")"
     )!
 
-    /// "Quiet Hours (10 PM–7 AM)", or "(22:00–07:00)" where the Mac uses a 24-hour clock.
-    static func quietHoursTitle(locale: Locale = .autoupdatingCurrent) -> String {
+    /// The Quiet Hours submenu: "Quiet Hours (10 PM–7 AM)", or "Quiet Hours (Off)".
+    static func quietHoursTitle(_ window: QuietHours?, locale: Locale = .autoupdatingCurrent) -> String {
+        "Quiet Hours (\(quietHoursChoice(window, locale: locale)))"
+    }
+
+    /// One Quiet Hours choice: "Off", "10 PM–7 AM", "Midnight–9 AM", or "22:00–07:00" where the Mac uses a 24-hour clock.
+    static func quietHoursChoice(_ window: QuietHours?, locale: Locale = .autoupdatingCurrent) -> String {
+        guard let window else { return "Off" }
         let pattern = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: locale) ?? "HH"
         let unquoted = pattern.replacingOccurrences(of: "'[^']*'", with: "", options: .regularExpression)
         let twelve = unquoted.contains("h") || unquoted.contains("K")
         func hour(_ h: Int) -> String {
-            twelve ? "\(h % 12 == 0 ? 12 : h % 12) \(h < 12 ? "AM" : "PM")" : String(format: "%02d:00", h)
+            guard twelve else { return String(format: "%02d:00", h) }
+            return h == 0 ? "Midnight" : "\(h % 12 == 0 ? 12 : h % 12) \(h < 12 ? "AM" : "PM")"
         }
-        return "Quiet Hours (\(hour(QuietHours.startHour))–\(hour(QuietHours.endHour)))"
+        return "\(hour(window.startHour))–\(hour(window.endHour))"
+    }
+
+    /// The Print Finishing Soon submenu: "Print Finishing Soon (10 Min Before)", or "Print Finishing Soon (Off)".
+    static func finishingSoonTitle(lead: Int?) -> String {
+        "Print Finishing Soon (\(lead.map { "\($0) Min Before" } ?? "Off"))"
+    }
+
+    /// One Print Finishing Soon choice: "Off" or "10 Minutes Before".
+    static func finishingSoonChoice(lead: Int?) -> String {
+        lead.map { "\($0) Minutes Before" } ?? "Off"
     }
 
     /// A printer list row's right side: "52% · 4:25 PM" while printing, else the state word.
