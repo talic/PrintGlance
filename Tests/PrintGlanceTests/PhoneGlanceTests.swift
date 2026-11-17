@@ -176,7 +176,7 @@ final class PhoneGlanceTests: XCTestCase {
         XCTAssertEqual(l.detail, "Filament ran out in AMS A, slot 1.")
         XCTAssertEqual(l.short, "Paused · 52%")
         XCTAssertEqual(l.systemImage, "pause.fill")
-        XCTAssertTrue(l.alert)
+        XCTAssertEqual(l.tint, .paused, "orange, like the Mac card")
         XCTAssertEqual(lines(Rows.paused(), at: fetched + 3600).hero, "1h 24m left")
     }
 
@@ -185,19 +185,29 @@ final class PhoneGlanceTests: XCTestCase {
         XCTAssertEqual(failed.state, "X2D · Failed")
         XCTAssertEqual(failed.detail, GlanceContent.errorReason(Rows.failed()))
         XCTAssertNil(failed.percent)
-        XCTAssertTrue(failed.alert)
+        XCTAssertEqual(failed.tint, .failed, "red, like the Mac card")
         XCTAssertEqual(failed.systemImage, "xmark")
 
         let finished = lines(Rows.finished())
         XCTAssertEqual([finished.title, finished.state, finished.detail], ["Benchy", "X2D · Finished", nil])
         XCTAssertNil(finished.hero)
         XCTAssertEqual(finished.short, "Finished")
-        XCTAssertFalse(finished.alert)
+        XCTAssertNil(finished.tint)
 
         let idle = lines(Rows.idle())
         XCTAssertEqual([idle.title, idle.state, idle.short], ["X2D", "Idle", "Idle"])
         XCTAssertNil(idle.detail)
         XCTAssertEqual(idle.extra, [])
+        XCTAssertNil(idle.tint)
+    }
+
+    func testOnlyPausedAndFailedTakeAColor() {
+        XCTAssertEqual(GlanceContent.phoneTint(Rows.paused()), .paused)
+        XCTAssertEqual(GlanceContent.phoneTint(Rows.failed()), .failed)
+        for row in [Rows.printing(), Rows.starting(), Rows.finished(), Rows.idle(), Rows.offline(was: "PAUSE")] {
+            XCTAssertNil(GlanceContent.phoneTint(row), row.state)
+        }
+        XCTAssertNil(GlanceContent.phone(nil, printer: .x2d(), now: fetched).tint, "never reached")
     }
 
     func testACanceledCardIsCalm() {
@@ -205,7 +215,8 @@ final class PhoneGlanceTests: XCTestCase {
         canceled.hmsCode = nil
         canceled.printError = GlanceContent.cancelCode
         let lines = GlanceContent.phone(PhoneStatus(printer: canceled, at: fetched), printer: .x2d(), now: fetched)
-        XCTAssertFalse(lines.alert, "canceled is calm")
+        XCTAssertNil(lines.tint, "canceled is calm")
+        XCTAssertNil(GlanceContent.phoneTint(canceled))
         XCTAssertEqual(lines.short, "Canceled")
         XCTAssertTrue(lines.state.hasSuffix("Canceled"), lines.state)
         XCTAssertEqual(lines.systemImage, "stop.circle")
@@ -318,17 +329,105 @@ final class PhoneGlanceTests: XCTestCase {
     func testConnectSaysHowItWent() {
         XCTAssertEqual(GlanceCopy.phoneConnected(.printer(Rows.idle()), name: "NCC-1701"), PhoneAlert(
             title: "Connected to NCC-1701",
-            message: "Its status shows at the top of this screen. To see it on your Home Screen, add the PrintGlance widget."
+            message: "Its card shows on this screen. To see it on your Home Screen, add the PrintGlance widget."
         ))
-        XCTAssertEqual(GlanceCopy.phoneConnected(.failed("MQTT CONNACK 5"), name: "NCC-1701"), PhoneAlert(
+        let rejected = PhoneAlert(
             title: "Can't connect to NCC-1701",
             message: "The access code was rejected. Check the access code on the printer's LAN or Network page."
-        ))
-        XCTAssertEqual(GlanceCopy.phoneTooMany(name: "A1"), PhoneAlert(
-            title: "Can't add A1",
-            message: "PrintGlance watches up to four printers. To add this one, swipe left on another and remove it."
+        )
+        XCTAssertEqual(GlanceCopy.phoneConnected(.failed("MQTT CONNACK 5"), name: "NCC-1701"), rejected)
+        XCTAssertEqual(GlanceCopy.phoneTooMany(), PhoneAlert(
+            title: "Can't add another printer",
+            message: "PrintGlance watches up to four printers. To add another, tap a printer, then tap Remove Printer."
         ))
         XCTAssertEqual(SavedPrinters.maxCount, 4, "the alert's number")
+    }
+
+    func testSaveOnlySpeaksUpWhenThePrinterDoesNotAnswer() {
+        XCTAssertNil(GlanceCopy.phoneSaved(.printer(Rows.idle()), name: "NCC-1701"), "the card shows it")
+        XCTAssertEqual(
+            GlanceCopy.phoneSaved(.failed("MQTT CONNACK 5"), name: "NCC-1701"),
+            GlanceCopy.phoneConnected(.failed("MQTT CONNACK 5"), name: "NCC-1701")
+        )
+    }
+
+    func testRemoveAsksInTheMacsWords() {
+        XCTAssertEqual(GlanceCopy.phoneRemove(name: "Voyager"), PhoneAlert(
+            title: "Remove Voyager?",
+            message: "PrintGlance stops watching this printer. To watch it again, add it and enter its access code."
+        ))
+    }
+
+    // MARK: Adding a printer
+
+    private let voyager = PrinterSettings(ip: "192.0.2.20", serial: "20P9AJ5B0700123", accessCode: "a1b2c3d4", name: "Voyager")
+    private let newHit = PrinterSettings(ip: "192.0.2.21", serial: "20P9BJ5C2900999", accessCode: "", name: "")
+
+    func testSearchResultsMarkPrintersAlreadyAdded() {
+        let movedVoyager = PrinterSettings(ip: "192.0.2.80", serial: voyager.serial, accessCode: "", name: "")
+        let hits = GlanceContent.phoneHits([movedVoyager, newHit], saved: [voyager], form: .empty)
+        XCTAssertEqual(hits, [
+            PhoneHit(serial: voyager.serial, ip: "192.0.2.80", title: "Voyager", added: true, picked: false),
+            PhoneHit(serial: newHit.serial, ip: "192.0.2.21", title: "20P9BJ5C2900999", added: false, picked: false),
+        ], "the saved name and Added, else the serial the printer's screen shows; each at the address it answered from")
+
+        var lower = voyager
+        lower.serial = " 20p9aj5b0700123 "
+        XCTAssertTrue(GlanceContent.phoneHits([movedVoyager], saved: [lower], form: .empty)[0].added, "serials match ignoring case and spaces")
+        var unnamed = voyager
+        unnamed.name = ""
+        XCTAssertEqual(GlanceContent.phoneHits([movedVoyager], saved: [unnamed], form: .empty)[0].title, "Printer")
+    }
+
+    func testThePickedResultIsChecked() {
+        let picked = PrinterSettings.empty.picking(newHit, saved: [voyager])
+        let hits = GlanceContent.phoneHits([voyager, newHit], saved: [voyager], form: picked)
+        XCTAssertEqual(hits.map(\.picked), [false, true])
+        XCTAssertEqual(GlanceContent.phoneHits([newHit], saved: [], form: .empty).map(\.picked), [false])
+    }
+
+    func testOneNewPrinterFillsTheFormByItself() {
+        XCTAssertEqual(PrinterSettings.empty.autoPicking(from: [newHit], saved: []), newHit)
+        XCTAssertEqual(PrinterSettings.empty.autoPicking(from: [voyager, newHit], saved: [voyager]), newHit, "the one not added yet")
+        XCTAssertEqual(PrinterSettings.empty.autoPicking(from: [voyager], saved: [voyager]), .empty, "already added")
+        let other = PrinterSettings(ip: "192.0.2.22", serial: "01P00A411800456", accessCode: "", name: "")
+        XCTAssertEqual(PrinterSettings.empty.autoPicking(from: [newHit, other], saved: []), .empty, "two to choose from")
+        XCTAssertEqual(PrinterSettings.empty.autoPicking(from: [], saved: []), .empty)
+        var typed = PrinterSettings.empty
+        typed.serial = "01P00A411800456"
+        XCTAssertEqual(typed.autoPicking(from: [newHit], saved: []), typed, "a typed serial stays")
+        var typedIP = PrinterSettings.empty
+        typedIP.ip = "192.0.2.99"
+        XCTAssertEqual(typedIP.autoPicking(from: [newHit], saved: []), typedIP, "a typed IP stays")
+        var early = PrinterSettings.empty
+        early.accessCode = "12345678"
+        early.name = "NCC-1701"
+        XCTAssertEqual(
+            early.autoPicking(from: [newHit], saved: []),
+            PrinterSettings(ip: newHit.ip, serial: newHit.serial, accessCode: "12345678", name: "NCC-1701"),
+            "a code and name typed while it searched are for this printer"
+        )
+    }
+
+    func testAddingAPrinterAlreadySavedIsTurnedAway() {
+        var typed = voyager
+        typed.serial = "20p9aj5b0700123"
+        XCTAssertEqual(
+            GlanceContent.phoneAlreadyAdded(typed, saved: [voyager]),
+            "You already added this printer. To change it, tap Cancel, then tap its card."
+        )
+        XCTAssertNil(GlanceContent.phoneAlreadyAdded(newHit, saved: [voyager]))
+        XCTAssertNil(GlanceContent.phoneAlreadyAdded(.empty, saved: [voyager]), "nothing typed yet")
+    }
+
+    /// One rule for the Mac's setup window and the iPhone's sheets.
+    func testAccessCodeHint() {
+        XCTAssertNil(PrinterSettings.codeHint(""))
+        XCTAssertNil(PrinterSettings.codeHint("   "))
+        XCTAssertNil(PrinterSettings.codeHint("12345678"))
+        XCTAssertNil(PrinterSettings.codeHint(" AB12cd34 "), "trimmed before counting")
+        XCTAssertEqual(PrinterSettings.codeHint("1234"), "Access codes are usually 8 characters.")
+        XCTAssertEqual(PrinterSettings.codeHint("123456789"), "Access codes are usually 8 characters.")
     }
 
     func testProbeReadsTheSerialFromTheCertificateAndSendsNothing() async throws {

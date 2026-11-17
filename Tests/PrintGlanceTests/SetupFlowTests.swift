@@ -19,14 +19,6 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertFalse(SetupFlow.isAdded(hit("halfdone"), saved: saved, editing: nil), "a half-entered printer can be finished from the list")
     }
 
-    func testAccessCodeHint() {
-        XCTAssertNil(SetupFlow.codeHint(""))
-        XCTAssertNil(SetupFlow.codeHint("12345678"))
-        XCTAssertNil(SetupFlow.codeHint(" AB12cd34 "), "trimmed before counting")
-        XCTAssertEqual(SetupFlow.codeHint("1234"), "Access codes are usually 8 characters.")
-        XCTAssertEqual(SetupFlow.codeHint("123456789"), "Access codes are usually 8 characters.")
-    }
-
     func testConnectResultFromLinkStatus() {
         let ip = "192.0.2.10"
         XCTAssertEqual(SetupFlow.connectResult(nil, ip: ip), .waiting)

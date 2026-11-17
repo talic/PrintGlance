@@ -14,7 +14,7 @@ struct PhoneCard: View {
             if !lines.state.isEmpty {
                 Text(lines.state)
                     .font(.subheadline)
-                    .foregroundStyle(lines.alert ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(lines.tint.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.secondary))
                     .lineLimit(1)
             }
             Spacer(minLength: 2)
@@ -35,7 +35,7 @@ struct PhoneCard: View {
             if let percent = lines.percent {
                 HStack(spacing: 6) {
                     ProgressView(value: Double(min(max(percent, 0), 100)), total: 100)
-                        .tint(lines.alert ? .orange : .primary)
+                        .tint(lines.tint?.color ?? .primary)
                     Text("\(percent)%")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -59,5 +59,15 @@ struct PhoneCard: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+extension PhoneTint {
+    /// The Mac card's colors: orange for Paused, red for Failed.
+    var color: Color {
+        switch self {
+        case .paused: .orange
+        case .failed: .red
+        }
     }
 }
