@@ -56,7 +56,7 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`. The iPhone
 | `MQTT311Client.swift` | `MQTTSession` protocol and `MQTT311Client`, a minimal MQTT 3.1.1 client on `Network.framework` over TLS: CONNECT, SUBSCRIBE (QoS 0), PUBLISH (QoS 0), PINGREQ every 20 s with a 30 s keep-alive, frame reassembly (packets over 4 MB drop the connection), a generation counter so a replaced socket can't fire callbacks. Backoff schedule. |
 | `BambuSnapshot.swift` | `BambuJSON` (lenient number/string reading), `BambuPrint` (pure parsing of a merged report into a `Printer` row: state, progress, job label, filament, AMS trays and units, temperatures, error codes, stage), `BambuSnapshot` (one printer's merged report and its online/offline clock), `fleetDoc`. |
 | `PrintDoc.swift` | The value types: `PrintDoc` (all printers), `Printer` (one row; `state` keeps the printer's word, the feed's format, and `printState` gives it as `PrintState`, which code switches on), `AMSTray`, `AMSUnit`, `Temp`, `FeedResult` (`.doc`, `.feedDown`, `.needsSetup`, `.connecting`). `PrintDoc.displayRow()` ranks printers for the menu bar. |
-| `GlanceContent.swift` | Pure presentation: the menu bar strip (`StripPresentation`), headline, subtitle, hero, remaining line, layer line, filament line, heat line, offline lines, error reasons and lookup URLs, AMS grouping, history captions, time formatting (`dayTime`, `formatRemain`). `GlanceCopy` holds the can't-connect sentences. |
+| `GlanceContent.swift` | Pure presentation: the menu bar strip (`StripPresentation`), headline, subtitle, hero, remaining line, layer line, filament line, heat line, offline lines, error reasons, the card's code lines, and lookup URLs, AMS grouping (empty slots, humid warning), filament dot outlines, history captions, time formatting (`dayTime`, `formatRemain`). `GlanceCopy` holds the can't-connect sentences. |
 | `GlanceView.swift` | SwiftUI views: `GlanceView` (the panel: header, card, printer list, overflow menu), `CardHeader`, `PrinterList`, `PrinterDetail` (one printer's card body), `HistoryView`, `CapsuleBar` (progress with runout marker), `StripLabel` (menu bar label). |
 | `PrintGlancePanel.swift` | `hugMenuBarPanel()` (sizes the panel window to the card), `PanelOpened` (runs a closure each time the panel opens), `MenuBarHug.frame` (pure frame math). |
 | `PrintNotify.swift` | Print-state notifications: preferences (`PrintNotifyPrefs`), edge detection per printer (`PrintNotify`), offline suppression when this Mac caused it, `PendingSelection` (a clicked notification opens that printer). |
@@ -64,7 +64,7 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`. The iPhone
 | `Overrun.swift` | `Overrun`: how long each printer runs past its own time left, learned from the prints the app watches finish and added to the row's time left and finish time. |
 | `FilamentAlert.swift` | `FilamentAlert` (spool under 20%), `RunoutTracker` (where a spool runs out, from its AMS percent against progress), and `Pace` (how fast the print moves by the clock). |
 | `PrinterFile.swift` | `printers.json` for other apps on this Mac (see [What is stored where](#what-is-stored-where)). |
-| `JobLog.swift` | Print history: opens a row when a job starts, closes it on finish/fail/idle, caps at 50, saves `jobs.json`, exports CSV. Gives the finished time for "40m ago". |
+| `JobLog.swift` | Print history: opens a row when a job starts, closes it on finish/fail/idle, caps at 50, saves `jobs.json`, exports CSV. Gives a finished print's end for "40m ago" and its start for "Took 4h 43m". |
 | `PrinterSettings.swift` | `PrinterSettings` (one saved printer), `SavedPrinters` (the list, focus, cap of 4, edits, persistence, legacy migration), `AccessCodeStore` (reads the 1.1.7 Keychain item once, then deletes it). |
 | `PrinterDiscovery.swift` | SSDP discovery of Bambu printers on the Wi-Fi (UDP multicast), reply parsing, model code names, `ipChanges` for rediscovery. |
 | `SetupView.swift` | `SetupFlow` (the Add/Edit printer state machine) and `SetupView` (its window content). |
@@ -122,14 +122,16 @@ Before any printer has reported, `content` is `.needsSetup` (no complete printer
 | Report | `state` | Menu bar | Card hero / subtitle |
 |---|---|---|---|
 | link not trusted (see below), or empty `gcode_state` | `OFFLINE` | `wifi.slash` | Last known job, "Offline", "Last update …", what it was doing |
-| `RUNNING` with `stg_cur` ≠ 0 and `layer_num` 0 | `PREPARE` | `printer.fill` + first word of the stage ("Heating") | Finish time, stage ("Loading filament"), heaters "Nozzle 186 / 220° · Bed 48 / 60°" |
+| `RUNNING` with `stg_cur` ≠ 0 and `layer_num` 0 | `PREPARE` | `printer.fill` + first word of the stage ("Heating") | Finish time, time left, stage ("Loading filament"), then heaters "Nozzle 186 / 220° · Bed 48 / 60°" and filament; no bar or layer yet |
 | `PREPARE` | `PREPARE` | as above | as above |
 | `RUNNING` | `RUNNING` | `printer.fill` + " 52%  16:25" | Finish time, time left, bar, layer, filament, runout line |
-| `PAUSE` | `PAUSE` | `pause.fill` + percent | Time left (not finish time: it slides), reason, error codes, AMS |
-| `FINISH` | `FINISH` | `checkmark` + "40m ago" for 2 h | "40m ago" (when PrintGlance saw it end), printer name, AMS |
-| `FAILED` | `FAILED` | `xmark` | Reason, error codes, AMS |
-| `IDLE` | `IDLE` | `printer` | Printer name, AMS slots |
+| `PAUSE` | `PAUSE` | `pause.fill` + percent | No hero (`cardHero`): each code under its reason first, then bar, layer, filament, runout line, time left as a small line (not finish time: it slides), AMS |
+| `FINISH` | `FINISH` | `checkmark` + "40m ago" for 2 h | "40m ago" for 2 h, then the finish time ("14:02 yesterday"), when PrintGlance saw it end; "Took 4h 43m" when it saw the start too; AMS |
+| `FAILED` | `FAILED` | `xmark` | Each code under its reason, "Stopped at 52% · Layer 18 / 29" above 0%, AMS |
+| `IDLE` | `IDLE` | `printer` | Printer name, AMS slots (a four-slot unit's gaps as "A3 · Empty") |
 | anything else (e.g. `SLICING`) | passed through | `printer` | The raw word |
+
+With two or more printers, a card whose headline is the job names the printer in the subtitle, "X2D · Printing" (`GlanceContent.subtitle(_:namingPrinter:)`), as the iPhone does; one printer needs no name.
 
 Printers heat, level, and calibrate under `RUNNING` with layer 0 and `stg_cur` naming the stage; PREPARE itself only covers fetching the file. Both show as **Starting**. A stage after layer 0 (a filament change) stays Printing. `BambuPrint.stageLabel` maps `stg_cur` numbers to Heating, Leveling, Loading filament, Unloading filament, Calibrating, Cleaning nozzle, Homing, or Starting.
 
@@ -246,11 +248,12 @@ Only paused and failed printers show codes (`print_error` can linger after the p
 - **HMS** (`hms[]`): the first non-zero `attr`/`code` pair, formatted `AAAA-BBBB-CCCC-DDDD`.
 - **print_error**: a non-zero integer formatted `%08X` with a dash after four digits, `0300-806E`, like Bambu Studio.
 - **Reasons**: `GlanceContent.errorReason(code:)` knows about 30 common codes in both forms. AMS codes carry the unit in the first group's low byte and, for feed and filament parts, the slot in the second group, so one table row covers every unit and slot ("Filament ran out in AMS B, slot 3."). Unknown codes show only "Error <code>".
+- **On the card**: `GlanceContent.codeLines` puts each code under its own reason, codes with a reason first (so the card leads with the notification's reason), and leaves out a reason the line above already gave.
 - **Look up**: HMS codes open `e.bambulab.com` with the code and the serial's first three characters (the model, not the printer). `print_error` codes open Bambu's wiki table with a text fragment and copy the code to the clipboard.
 
 ## History
 
-`JobLog` opens a row when a printer starts a job (Starting or Printing) and closes it when it finishes (ok), fails (fail), or goes idle (ok, no end time). A new job ID while a row is open closes the old row. `endedAt` is set only if PrintGlance saw the job running, so "took 4h 43m" is never a guess. Up to 50 rows are kept (the oldest closed rows go first; an open row never does) in `~/Library/Application Support/PrintGlance/jobs.json`; A row's filament lists each filament the print fed, in order (`JobLog.adding`), so a multi-color print isn't just its last spool. History shows them newest first and exports CSV (`started,ended,duration_min,printer,job,filament,outcome`, RFC 4180 quoting). The newest successful row's `endedAt` gives the menu bar's "40m ago".
+`JobLog` opens a row when a printer starts a job (Starting or Printing) and closes it when it finishes (ok), fails (fail), or goes idle (ok, no end time). A new job ID while a row is open closes the old row. `endedAt` is set only if PrintGlance saw the job running, and `sawStart` only if it saw the job begin (Starting, or Printing at 1% or less). The duration (`JobLogRow.duration`, History's "4h 43m", the card's "Took 4h 43m", the CSV's `duration_min`) needs both, so a print first seen part-way through never reads short. Rows saved before `sawStart` existed keep their duration. Up to 50 rows are kept (the oldest closed rows go first; an open row never does) in `~/Library/Application Support/PrintGlance/jobs.json`. A row's filament lists each filament the print fed, in order (`JobLog.adding`), so a multi-color print isn't just its last spool. History shows them newest first and exports CSV (`started,ended,duration_min,printer,job,filament,outcome`, RFC 4180 quoting). The newest successful row's `endedAt` gives the menu bar's "40m ago".
 
 A row also keeps what went wrong, as codes so the words improve with the reasons table: `pauses` gets one entry per Printing or Starting → Paused change, looking through Offline, so a pause seen right after a reconnect counts (`GlanceContent.leadErrorCode`, or "" when the printer gave none), and a failed row gets `failCode`. `JobLog.lastState` is process-local, so a relaunch mid-pause doesn't count it again. `GlanceContent.historyNotes` turns them into lines under the caption: the failure's reason, then "Paused: <reason>", "Paused twice. Last: <reason>", or "Paused 3 times." The CSV leaves them out.
 

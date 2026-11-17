@@ -136,6 +136,10 @@ final class SecurityTests: XCTestCase {
                 let optionals: [String?] = [GlanceContent.hero(row), GlanceContent.remainingLine(row), GlanceContent.layerLine(row),
                                             GlanceContent.filamentLine(row), GlanceContent.heatLine(row), GlanceContent.errorReason(row)]
                 strings += optionals.compactMap { $0 }
+                let card: [String?] = [GlanceContent.subtitle(row, namingPrinter: true), GlanceContent.cardHero(row),
+                                       GlanceContent.stoppedLine(row)]
+                strings += card.compactMap { $0 }
+                strings += GlanceContent.codeLines(row).compactMap(\.reason)
                 strings += GlanceContent.offlineLines(row, now: Date())
                 strings += GlanceContent.errorCodes(row)
                 for group in GlanceContent.amsGroups(row) {

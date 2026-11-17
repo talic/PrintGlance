@@ -60,6 +60,7 @@ struct GlanceView: View {
                 PrinterDetail(
                     row: row,
                     endedAt: model.occupancyEndedAt(for: row),
+                    startedAt: model.occupancyStartedAt(for: row),
                     now: model.occupancyNow,
                     disconnectReason: model.disconnectReason(for: row.id),
                     onUpdateCode: codeRejected(row.id) ? { openEdit(serial: row.id) } : nil
@@ -217,7 +218,8 @@ struct GlanceView: View {
     }
 
     private var subtitle: String? {
-        cardRow.map(GlanceContent.subtitle)
+        guard case let .doc(doc) = model.content.result, let row = cardRow else { return nil }
+        return GlanceContent.subtitle(row, namingPrinter: doc.printers.count > 1)
     }
 
     private var emptyDetail: String {
@@ -250,6 +252,9 @@ struct CardHeader: View {
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(stateColor(state, otherwise: .secondary))
+                    // A long printer name gives way in the middle, so the state at the end stays.
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -263,6 +268,8 @@ struct PrinterList: View {
     var onSelect: (String) -> Void
     var onEdit: (String) -> Void
     var onRemove: (String) -> Void
+    /// The row under the pointer, so rows read as clickable.
+    @State private var hoveredId: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -289,11 +296,19 @@ struct PrinterList: View {
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 5)
-                            .fill(Color.primary.opacity(shown ? 0.08 : 0))
+                            // Hover is half the shown row's fill, so the shown row still stands out.
+                            .fill(Color.primary.opacity(shown ? 0.08 : hoveredId == p.id ? 0.04 : 0))
                     )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .onHover { inside in
+                    if inside {
+                        hoveredId = p.id
+                    } else if hoveredId == p.id {
+                        hoveredId = nil
+                    }
+                }
                 .accessibilityLabel(a11y(p))
                 .accessibilityAddTraits(shown ? .isSelected : [])
                 .contextMenu {
@@ -321,6 +336,8 @@ struct PrinterList: View {
 struct PrinterDetail: View {
     var row: Printer
     var endedAt: Date?
+    /// When the finished print started, for "Took 4h 43m".
+    var startedAt: Date? = nil
     var now: Date
     var disconnectReason: String?
     /// Shown under an offline printer whose access code was rejected.
@@ -328,37 +345,48 @@ struct PrinterDetail: View {
 
     var body: some View {
         let timed = row.printState.isTimed
-        let hero = GlanceContent.hero(row, occupancyEndedAt: endedAt, now: now)
-        let left = GlanceContent.remainingLine(row)
-        let caption = GlanceContent.caption(row)
+        let state = row.printState
 
-        if hero != nil || caption != nil {
+        // Why it paused or failed is what the card was opened for, so it leads.
+        if row.printState.isStopped {
+            errorBlock
+        }
+
+        if let hero = GlanceContent.cardHero(row, occupancyEndedAt: endedAt, now: now) {
             VStack(alignment: .leading, spacing: 2) {
-                if let hero {
-                    Text(hero)
-                        .font(.system(size: 28, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-                if let left {
-                    Text(left)
+                Text(hero)
+                    .font(.system(size: 28, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if let under = GlanceContent.remainingLine(row)
+                    ?? GlanceContent.tookLine(row, startedAt: startedAt, endedAt: endedAt) {
+                    Text(under)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
-                if let caption {
-                    Text(caption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
             }
         }
 
-        if timed, let percent = row.percent {
+        // Starting: the heaters are what moves, so they come before the filament.
+        if let heat = GlanceContent.heatLine(row) {
+            Text(heat)
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if let stopped = GlanceContent.stoppedLine(row) {
+            Text(stopped)
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+
+        if GlanceContent.showsProgress(row), let percent = row.percent {
             HStack(spacing: 8) {
                 CapsuleBar(percent: percent, tint: stateColor(row.state, otherwise: .primary), runoutAt: row.runout?.percent)
                 Text("\(percent)%")
@@ -385,12 +413,11 @@ struct PrinterDetail: View {
             .foregroundStyle(.orange)
         }
 
-        if let heat = GlanceContent.heatLine(row) {
-            Text(heat)
-                .font(.caption)
+        if state == .paused, let left = GlanceContent.remainingLine(row) {
+            Text(left)
+                .font(.subheadline)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
 
         if row.printState == .offline {
@@ -414,45 +441,42 @@ struct PrinterDetail: View {
             }
         }
 
-        if row.printState.isStopped {
-            errorBlock
-        }
-
         if GlanceContent.showsAMS(row) {
             amsBlock(row)
         }
     }
 
+    /// Each code under its reason, with **Look up**.
     @ViewBuilder
     private var errorBlock: some View {
-        let codes = GlanceContent.errorCodes(row)
-        if codes.isEmpty {
+        let lines = GlanceContent.codeLines(row)
+        if lines.isEmpty {
             Text("No error reported.")
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                if let reason = GlanceContent.errorReason(row) {
-                    Text(reason)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.bottom, 2)
-                }
-                ForEach(codes, id: \.self) { code in
+                ForEach(Array(lines.enumerated()), id: \.element.code) { i, line in
+                    if let reason = line.reason {
+                        Text(reason)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, i == 0 ? 0 : 6)
+                    }
                     HStack(spacing: 6) {
-                        Text("Error \(code)")
+                        Text("Error \(line.code)")
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                         Spacer(minLength: 4)
-                        Button("Look up") { lookUp(code) }
+                        Button("Look up") { lookUp(line.code) }
                             .buttonStyle(.link)
-                            .accessibilityLabel("Look up error \(code)")
+                            .accessibilityLabel("Look up error \(line.code)")
                     }
+                    .font(.caption)
                 }
             }
-            .font(.caption)
         }
     }
 
@@ -472,20 +496,26 @@ struct PrinterDetail: View {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(groups.indices, id: \.self) { i in
                     VStack(alignment: .leading, spacing: 4) {
-                        if let header = groups[i].header {
-                            Text(header)
+                        if groups[i].title != nil {
+                            amsHeader(groups[i])
                                 .fontWeight(.medium)
                                 .monospacedDigit()
                         }
                         ForEach(groups[i].trays) { tray in
+                            let empty = GlanceContent.isEmptySlot(tray)
                             HStack(spacing: 6) {
-                                if let hex = tray.color {
+                                if empty {
+                                    // No dot, which a white spool's outlined dot would look like; the
+                                    // space keeps the slot's name in line with the others.
+                                    Color.clear.frame(width: 8, height: 8)
+                                } else if let hex = tray.color {
                                     FilamentDot(hex: hex)
                                 }
                                 Text(GlanceContent.trayLine(tray))
                                     .monospacedDigit()
                                     .lineLimit(1)
                                     .truncationMode(.tail)
+                                    .foregroundStyle(empty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
                             }
                         }
                     }
@@ -496,16 +526,24 @@ struct PrinterDetail: View {
         }
     }
 
+    /// "AMS A · Humid", with a humid AMS's humidity in orange.
+    private func amsHeader(_ group: AMSGroup) -> Text {
+        guard group.humid, let title = group.title, let humidity = group.humidity else {
+            return Text(group.header ?? "")
+        }
+        return Text("\(title) · \(Text(humidity).foregroundStyle(.orange))")
+    }
+
     @ViewBuilder
     private func metaRow(_ row: Printer) -> some View {
-        let layer = GlanceContent.layerLine(row)
+        let layer = GlanceContent.showsProgress(row) ? GlanceContent.layerLine(row) : nil
         let fil = GlanceContent.filamentLine(row)
         if layer != nil || fil != nil {
             HStack(alignment: .firstTextBaseline) {
                 if let layer {
                     Text(layer).monospacedDigit()
+                    Spacer(minLength: 8)
                 }
-                Spacer(minLength: 8)
                 if let fil {
                     HStack(spacing: 4) {
                         if let hex = row.filamentColor {
@@ -547,6 +585,7 @@ private extension Color {
 
 private struct FilamentDot: View {
     var hex: String
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         if let c = Color(filamentHex: hex) {
@@ -554,7 +593,10 @@ private struct FilamentDot: View {
                 .fill(c)
                 .frame(width: 8, height: 8)
                 .overlay {
-                    Circle().stroke(Color.primary.opacity(0.3), lineWidth: 0.5)
+                    Circle().strokeBorder(
+                        Color.primary.opacity(GlanceContent.dotOutline(hex: hex, dark: scheme == .dark)),
+                        lineWidth: 1
+                    )
                 }
                 .accessibilityHidden(true)
         }
