@@ -21,7 +21,8 @@ final class RenderStatesTests: XCTestCase {
     func testRenderStrip() throws {
         let dir = try renderDir()
         var strips: [(String, StripPresentation)] = [
-            ("feed-down", GlanceContent.strip(.feedDown)),
+            ("feed-down", GlanceContent.strip(.feedDown, feedDownReason: "connect timed out")),
+            ("feed-down-code-rejected", GlanceContent.strip(.feedDown, feedDownReason: "MQTT CONNACK 5")),
             ("connecting", GlanceContent.strip(.connecting)),
             ("needs-setup", GlanceContent.strip(.needsSetup)),
         ]
@@ -49,16 +50,52 @@ final class RenderStatesTests: XCTestCase {
         let printers = [Self.running("RUNNING"), paused, idle]
         for (name, shown) in [("paused-shown", "p1s"), ("printing-shown", "x2d")] {
             let row = try XCTUnwrap(printers.first { $0.id == shown })
-            let view = VStack(alignment: .leading, spacing: 12) {
-                CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row), state: row.state)
-                PrinterDetail(row: row, endedAt: nil, now: Self.now, disconnectReason: nil)
-                Divider()
-                PrinterList(printers: printers, shownId: row.id, onSelect: { _ in }, onEdit: { _ in }, onRemove: { _ in })
-            }
-            .padding(14)
-            .frame(width: 248, alignment: .leading)
-            try write("list-three-\(name)", view, to: dir)
+            try write("list-three-\(name)", listCard(row, printers), to: dir)
         }
+
+        // Every state the list draws differently: lost, canceled, failed, rejected code, switched off.
+        var lost = Self.running("RUNNING")
+        lost.state = "OFFLINE"
+        lost.lastState = "RUNNING"
+        lost.lastSeen = Self.now - 20 * 60
+        var canceled = Self.running("FAILED")
+        canceled.id = "p1s"
+        canceled.name = "P1S"
+        canceled.printError = GlanceContent.cancelCode
+        var failed = canceled
+        failed.id = "h2d"
+        failed.name = "H2D"
+        failed.printError = "0300-806E"
+        var off = Self.idle(Self.oneAMS)
+        off.id = "a1"
+        off.name = "A1 mini"
+        off.state = "OFFLINE"
+        off.lastState = "IDLE"
+        off.lastSeen = Self.now - 9 * 3600
+        var rejected = off
+        rejected.id = "x1c"
+        rejected.name = "X1C"
+        rejected.codeRejected = true
+        let four = [lost, canceled, off, failed]
+        try write("list-lost-canceled-off-failed", listCard(lost, four), to: dir)
+        try write("list-canceled-shown", listCard(canceled, four), to: dir)
+        try write("list-off-rejected-shown", listCard(off, [canceled, off, rejected]), to: dir)
+    }
+
+    private func listCard(_ row: Printer, _ printers: [Printer]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            CardHeader(
+                headline: GlanceContent.headline(row),
+                subtitle: GlanceContent.subtitle(row),
+                state: row.state,
+                canceled: GlanceContent.isCanceled(row)
+            )
+            PrinterDetail(row: row, endedAt: nil, now: Self.now, disconnectReason: row.state == "OFFLINE" ? "connect timed out" : nil)
+            Divider()
+            PrinterList(printers: printers, shownId: row.id, onSelect: { _ in }, onEdit: { _ in }, onRemove: { _ in })
+        }
+        .padding(14)
+        .frame(width: 248, alignment: .leading)
     }
 
     func testRenderHistory() throws {
@@ -73,15 +110,34 @@ final class RenderStatesTests: XCTestCase {
                 filament: "PLA",
                 startAt: start,
                 endedAt: i == 0 ? nil : start + Double(i % 5 + 1) * 3600 + 1200,
-                outcome: i == 0 ? nil : i % 6 == 2 ? JobLog.outcomeFail : JobLog.outcomeOK,
+                outcome: i == 0 ? nil : [2, 4].contains(i % 6) ? JobLog.outcomeFail : JobLog.outcomeOK,
                 pauses: i % 6 == 1 ? ["0500-8062"] : i % 6 == 2 ? ["0700-2000-0002-0001", ""] : nil,
-                failCode: i % 6 == 2 ? "0300-400C" : nil
+                failCode: i % 6 == 2 ? GlanceContent.cancelCode : i % 6 == 4 ? "0300-806E" : nil
             )
         }
-        let few = (0..<4).map { row($0, serial: "x2d") }
+        let few = (0..<6).map { row($0, serial: "x2d") }
         let many = (0..<JobLog.cap).map { row($0, serial: $0 % 2 == 0 ? "x2d" : "p1s") }
         for (name, rows) in [("empty", [JobLogRow]()), ("few", few), ("many", many)] {
             try write("history-\(name)", HistoryView(rows: rows, now: Self.now, onExport: {}, onClose: {}), to: dir)
+        }
+    }
+
+    /// The whole panel before any printer reported, which only the model can produce.
+    func testRenderPanelBeforeAReport() throws {
+        let dir = try renderDir()
+        let cases: [(String, String?)] = [
+            ("connecting", nil), ("switched-off", "connect timed out"), ("refused", "ECONNREFUSED"), ("code-rejected", "MQTT CONNACK 5"),
+        ]
+        for (name, reason) in cases {
+            let h = ModelHarness(self)
+            let link = try XCTUnwrap(h.add(.x2d()).first)
+            if let reason { link.drop(reason) }
+            try write("panel-\(name)", GlanceView(model: h.model), to: dir)
+            try write(
+                "strip-panel-\(name)",
+                StripLabel(strip: h.model.strip).padding(.horizontal, 8).padding(.vertical, 4),
+                to: dir
+            )
         }
     }
 
@@ -97,7 +153,8 @@ final class RenderStatesTests: XCTestCase {
             CardHeader(
                 headline: GlanceContent.headline(row),
                 subtitle: GlanceContent.subtitle(row),
-                state: row.state
+                state: row.state,
+                canceled: GlanceContent.isCanceled(row)
             )
             PrinterDetail(row: row, endedAt: endedAt, now: Self.now, disconnectReason: reason, onUpdateCode: onUpdateCode)
         }
@@ -146,6 +203,10 @@ final class RenderStatesTests: XCTestCase {
         var overheated = failed
         overheated.hmsCode = nil
         overheated.printError = "0300-806E"
+        var canceled = failed
+        canceled.percent = 52
+        canceled.hmsCode = nil
+        canceled.printError = "0300-400C"
 
         var finished = idle(oneAMS)
         finished.state = "FINISH"
@@ -165,7 +226,15 @@ final class RenderStatesTests: XCTestCase {
         offlineIdle.state = "OFFLINE"
         offlineIdle.lastState = "IDLE"
         offlineIdle.lastSeen = now - 26 * 3600
-        let offlineNever = Printer(id: "x2d", name: "X2D", state: "OFFLINE")
+        var offlineOff = offlineIdle
+        offlineOff.lastSeen = now - 9 * 3600
+        var offlineCanceled = canceled
+        offlineCanceled.state = "OFFLINE"
+        offlineCanceled.lastState = "FAILED"
+        offlineCanceled.lastSeen = now - 2 * 3600
+        var offlineNever = Printer(id: "x2d", name: "X2D", state: "OFFLINE")
+        offlineNever.codeRejected = true
+        let offlineNeverOff = Printer(id: "x2d", name: "X2D", state: "OFFLINE")
 
         return [
             ("printing", printing, nil, nil),
@@ -179,6 +248,7 @@ final class RenderStatesTests: XCTestCase {
             ("paused-bare", pausedBare, nil, nil),
             ("failed-code", failed, nil, nil),
             ("failed-reason", overheated, nil, nil),
+            ("canceled", canceled, nil, nil),
             ("finished-40m", finished, now - 40 * 60, nil),
             ("finished-unknown", finished, nil, nil),
             ("finished-2d", finished, now - 51 * 3600, nil),
@@ -190,7 +260,10 @@ final class RenderStatesTests: XCTestCase {
             ("offline-was-due", offlineDue, nil, "connect timed out"),
             ("offline-was-paused", offlinePaused, nil, "connect timed out"),
             ("offline-was-idle", offlineIdle, nil, "ECONNREFUSED"),
+            ("offline-switched-off", offlineOff, nil, "connect timed out"),
+            ("offline-was-canceled", offlineCanceled, nil, "connect timed out"),
             ("offline-never", offlineNever, nil, "MQTT CONNACK 5"),
+            ("offline-never-switched-off", offlineNeverOff, nil, "connect timed out"),
         ]
     }
 

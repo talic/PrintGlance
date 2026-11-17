@@ -39,8 +39,12 @@ final class PanelScreenTests: XCTestCase {
         let h = ModelHarness(self)
         h.add(.x2d()).first?.drop("ECONNREFUSED")
         let s = try panel(h)
-        XCTAssertTrue(s.has(GlanceCopy.feedDownDetail(reason: "ECONNREFUSED")))
+        XCTAssertEqual(s.texts, [
+            "Can't reach printer",
+            "It may be switched off or still starting up. If it's on, check the IP address on the printer's LAN or Network page.",
+        ])
         XCTAssertNil(s.find("Update Access Code…"))
+        XCTAssertEqual(h.model.strip.systemImage, "powersleep")
     }
 
     func testPrintingCardWithTheListAndSwitchingPrinters() throws {
@@ -129,5 +133,16 @@ final class PanelScreenTests: XCTestCase {
         let s = try Screen(HistoryView(rows: [historyRow(0), historyRow(1, serial: "p1s")], now: Rows.now, onExport: {}, onClose: {}))
         XCTAssertTrue(s.texts.contains { $0.hasPrefix("Benchy, X2D · ") }, "\(s.texts)")
         XCTAssertTrue(s.texts.contains { $0.hasPrefix("Benchy, P1S · ") })
+    }
+
+    func testHistoryRowWithoutAJobNamesThePrinterOnceAndSaysCanceled() throws {
+        var canceled = historyRow(1, serial: "p1s", outcome: JobLog.outcomeFail, job: nil)
+        canceled.failCode = GlanceContent.cancelCode
+        let s = try Screen(HistoryView(rows: [historyRow(0), canceled], now: Rows.now, onExport: {}, onClose: {}))
+        assertReadsWell(s)
+        let row = try XCTUnwrap(s.texts.first { $0.hasPrefix("P1S, ") }, "\(s.texts)")
+        XCTAssertFalse(row.hasPrefix("P1S, P1S"), "the title already names the printer: \(row)")
+        XCTAssertTrue(row.hasSuffix(" · 2h 05m · Canceled"), row)
+        XCTAssertFalse(row.contains("The print was canceled."), "the outcome says it")
     }
 }

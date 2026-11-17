@@ -13,7 +13,9 @@ struct PrinterFile: Codable, Equatable, Sendable {
         /// The printer's serial.
         var id: String
         var name: String
-        /// The card's word: Starting, Printing, Paused, Finished, Failed, Idle or Offline.
+        /// The printer's state in the card's words: Starting, Printing, Paused, Finished, Failed, Idle or
+        /// Offline. A canceled print stays Failed here, as the printer reports it; the card says Canceled
+        /// (`GlanceContent.isCanceled`), and `errorCodes` holds 0300-400C.
         var state: String
         /// The printer's `gcode_state` as PrintGlance reads it: PREPARE, RUNNING, PAUSE, FINISH, FAILED, IDLE or OFFLINE.
         var code: String

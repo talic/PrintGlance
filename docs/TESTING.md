@@ -1,6 +1,6 @@
 # Testing PrintGlance
 
-The suite has two parts: **322 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **71 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
+The suite has two parts: **406 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **71 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Running
 

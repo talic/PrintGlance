@@ -200,6 +200,18 @@ final class PhoneGlanceTests: XCTestCase {
         XCTAssertEqual(idle.extra, [])
     }
 
+    func testACanceledCardIsCalm() {
+        var canceled = Rows.failed()
+        canceled.hmsCode = nil
+        canceled.printError = GlanceContent.cancelCode
+        let lines = GlanceContent.phone(PhoneStatus(printer: canceled, at: fetched), printer: .x2d(), now: fetched)
+        XCTAssertFalse(lines.alert, "canceled is calm")
+        XCTAssertEqual(lines.short, "Canceled")
+        XCTAssertTrue(lines.state.hasSuffix("Canceled"), lines.state)
+        XCTAssertEqual(lines.systemImage, "stop.circle")
+        XCTAssertNil(lines.detail, "not the cancel code's reason")
+    }
+
     func testBeforeTheFirstLook() {
         let none = GlanceContent.phone(nil, printer: nil, now: fetched)
         XCTAssertEqual([none.title, none.detail], ["Add your printer", "Open PrintGlance to set it up."])

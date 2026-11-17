@@ -27,7 +27,7 @@ A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu La
 - Presentation decisions go in pure `static` functions on `GlanceContent` (report parsing on `BambuPrint`), each tested. Views stay thin.
 - Tests never touch `UserDefaults.standard`, Notification Center, the network, or `~/Library`; use `ModelHarness`, `Screen`, `FakeBroker`, and the other helpers in `Tests/PrintGlanceTests/Support`.
 - CI builds with Xcode 16.4 (Swift 6.1), older than a current Mac. Concurrency errors can pass locally and fail in CI; keep non-Sendable framework values inside nonisolated helpers.
-- Copy: English, short plain sentences; title case for menu items, sentence case elsewhere. States are Starting, Printing, Paused, Finished, Failed, Idle, Offline.
+- Copy: English, short plain sentences; title case for menu items, sentence case elsewhere. States are Starting, Printing, Paused, Finished, Failed, Canceled, Idle, Offline.
 - Commits: `type: short imperative summary`, lower case (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `build:`, `chore:`). Mark deliberate shortcuts with a `ponytail:` comment naming the limit and the upgrade path.
 
 ## Rules that are checked

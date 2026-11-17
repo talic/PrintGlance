@@ -286,7 +286,7 @@ struct PhoneLines: Equatable, Sendable {
     var short: String
     /// The menu bar's symbol for this state.
     var systemImage: String = "printer"
-    /// Paused or failed: the state and bar turn orange.
+    /// Paused or failed, not canceled: the state and bar turn orange.
     var alert = false
 }
 
@@ -347,9 +347,10 @@ extension GlanceContent {
             // With a job in the title, name the printer, so two printers' cards tell apart.
             state: title == row.name ? subtitle(row) : "\(row.name) · \(subtitle(row))",
             footer: "Updated \(at(status.at))",
-            short: humanState(st),
+            short: stateWord(row),
             systemImage: strip(row: row).systemImage,
-            alert: st.isStopped
+            // A canceled print stays plain: nothing went wrong.
+            alert: st.isStopped && !isCanceled(row)
         )
         switch st {
         case .printing, .starting:
@@ -364,7 +365,8 @@ extension GlanceContent {
             lines.hero = hero(row)
             lines.detail = errorReason(row)
         case .failed:
-            lines.detail = errorReason(row)
+            // Canceled: the state line already says so.
+            lines.detail = isCanceled(row) ? nil : errorReason(row)
         default:
             break
         }

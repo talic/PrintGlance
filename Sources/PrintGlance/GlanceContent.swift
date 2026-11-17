@@ -21,28 +21,31 @@ struct GlanceContent: Equatable, Sendable {
         return nil
     }
 
+    /// `feedDownReason` is why the links failed before any printer reported: only a rejected code keeps
+    /// `wifi.slash` then, since a printer switched off overnight is the usual reason.
     static func strip(
         _ result: FeedResult,
         occupancyEndedAt: Date? = nil,
-        now: Date = Date()
+        now: Date = Date(),
+        feedDownReason: String? = nil
     ) -> StripPresentation {
         switch result {
         case .feedDown:
             return StripPresentation(
-                systemImage: offlineImage,
+                systemImage: GlanceCopy.codeRejected(feedDownReason) ? offlineImage : switchedOffImage,
                 title: "",
                 accessibilityLabel: "Can't reach printer"
             )
         case .needsSetup:
             return StripPresentation(
                 systemImage: "printer",
-                title: "",
+                title: "Set Up",
                 accessibilityLabel: "Add your Bambu printer"
             )
         case .connecting:
             return StripPresentation(
                 systemImage: "printer",
-                title: "",
+                title: "…",
                 accessibilityLabel: "Connecting to printer"
             )
         case let .doc(doc):
@@ -59,6 +62,8 @@ struct GlanceContent: Equatable, Sendable {
 
     /// SF Symbols has no `printer.slash`; a missing name draws nothing in the menu bar.
     static let offlineImage = "wifi.slash"
+    /// A printer that is probably switched off: nothing to fix, so no slash.
+    static let switchedOffImage = "powersleep"
     /// The menu bar drops "40m ago" after this; the checkmark stays.
     static let finishTitleFor: TimeInterval = 2 * 3600
 
@@ -107,14 +112,14 @@ struct GlanceContent: Equatable, Sendable {
             )
         case .failed:
             return StripPresentation(
-                systemImage: "xmark",
+                systemImage: isCanceled(row) ? "stop.circle" : "xmark",
                 title: "",
                 accessibilityLabel: a11y(row)
             )
         case .offline:
             let seen = row.lastSeen.map { "last update \(dayTime($0, now: now, calendar: calendar, locale: locale))" }
             return StripPresentation(
-                systemImage: offlineImage,
+                systemImage: offlineKind(row) == .switchedOff ? switchedOffImage : offlineImage,
                 title: "",
                 accessibilityLabel: [row.name, "offline", seen].compactMap { $0 }.joined(separator: ", ")
             )
@@ -152,6 +157,42 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    /// The `print_error` a cancel leaves, on the printer or from an app. Bambu reports a cancel as FAILED.
+    static let cancelCode = "0300-400C"
+
+    /// A FAILED report that is really a cancel. The row keeps FAILED, so `printers.json` still says what the
+    /// printer said; only what this app shows changes.
+    static func isCanceled(_ row: Printer) -> Bool {
+        row.printState == .failed && errorCodes(row).contains(cancelCode)
+    }
+
+    /// A History row that ended in a cancel. `JobLog` saves the cancel code as the row's `failCode`.
+    static func isCanceled(_ row: JobLogRow) -> Bool {
+        row.outcome == JobLog.outcomeFail && row.failCode == cancelCode
+    }
+
+    /// A row's state as one word: Canceled for a canceled print, else `humanState`.
+    static func stateWord(_ row: Printer) -> String {
+        isCanceled(row) ? "Canceled" : humanState(row.printState)
+    }
+
+    /// Why an offline printer is offline, which decides its icon, rank, and words.
+    enum OfflineKind: Equatable, Sendable {
+        /// It was starting, printing, or paused when last heard from.
+        case lost
+        /// It answered and refused the access code.
+        case codeRejected
+        /// Idle, finished, failed, or canceled when last heard from, or never reached: most likely switched off.
+        case switchedOff
+    }
+
+    /// Nil while the printer is online.
+    static func offlineKind(_ row: Printer) -> OfflineKind? {
+        guard row.printState == .offline else { return nil }
+        if row.lastPrintState?.isTimed == true { return .lost }
+        return row.codeRejected == true ? .codeRejected : .switchedOff
+    }
+
     /// Notifications for this app in System Settings. Undocumented: an unknown `id` opens the Notifications page.
     static let notificationSettingsURL = URL(
         string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "local.PrintGlance")"
@@ -170,7 +211,7 @@ struct GlanceContent: Equatable, Sendable {
 
     /// A printer list row's right side: "52% · 4:25 PM" while printing, else the state word.
     static func listDetail(_ row: Printer) -> String {
-        guard row.printState == .printing, let pct = row.percent else { return humanState(row.printState) }
+        guard row.printState == .printing, let pct = row.percent else { return stateWord(row) }
         guard let eta = row.eta, !eta.isEmpty else { return "\(pct)%" }
         return "\(pct)% · \(eta)"
     }
@@ -372,7 +413,26 @@ struct GlanceContent: Equatable, Sendable {
         return groups
     }
 
-    /// "X2D · 14:02 yesterday · 4h 43m · Finished". The printer name only when the log has several printers.
+    /// A History row's title: the job, else the printer's name.
+    static func historyTitle(_ row: JobLogRow) -> String {
+        if let job = row.job, !job.isEmpty { return job }
+        return row.name
+    }
+
+    /// Printing, Finished, Failed, or Canceled.
+    static func historyOutcome(_ row: JobLogRow) -> String {
+        guard let outcome = row.outcome else { return "Printing" }
+        if isCanceled(row) { return "Canceled" }
+        return outcome == JobLog.outcomeFail ? "Failed" : "Finished"
+    }
+
+    /// Only a real failure tints its outcome word red; a cancel was someone's choice.
+    static func historyFailed(_ row: JobLogRow) -> Bool {
+        row.outcome == JobLog.outcomeFail && !isCanceled(row)
+    }
+
+    /// "X2D · 14:02 yesterday · 4h 43m · Finished". The printer name only when the log has several printers
+    /// and the title isn't already the printer's name.
     static func historyCaption(
         _ row: JobLogRow,
         showPrinter: Bool,
@@ -380,19 +440,32 @@ struct GlanceContent: Equatable, Sendable {
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> String {
-        let outcome = row.outcome.map { $0 == JobLog.outcomeFail ? "Failed" : "Finished" } ?? "Printing"
-        return [
-            showPrinter ? row.name : nil,
+        let parts = historyCaptionParts(row, showPrinter: showPrinter, now: now, calendar: calendar, locale: locale)
+        return parts.lead + parts.outcome
+    }
+
+    /// `historyCaption` as everything up to the outcome word ("14:02 yesterday · 4h 43m · ") and the word,
+    /// so the view tints only the word.
+    static func historyCaptionParts(
+        _ row: JobLogRow,
+        showPrinter: Bool,
+        now: Date,
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> (lead: String, outcome: String) {
+        let lead = [
+            showPrinter && historyTitle(row) != row.name ? row.name : nil,
             dayTime(row.startAt, now: now, calendar: calendar, locale: locale),
             row.endedAt.map { formatRemain(max(0, Int($0.timeIntervalSince(row.startAt)))) },
-            outcome,
         ].compactMap { $0 }.joined(separator: " · ")
+        return (lead + " · ", historyOutcome(row))
     }
 
     /// Lines under a History row's caption: why it failed, then how often it paused and the last pause's reason.
+    /// A cancel needs no reason: the caption already says Canceled.
     static func historyNotes(_ row: JobLogRow) -> [String] {
         var notes: [String] = []
-        if row.outcome == JobLog.outcomeFail, let code = row.failCode, !code.isEmpty {
+        if row.outcome == JobLog.outcomeFail, let code = row.failCode, !code.isEmpty, code != cancelCode {
             notes.append(errorLine(code: code))
         }
         if let pauses = row.pauses, let last = pauses.last {
@@ -425,6 +498,16 @@ struct GlanceContent: Equatable, Sendable {
         return tray.remain.map { "\(name)  \($0)%" } ?? name
     }
 
+    /// The reasons and codes block: always while paused, saying "No error reported." when there's no code,
+    /// and while failed unless the print was canceled: the subtitle already says Canceled.
+    static func showsErrors(_ row: Printer) -> Bool {
+        switch row.printState {
+        case .paused: return true
+        case .failed: return !isCanceled(row)
+        default: return false
+        }
+    }
+
     /// Trays matter when you are at the printer: before a print, after one, or on a paused runout.
     static func showsAMS(_ row: Printer) -> Bool {
         [.idle, .finished, .failed, .paused].contains(row.printState)
@@ -434,7 +517,7 @@ struct GlanceContent: Equatable, Sendable {
         if row.printState == .starting, let stage = row.stage, !stage.isEmpty {
             return stage
         }
-        return humanState(row.printState)
+        return stateWord(row)
     }
 
     /// Release tags look like `v1.2.0`; the menu shows `Download PrintGlance 1.2.0`.
@@ -578,7 +661,7 @@ struct GlanceContent: Equatable, Sendable {
     private static func a11y(_ row: Printer, ago: String? = nil) -> String {
         let st = row.printState
         let timed = st.isTimed
-        var parts = [row.name, [humanState(st).lowercased(), ago].compactMap { $0 }.joined(separator: " ")]
+        var parts = [row.name, [stateWord(row).lowercased(), ago].compactMap { $0 }.joined(separator: " ")]
         if let p = row.percent, timed || st == .failed {
             parts.append("\(p) percent")
         }
@@ -650,6 +733,19 @@ enum GlanceCopy {
         return "Can't reach the printer. Check Wi-Fi and the IP address."
     }
 
+    /// Under an offline printer's card, or under "Can't reach printer" (nil row) before any printer reported.
+    /// A printer that was idle or done when last heard from, or never answered, is most likely switched off,
+    /// so that reads calm. A print that was running and a rejected code keep `feedDownDetail`.
+    static func offlineDetail(_ row: Printer?, reason: String?) -> String {
+        let switchedOff = row.map { GlanceContent.offlineKind($0) == .switchedOff } ?? true
+        guard switchedOff, !codeRejected(reason) else { return feedDownDetail(reason: reason) }
+        // A refusal means something answers at that IP: a printer still booting, or another device.
+        if reason?.contains("ECONNREFUSED") == true {
+            return "It may be switched off or still starting up. If it's on, check the IP address on the printer's LAN or Network page."
+        }
+        return "It may be switched off. If it's on, check Wi-Fi and the IP address."
+    }
+
     /// The serial the printer at that address named, when it isn't the one saved.
     static func wrongSerial(_ reason: String?) -> String? {
         let prefix = MQTT311Client.wrongSerialReason + " "
@@ -660,5 +756,12 @@ enum GlanceCopy {
     /// The printer answered and refused the access code.
     static func codeRejected(_ reason: String?) -> Bool {
         reason?.hasPrefix("MQTT CONNACK") == true
+    }
+
+    /// Before any printer reports, the menu bar and the panel speak for every printer at once. A rejected
+    /// access code wins, since it needs the user and the panel offers Update Access Code… for it; one
+    /// printer switched off must not show the moon over another that refuses its code.
+    static func feedDownReason(focused: String?, all: [String]) -> String? {
+        all.first(where: codeRejected) ?? focused ?? all.first
     }
 }
