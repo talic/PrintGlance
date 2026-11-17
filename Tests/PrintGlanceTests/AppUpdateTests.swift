@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 @testable import PrintGlance
@@ -14,6 +15,25 @@ final class AppUpdateTests: XCTestCase {
         XCTAssertFalse(AppUpdate.isNewer("", than: "1.0.2"))
         XCTAssertFalse(AppUpdate.isNewer("nope", than: "1.0.2"))
         XCTAssertFalse(AppUpdate.isNewer("v1.0.3", than: "bogus"))
+    }
+
+    func testSignatureIsCheckedOverTheExactZipBytes() throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let publicKey = key.publicKey.rawRepresentation.base64EncodedString()
+        let zip = Data("PK zip bytes".utf8)
+        let signature = Data((try key.signature(for: zip).base64EncodedString() + "\n").utf8)
+        XCTAssertTrue(AppUpdate.isSigned(zip, signature: signature, key: publicKey), "make sign-release ends the file with a newline")
+        XCTAssertFalse(AppUpdate.isSigned(zip + Data([0]), signature: signature, key: publicKey))
+        XCTAssertFalse(AppUpdate.isSigned(zip, signature: signature, key: Curve25519.Signing.PrivateKey().publicKey.rawRepresentation.base64EncodedString()))
+        XCTAssertFalse(AppUpdate.isSigned(zip, signature: Data(), key: publicKey))
+        XCTAssertFalse(AppUpdate.isSigned(zip, signature: signature, key: "not a key"))
+        XCTAssertFalse(AppUpdate.isSigned(zip, signature: Data([0xFF, 0xFE]), key: publicKey))
+    }
+
+    func testVersionOfATag() {
+        XCTAssertEqual(AppUpdate.version(ofTag: "v1.6.0"), "1.6.0")
+        XCTAssertEqual(AppUpdate.version(ofTag: "V2.0"), "2.0")
+        XCTAssertEqual(AppUpdate.version(ofTag: "1.6.0"), "1.6.0")
     }
 
     func testCheckIsDueAfterADay() {

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 @testable import PrintGlance
@@ -89,7 +90,11 @@ final class SecurityTests: XCTestCase {
         func zip(_ url: String) -> URL? {
             AppUpdate.zipURL(fromAPIJSON: Data(#"{"assets":[{"name":"PrintGlance.zip","browser_download_url":"\#(url)"}]}"#.utf8))
         }
+        func signature(_ url: String) -> URL? {
+            AppUpdate.signatureURL(fromAPIJSON: Data(#"{"assets":[{"name":"PrintGlance.zip.sig","browser_download_url":"\#(url)"}]}"#.utf8))
+        }
         XCTAssertNotNil(zip("https://github.com/talic/PrintGlance/releases/download/v9.9.9/PrintGlance.zip"))
+        XCTAssertNotNil(signature("https://github.com/talic/PrintGlance/releases/download/v9.9.9/PrintGlance.zip.sig"))
         for hostile in [
             "https://github.com.evil.example/PrintGlance.zip",
             "https://evil.example/github.com/PrintGlance.zip",
@@ -100,7 +105,19 @@ final class SecurityTests: XCTestCase {
             "javascript:alert(1)",
         ] {
             XCTAssertNil(zip(hostile), hostile)
+            XCTAssertNil(signature(hostile), hostile)
         }
+    }
+
+    /// The app installs only zips signed by the owner's key, whose public half ships in the app.
+    func testInstallTrustsOnlyTheShippedSigningKey() throws {
+        let raw = try XCTUnwrap(Data(base64Encoded: AppUpdate.signingKey))
+        XCTAssertEqual(raw.count, 32)
+        XCTAssertNoThrow(try Curve25519.Signing.PublicKey(rawRepresentation: raw))
+        XCTAssertEqual(AppInstaller.running.key, AppUpdate.signingKey)
+        let zip = Data("PrintGlance.zip".utf8)
+        let forged = Data((try Curve25519.Signing.PrivateKey().signature(for: zip)).base64EncodedString().utf8)
+        XCTAssertFalse(AppUpdate.isSigned(zip, signature: forged, key: AppUpdate.signingKey))
     }
 
     func testUpdateCheckIdentifiesOnlyTheAppVersion() {

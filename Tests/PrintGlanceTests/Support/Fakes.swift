@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import UserNotifications
 import XCTest
@@ -155,6 +156,14 @@ final class ModelHarness {
     let notifications = NotificationLog()
     let network = FakeNetwork()
     private(set) var model: GlanceModel!
+    /// Signs this harness's pretend releases; the model's installer trusts only it.
+    let signingKey = Curve25519.Signing.PrivateKey()
+    /// Where the model's installer would replace itself. Nothing is there until `installApp()`.
+    var appURL: URL { dir.appendingPathComponent("Applications/PrintGlance.app", isDirectory: true) }
+    /// Each time the model asked to quit and reopen after an install, in place of quitting.
+    private(set) var reopened: [URL] = []
+    /// What the model hears back when it asks to quit and reopen.
+    var reopens = true
 
     var logText: String { (try? String(contentsOf: dir.appendingPathComponent("PrintGlance.log"), encoding: .utf8)) ?? "" }
     var jobsURL: URL { dir.appendingPathComponent("jobs.json") }
@@ -181,8 +190,34 @@ final class ModelHarness {
             makeClient: { [printers] in printers.make() },
             scan: network.scan,
             connectTimeout: connectTimeout,
-            updates: AppUpdateChecker(defaults: defaults, localVersion: Self.version, session: StubGitHub.session())
+            updates: AppUpdateChecker(defaults: defaults, localVersion: Self.version, session: StubGitHub.session()),
+            installer: AppInstaller(
+                appURL: appURL,
+                bundleID: FakeRelease.bundleID,
+                localVersion: Self.version,
+                key: signingKey.publicKey.rawRepresentation.base64EncodedString()
+            ),
+            quitAndReopen: { [weak self] url in
+                guard let self else { return false }
+                self.reopened.append(url)
+                return self.reopens
+            }
         )
+    }
+
+    /// Puts this version of the app where the installer replaces it, like a copy in Applications.
+    func installApp() throws {
+        try FakeRelease.app(at: appURL, version: Self.version)
+    }
+
+    /// GitHub's latest release at `tag`, with a zip of that version signed by this harness.
+    /// `signedBy` signs with another key instead; `signature: false` leaves the signature out.
+    func publish(_ tag: String, signedBy key: Curve25519.Signing.PrivateKey? = nil, signature: Bool = true) throws {
+        let work = dir.appendingPathComponent("release-\(UUID().uuidString)", isDirectory: true)
+        let zip = try FakeRelease.zip(FakeRelease.app(at: work.appendingPathComponent("PrintGlance.app"), version: AppUpdate.version(ofTag: tag)), in: work)
+        StubGitHub.reply(200, FakeRelease.json(tag, signature: signature))
+        StubGitHub.serve(FakeRelease.zipURL(tag), zip)
+        StubGitHub.serve(FakeRelease.signatureURL(tag), FakeRelease.sign(zip, with: key ?? signingKey))
     }
 
     /// The version the model thinks it is. Its update checks reach `StubGitHub`, which is offline until a test replies.

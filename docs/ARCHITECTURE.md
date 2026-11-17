@@ -36,7 +36,7 @@ These are product promises (README, "Private and read-only") or hard-won constra
 | Rule | Why | Guarded by |
 |---|---|---|
 | **Read-only.** The app publishes exactly one message: `{"pushing":{"command":"pushall","sequence_id":"0"}}` to `device/<serial>/request`. Never pause, stop, resume, print, or change settings. | The README promises it, and a bug here could ruin a print. | `SecurityTests.testOnlyEverAsksForAFullReport`, `GlanceModelTests.testHandshakeSubscribesAndAsksForEverything`, `MQTTWireTests`, Python `MqttCallbackTests` |
-| **LAN only.** The app's only internet request is the GitHub release check, daily and when the user clicks the version. Bambu web pages open in the browser only when the user clicks **Look up** on the card or **Look Up** on a notice. | Privacy promise. | `ShippingTests.testReadOnlyAndLocalPromise`, `UpdateCheckTests` |
+| **LAN only.** The app's only internet requests are the GitHub release check, daily and when the user clicks the version, and the release's zip and signature when the user clicks **Update available**. Bambu web pages open in the browser only when the user clicks **Look up** on the card or **Look Up** on a notice. | Privacy promise. | `ShippingTests.testReadOnlyAndLocalPromise`, `UpdateCheckTests`, `AppInstallerTests` |
 | **The access code stays on this Mac**, and only ever travels as the MQTT password to the printer's own IP. Never log it, never put it in a notification or a URL. The iPhone app keeps the code typed into it on that iPhone, under the same rules. | Privacy promise; the code grants LAN control of the printer. | `SecurityTests.testAccessCodeIsOnlyEverTheMQTTPassword`, `PhoneGlanceTests.testOneLookAsksForAFullReportAndHangsUp` |
 | **No dependencies.** The package has none; system frameworks only. | Simplicity and supply chain. | Review |
 | `Printer`, `PrintDoc`, `AMSTray`, `AMSUnit`, `Temp`, `Runout` stay `Codable`; only add optional fields with `= nil` defaults. | The JSON fixtures pin the Python feed's format (`PrintDocTests`). | `PrintDocTests` |
@@ -70,7 +70,8 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`. The iPhone
 | `SetupView.swift` | `SetupFlow` (the Add/Edit printer state machine) and `SetupView` (its window content). |
 | `SetupWindow.swift` | The `NSWindow` that hosts setup, its show/close/cancel wiring, and the Remove confirmation alert. |
 | `LoginItem.swift` | Open at Login via `SMAppService.mainApp`. |
-| `AppUpdate.swift` | Version comparison and GitHub release parsing (`AppUpdate`), the daily checker (`AppUpdateChecker`). |
+| `AppUpdate.swift` | Version comparison, GitHub release parsing, and the release signature check (`AppUpdate`); the daily checker, which also downloads a release (`AppUpdateChecker`). |
+| `AppInstaller.swift` | `AppInstaller`: checks a downloaded release and swaps it in for the running app, then reopens it. |
 | `PhoneGlance.swift` | iPhone only, but built and tested here: `PhoneStatus` (the last row and when), `PhoneStore` (App Group defaults), `PrinterFetch` (one connect, `pushall`, one report, hang up), `PrinterSearch` (finds printers without multicast), and the widget's words (`GlanceContent.phone`, `phoneEntryDates`, `phoneNextFetch`, `GlanceCopy.phoneFetchFailed`). The Mac app never calls it. |
 | `PhoneCard.swift` | The iPhone widget's card (small and medium) and the iPhone app's status card. |
 
@@ -82,11 +83,12 @@ Outside `Sources`:
 | `Tests/Feed/test_feed.py` | The Python feed's suite (unittest). |
 | `bambu.py`, `print_loop.py`, `print_loop.sh`, `requirements.txt`, `.env.example` | The [Python feed](#the-python-feed). Not used by the app. |
 | `Info.plist` | Copied into the bundle by `make app`. Bundle ID `local.PrintGlance`, `LSUIElement`, `LSMultipleInstancesProhibited`, the Local Network usage string, the version. |
-| `Makefile` | `test`, `release`, `app`, `zip`, `notarize`, `install`, `icon`, `clean`. |
+| `Makefile` | `test`, `release`, `app`, `zip`, `notarize`, `install`, `icon`, `clean`, `update-key`, `sign-release`. |
 | `scripts/render-appicon.swift` | Draws the app icon into `dist/AppIcon.icns`. |
 | `iOS/` | The iPhone app (`App/`) and widget extension (`Widget/`), their Xcode project, Info.plists, entitlements, and `PrintGlance.xcconfig`. See [iPhone app and widget](#iphone-app-and-widget). |
 | `scripts/fake-printer.py` | A pretend printer on `127.0.0.1:8883` for trying the iPhone app in the simulator. |
-| `.github/workflows/test.yml`, `release.yml` | CI tests (and builds the iPhone app) on every PR and push to `main`; release on a `v*` tag. |
+| `.github/workflows/test.yml`, `release.yml` | CI tests (and builds the iPhone app) on every PR and push to `main`; a draft release on a `v*` tag. |
+| `scripts/release-signature.swift` | Makes the release signing key in the owner's login Keychain and signs a release zip with it (`make update-key`, `make sign-release`). |
 | `docs/*.png` | README screenshots. |
 
 ## From a printer report to the menu bar
@@ -311,7 +313,7 @@ Preferences live in the `local.PrintGlance` domain (`UserDefaults.standard` in t
 | `pg.runout` | `RunoutTracker` as JSON. |
 | `pg.filament` | `FilamentAlert` as JSON: the low-filament notices sent for each printer's current print. |
 | `pg.overrun` | `Overrun` as JSON: seconds late for each printer's last five watched finishes. |
-| `pg.update.lastCheck`, `.remoteTag`, `.remoteZip` | Update check cache. |
+| `pg.update.lastCheck`, `.remoteTag`, `.remoteZip`, `.remoteSig` | Update check cache. |
 | `~/Library/Application Support/PrintGlance/jobs.json` | History. |
 | `~/Library/Application Support/PrintGlance/printers.json` | Written for other apps on this Mac (Model Browser plans its print queue from it), never read back: `PrinterFile`, one entry per printer with the state in the card's words (a canceled print stays Failed, as the printer reports it), the raw `gcode_state`, `subtask_name` as sent, the plate from `gcode_file`, finish time (remaining time from now, with lateness), start and end from History, pause or fail codes and reason, and AMS trays. No IP or access code. Rewritten only when a row or History changes; emptied when no printer is set up. |
 | iPhone: App Group `group.<PG_ID>` defaults, `printers` and `pg.phone.statuses` | The iPhone's printers (same shape and cap of four as the Mac's, codes included) and each one's last `PhoneStatus`, as a JSON array. |
@@ -339,7 +341,15 @@ Live testing notes: on macOS 27 `NSStatusBarButton.performClick` doesn't open a 
 
 ## Update check
 
-`AppUpdateChecker` asks `https://api.github.com/repos/talic/PrintGlance/releases/latest` at most once a day (an hourly loop checks whether a day has passed, and wake checks too) with an ephemeral session, an 8 s timeout, and a `User-Agent` of `PrintGlance/<version> (+https://github.com/talic/PrintGlance)`. A newer `tag_name` shows **Update available** in the card and **Download PrintGlance <version>** in the menu. The download link is the release's `PrintGlance.zip` asset only if it is an `https://github.com/` URL; otherwise the release page. A failed check publishes what it knew and doesn't count as the day's check. Clicking **PrintGlance <version>** in the panel's menu runs `checkNow()` whatever the day's check said; `GlanceModel.updateCheck` then puts **Checking for updates…**, **PrintGlance is up to date**, or **Can't check for updates** under the card (`GlanceContent.updateCheckLine`) until the panel next opens. A newer version shows as **Update available** instead. There is no auto-update.
+`AppUpdateChecker` asks `https://api.github.com/repos/talic/PrintGlance/releases/latest` at most once a day (an hourly loop checks whether a day has passed, and wake checks too) with an ephemeral session, an 8 s timeout, and a `User-Agent` of `PrintGlance/<version> (+https://github.com/talic/PrintGlance)`. A newer `tag_name` shows **Update available** in the card and **Download PrintGlance <version>** in the menu. The download link is the release's `PrintGlance.zip` asset only if it is an `https://github.com/` URL; otherwise the release page. A failed check publishes what it knew and doesn't count as the day's check. Clicking **PrintGlance <version>** in the panel's menu runs `checkNow()` whatever the day's check said; `GlanceModel.updateCheck` then puts **Checking for updates…**, **PrintGlance is up to date**, or **Can't check for updates** under the card (`GlanceContent.updateCheckLine`) until the panel next opens. A newer version shows as **Update available** instead.
+
+**Installing.** Clicking **Update available** runs `GlanceModel.installUpdate()`. It installs only when the last check saved a release with both `PrintGlance.zip` and `PrintGlance.zip.sig` (`AppUpdateChecker.release`) and `AppInstaller.canInstall` holds: the app runs from an `.app` that isn't translocated, and this account can write the bundle and its folder. Otherwise it opens the download in the browser, as before 1.6. `GlanceModel.updateInstall` drives the line under the card (`GlanceContent.updateInstallLine`): **Downloading update…**, **Installing update…**, **Can't install the update** (until the panel next opens, then **Update available** again), or **Quit and reopen to finish updating** if the reopen helper couldn't start.
+
+1. `AppUpdateChecker.download` fetches the signature (4 KB at most), then the zip (64 MB at most), from `https://github.com` URLs only; GitHub redirects them to its download host.
+2. `AppInstaller.install`, off the main actor: `AppUpdate.isSigned` checks the base64 Ed25519 signature over the exact zip bytes against `AppUpdate.signingKey` before anything is unpacked. The tag must be newer than the running version. `ditto -x -k` unpacks into an `.itemReplacementDirectory` on the app's own volume, which must hold exactly one `.app` whose Info.plist has this bundle ID and the tag's version, and its executable. `FileManager.replaceItemAt` swaps it in under the installed name, so a renamed copy keeps its name. The staging folder is removed either way.
+3. `GlanceModel.quitAndReopen` starts `/bin/sh`, which waits for this process to exit and then `open`s the app (`LSMultipleInstancesProhibited` would refuse a second copy sooner), and quits.
+
+The app downloads with `URLSession`, which doesn't set the quarantine flag, so macOS doesn't run its first-open Gatekeeper check on the new copy. The signature stands in for it. The private key never leaves the owner's Mac: `release.yml` publishes a **draft**, and `make sign-release TAG=vX.Y.Z` downloads its zip, checks it holds that version, signs it with the key in the login Keychain (refusing if that key isn't `AppUpdate.signingKey`), attaches `PrintGlance.zip.sig`, and publishes. If the key is lost, put a new one in `AppUpdate.signingKey` and publish that release without a signature: installed copies would refuse a zip signed with the new key, but with no `.sig` they open the browser download instead. Back the key up (`security find-generic-password -s "PrintGlance release signing key" -w`, into a password manager). Every failure is logged as `update <tag>: <why>`.
 
 ## iPhone app and widget
 
@@ -367,7 +377,7 @@ Live testing notes: on macOS 27 `NSStatusBarButton.performClick` doesn't open a 
 - `make app` builds release, assembles `dist/PrintGlance.app` with `Info.plist` and the icon, and signs ad-hoc (`SIGN_ID=-`). `make zip` zips it. `make notarize` signs with a Developer ID (hardened runtime, timestamp), submits to notarytool, checks the status, staples, and re-zips.
 - `make install` quits the running app, copies it to `~/Applications`, **rewrites saved printers from `.env`**, and opens it. Don't run it without asking.
 - **CI** (`test.yml`): `swift test`, an unsigned simulator build of the iPhone app and widget, and the feed tests on `macos-15` with Xcode 16.4 (Swift 6.1, macOS 15.5 SDK). That toolchain is older than a current Mac's, and Swift 6 concurrency checks differ: code that crosses actors with Apple framework types can build locally and fail in CI. Keep non-Sendable framework values inside nonisolated helpers and return plain values. The PR's CI is the real check.
-- **Release** (`release.yml`): on a `v*` tag that must equal `v` + `CFBundleShortVersionString`, runs tests, imports the Developer ID certificate if the secrets exist, builds, notarizes, checks Gatekeeper, and attaches `PrintGlance.zip` to the GitHub release. Without signing secrets it ships ad-hoc (a marked `ponytail:` fallback; turn it back into an error once the secrets exist). The README keeps its "Open Anyway" steps until a notarized release is the latest.
+- **Release** (`release.yml`): on a `v*` tag that must equal `v` + `CFBundleShortVersionString`, runs tests, imports the Developer ID certificate if the secrets exist, builds, notarizes, checks Gatekeeper, and attaches `PrintGlance.zip` to a **draft** GitHub release. Then, on the owner's Mac, `make sign-release TAG=vX.Y.Z` signs the zip, attaches `PrintGlance.zip.sig`, and publishes it (see [Update check](#update-check)). Without signing secrets it ships ad-hoc (a marked `ponytail:` fallback; turn it back into an error once the secrets exist). The README keeps its "Open Anyway" steps until a notarized release is the latest.
 - Bump `CFBundleShortVersionString` and `CFBundleVersion` in `Info.plist` for a release.
 
 ## Known limits and debt
