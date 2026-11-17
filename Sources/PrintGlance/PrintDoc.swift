@@ -20,11 +20,11 @@ struct PrintDoc: Codable, Equatable, Sendable {
     func ranked() -> [Printer] {
         func key(_ i: Int, _ p: Printer) -> (Int, Int, Int, Int) {
             let tier: Int
-            switch p.state.uppercased() {
-            case "PAUSE": tier = 0
-            case "RUNNING", "PREPARE": tier = 1
-            case "FAILED": tier = 2
-            case "FINISH": tier = 3
+            switch p.printState {
+            case .paused: tier = 0
+            case .printing, .starting: tier = 1
+            case .failed: tier = 2
+            case .finished: tier = 3
             default: tier = 4
             }
             let soonest = tier == 1 ? p.remainingS ?? .max : 0
@@ -32,6 +32,52 @@ struct PrintDoc: Codable, Equatable, Sendable {
         }
         return printers.enumerated().sorted { key($0.offset, $0.element) < key($1.offset, $1.element) }.map(\.element)
     }
+}
+
+/// `Printer.state` as a type. The row keeps the printer's word (`gcode_state`, or OFFLINE), which is the feed's
+/// and `printers.json`'s format; code decides on this.
+enum PrintState: Equatable, Sendable, ExpressibleByStringLiteral {
+    case starting, printing, paused, finished, failed, idle, offline
+    /// A state PrintGlance has no word for, such as SLICING, passed through as the printer sent it.
+    case other(String)
+
+    init(_ raw: String) {
+        switch raw.uppercased() {
+        case "PREPARE": self = .starting
+        case "RUNNING": self = .printing
+        case "PAUSE": self = .paused
+        case "FINISH": self = .finished
+        case "FAILED": self = .failed
+        case "IDLE": self = .idle
+        case "OFFLINE": self = .offline
+        default: self = .other(raw)
+        }
+    }
+
+    init(stringLiteral raw: String) {
+        self.init(raw)
+    }
+
+    /// The printer's word for it, as `Printer.state` holds it.
+    var raw: String {
+        switch self {
+        case .starting: "PREPARE"
+        case .printing: "RUNNING"
+        case .paused: "PAUSE"
+        case .finished: "FINISH"
+        case .failed: "FAILED"
+        case .idle: "IDLE"
+        case .offline: "OFFLINE"
+        case let .other(raw): raw
+        }
+    }
+
+    /// Starting or printing: the nozzle is busy with a print.
+    var isActive: Bool { self == .starting || self == .printing }
+    /// Starting, printing, or paused: a print with time left.
+    var isTimed: Bool { isActive || self == .paused }
+    /// Paused or failed: the printer says why with codes.
+    var isStopped: Bool { self == .paused || self == .failed }
 }
 
 struct AMSTray: Codable, Equatable, Sendable, Identifiable {
@@ -100,6 +146,10 @@ struct Printer: Codable, Equatable, Sendable {
     var chamberTemp: Temp? = nil
     /// Printing or paused: where a spool should run out before the end.
     var runout: Runout? = nil
+
+    var printState: PrintState { PrintState(state) }
+    /// Offline only: what the printer was doing when it was last heard.
+    var lastPrintState: PrintState? { lastState.map { PrintState($0) } }
 }
 
 enum FeedResult: Equatable, Sendable {

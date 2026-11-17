@@ -339,7 +339,7 @@ extension GlanceContent {
         }
         func at(_ date: Date) -> String { dayTime(date, now: now, calendar: calendar, locale: locale) }
         let row = status.printer
-        let st = row.state.uppercased()
+        let st = row.printState
         let title = headline(row)
         var lines = PhoneLines(
             id: row.id,
@@ -349,10 +349,10 @@ extension GlanceContent {
             footer: "Updated \(at(status.at))",
             short: humanState(st),
             systemImage: strip(row: row).systemImage,
-            alert: st == "PAUSE" || st == "FAILED"
+            alert: st.isStopped
         )
         switch st {
-        case "RUNNING", "PREPARE":
+        case .printing, .starting:
             if let s = row.remainingS, s > 0 {
                 let end = status.at + TimeInterval(s)
                 // Whole minutes, rounded up, so a moment after the printer said 84 minutes it still says 1h 24m.
@@ -360,21 +360,21 @@ extension GlanceContent {
                 lines.hero = at(end)
                 lines.detail = left > 0 ? "\(formatRemain(left)) left" : "Should be done"
             }
-        case "PAUSE":
+        case .paused:
             lines.hero = hero(row)
             lines.detail = errorReason(row)
-        case "FAILED":
+        case .failed:
             lines.detail = errorReason(row)
         default:
             break
         }
-        if isTimed(st) {
+        if st.isTimed {
             lines.percent = row.percent
             lines.extra = [layerLine(row), filamentLine(row)].compactMap { $0 }
             let pct = row.percent.map { "\($0)%" }
             let parts: [String?] = switch st {
-            case "PREPARE": [shortStage(row.stage), lines.hero]
-            case "PAUSE": ["Paused", pct]
+            case .starting: [shortStage(row.stage), lines.hero]
+            case .paused: ["Paused", pct]
             default: [pct, lines.hero]
             }
             lines.short = parts.compactMap { $0 }.joined(separator: " · ")
@@ -385,7 +385,7 @@ extension GlanceContent {
     /// When the widget redraws: each minute while any finish time counts down, for up to two hours.
     static func phoneEntryDates(_ statuses: [PhoneStatus], now: Date) -> [Date] {
         let minutes = statuses.map { status -> Int in
-            guard ["RUNNING", "PREPARE"].contains(status.printer.state.uppercased()),
+            guard status.printer.printState.isActive,
                   let s = status.printer.remainingS, s > 0
             else { return 0 }
             let left = status.at.timeIntervalSince(now) + TimeInterval(s)
@@ -398,9 +398,9 @@ extension GlanceContent {
     /// finish time, if sooner), else hourly. iOS decides when it really does.
     static func phoneNextFetch(_ statuses: [PhoneStatus], now: Date) -> Date {
         statuses.map { status -> Date in
-            guard isTimed(status.printer.state) else { return now + 3600 }
+            guard status.printer.printState.isTimed else { return now + 3600 }
             let soon = now + 15 * 60
-            guard status.printer.state.uppercased() != "PAUSE", let s = status.printer.remainingS, s > 0 else { return soon }
+            guard status.printer.printState != .paused, let s = status.printer.remainingS, s > 0 else { return soon }
             let end = status.at + TimeInterval(s) + 60
             return end > now ? min(soon, end) : soon
         }.min() ?? now + 3600

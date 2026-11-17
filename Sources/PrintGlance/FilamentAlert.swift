@@ -27,12 +27,7 @@ struct FilamentAlert {
         enabled: Bool = true
     ) -> Notice? {
         guard enabled else { return nil }
-        switch state.uppercased() {
-        case "RUNNING", "PREPARE":
-            break
-        default:
-            return nil
-        }
+        guard PrintState(state).isActive else { return nil }
         guard let tray, let remain, remain < Self.thresholdPercent else { return nil }
         let task = taskId ?? ""
         let key = "\(serial)|\(tray)|\(task)"
@@ -233,11 +228,11 @@ struct RunoutTracker: Codable, Equatable {
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> Runout? {
-        let state = row.state.uppercased()
+        let state = row.printState
         switch state {
-        case "RUNNING", "PAUSE":
+        case .printing, .paused:
             break
-        case "FINISH", "FAILED", "IDLE":
+        case .finished, .failed, .idle:
             jobs[row.id] = nil
             return nil
         default:
@@ -246,7 +241,7 @@ struct RunoutTracker: Codable, Equatable {
         }
         guard let jobId = row.jobId, let percent = row.percent else { return nil }
         var job = jobs[row.id].flatMap { $0.id == jobId ? $0 : nil } ?? Job(id: jobId)
-        if state == "RUNNING" {
+        if state == .printing {
             if job.pace == nil { job.pace = Pace(percent: percent, now: now) }
             job.pace?.printing(percent, now: now)
         } else {
@@ -302,7 +297,7 @@ struct RunoutTracker: Codable, Equatable {
                 $0.id != best.tray.id && $0.unit != nil && $0.name == name && $0.color == color
             }?.label
         }
-        if state == "RUNNING" {
+        if state == .printing {
             let s = (best.out - p) * pace
             if s < 300 {
                 runout.soon = true

@@ -373,17 +373,13 @@ enum BambuPrint {
     }
 
     static func etaHM(
-        state: String,
+        state: PrintState,
         remainingS: Int?,
         now: Date = Date(),
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> String? {
-        switch state {
-        case "RUNNING", "PREPARE", "PAUSE": break
-        default: return nil
-        }
-        guard let remainingS, remainingS > 0 else { return nil }
+        guard state.isTimed, let remainingS, remainingS > 0 else { return nil }
         let t = now.addingTimeInterval(TimeInterval(remainingS))
         return GlanceContent.dayTime(t, now: now, calendar: calendar, locale: locale)
     }
@@ -428,13 +424,13 @@ enum BambuPrint {
             job: jobLabel(printObj),
             layer: layer,
             layerTotal: layerTotal,
-            eta: etaHM(state: state, remainingS: remainingS),
+            eta: etaHM(state: PrintState(state), remainingS: remainingS),
             filament: fil.type,
             filamentRemain: fil.remain,
             filamentColor: fil.color,
             nozzle: activeNozzle(printObj),
             jobId: jobIdentity(printObj),
-            stage: stageLabel(state: state, printObj: printObj),
+            stage: stageLabel(state: PrintState(state), printObj: printObj),
             trays: trays(printObj),
             humidity: amsHumidity(printObj),
             amsUnits: { let u = amsUnits(printObj); return u.isEmpty ? nil : u }(),
@@ -445,7 +441,7 @@ enum BambuPrint {
             row.lastSeen = lastReportAt
             row.lastState = raw.isEmpty ? nil : raw
         }
-        if state == "PREPARE" {
+        if PrintState(state) == .starting {
             row.nozzleTemp = nozzleTemp(printObj)
             row.bedTemp = bedTemp(printObj)
             row.chamberTemp = chamberTemp(printObj)
@@ -461,8 +457,8 @@ enum BambuPrint {
         return (BambuJSON.intValue(printObj["layer_num"]) ?? 0) == 0
     }
 
-    static func stageLabel(state: String, printObj: [String: Any]) -> String? {
-        guard state.uppercased() == "PREPARE" else { return nil }
+    static func stageLabel(state: PrintState, printObj: [String: Any]) -> String? {
+        guard state == .starting else { return nil }
         guard let stg = BambuJSON.intValue(printObj["stg_cur"]) else { return "Starting" }
         switch stg {
         case 2, 7, 15, 49, 54, 63: return "Heating"

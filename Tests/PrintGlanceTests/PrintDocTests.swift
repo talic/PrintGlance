@@ -339,6 +339,18 @@ final class PrintDocTests: XCTestCase {
         XCTAssertFalse(SavedPrinters.load(from: d).isComplete)
     }
 
+    func testPrintStateReadsThePrintersWords() {
+        let words = ["PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED", "IDLE", "OFFLINE"]
+        XCTAssertEqual(words.map { PrintState($0) }, [.starting, .printing, .paused, .finished, .failed, .idle, .offline])
+        XCTAssertEqual(words.map { PrintState($0).raw }, words)
+        XCTAssertEqual(PrintState("running"), .printing)
+        XCTAssertEqual(PrintState("SLICING"), .other("SLICING"))
+        XCTAssertEqual(GlanceContent.humanState(PrintState("SLICING")), "SLICING", "a word PrintGlance doesn't know passes through")
+        XCTAssertEqual([PrintState.starting, .printing, .paused].map(\.isTimed), [true, true, true])
+        XCTAssertEqual([PrintState.finished, .failed, .idle, .offline].map(\.isTimed), [false, false, false, false])
+        XCTAssertFalse(PrintState.paused.isActive)
+    }
+
     func testReplacingOntoExistingSerialDropsTheOtherRow() {
         let a = PrinterSettings(ip: "192.0.2.10", serial: "AAA", accessCode: "x", name: "Alpha")
         let b = PrinterSettings(ip: "192.0.2.11", serial: "BBB", accessCode: "y", name: "Beta")

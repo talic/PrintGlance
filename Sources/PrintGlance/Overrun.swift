@@ -62,19 +62,19 @@ struct Overrun: Codable, Equatable {
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) {
-        let state = row.state.uppercased()
+        let state = row.printState
         let jobId = row.jobId ?? ""
         switch state {
-        case "RUNNING":
+        case .printing:
             if let s = row.remainingS, s > 0 {
                 let last = promises[row.id]
                 if last?.jobId != jobId || last?.remainingS != s || last?.paused == true {
                     promises[row.id] = Promise(jobId: jobId, remainingS: s, at: now)
                 }
             }
-        case "PAUSE":
+        case .paused:
             promises[row.id]?.paused = true
-        case "FINISH":
+        case .finished:
             if let promise = promises[row.id], promise.jobId == jobId, !promise.paused {
                 let s = now.timeIntervalSince(promise.end)
                 if (0...Self.longestS).contains(s) {
@@ -83,10 +83,10 @@ struct Overrun: Codable, Equatable {
             }
             promises[row.id] = nil
             return
-        case "FAILED", "IDLE":
+        case .failed, .idle:
             promises[row.id] = nil
             return
-        case "PREPARE", "OFFLINE":
+        case .starting, .offline:
             break
         default:
             return
@@ -97,7 +97,7 @@ struct Overrun: Codable, Equatable {
         if let s = row.remainingS, s > 0 {
             row.remainingS = s + lag
             row.eta = BambuPrint.etaHM(state: state, remainingS: row.remainingS, now: now, calendar: calendar, locale: locale)
-        } else if state == "RUNNING", let promise = promises[row.id], promise.jobId == jobId, !promise.paused {
+        } else if state == .printing, let promise = promises[row.id], promise.jobId == jobId, !promise.paused {
             // The time left has run out and the printer is still going: count down to where its
             // last one pointed. Whole minutes, so the row changes once a minute, not every report.
             let finish = promise.end.addingTimeInterval(TimeInterval(lag))

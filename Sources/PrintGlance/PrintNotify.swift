@@ -114,7 +114,7 @@ struct PendingSelection: Equatable {
 struct PrintNotify {
     var prefs: PrintNotifyPrefs
     var askedPermission = false
-    var lastBySerial: [String: String] = [:]
+    var lastBySerial: [String: PrintState] = [:]
 
     init(prefs: PrintNotifyPrefs) {
         self.prefs = prefs
@@ -148,21 +148,20 @@ struct PrintNotify {
 
     private mutating func observe(_ row: Printer) -> PrintNotifyOutcome {
         let id = row.id
-        let next = row.state.uppercased()
-        let printing = next == "RUNNING" || next == "PREPARE"
-        let requestPermission = printing && !askedPermission
-        if printing { askedPermission = true }
+        let next = row.printState
+        let requestPermission = next.isActive && !askedPermission
+        if next.isActive { askedPermission = true }
 
         let prev = lastBySerial[id]
-        let wasPrinting = prev == "RUNNING" || prev == "PREPARE"
+        let wasPrinting = prev?.isActive == true
         var alert: PrintNotifyAlert?
-        if next == "FINISH", wasPrinting, prefs.finish {
+        if next == .finished, wasPrinting, prefs.finish {
             alert = Self.alert(.finish, row)
-        } else if next == "FAILED", wasPrinting, prefs.fail {
+        } else if next == .failed, wasPrinting, prefs.fail {
             alert = Self.alert(.fail, row)
-        } else if next == "PAUSE", wasPrinting, prefs.pause {
+        } else if next == .paused, wasPrinting, prefs.pause {
             alert = Self.alert(.pause, row)
-        } else if next == "OFFLINE", wasPrinting || prev == "PAUSE", prefs.offline {
+        } else if next == .offline, prev?.isTimed == true, prefs.offline {
             alert = Self.alert(.offline, row)
         }
 
@@ -186,12 +185,12 @@ struct PrintNotify {
 
     /// What a new state makes untrue. A new or resumed print ends the last finish, pause, or failure,
     /// and any report at all ends a lost connection. Also runs on the first report after launch.
-    private static func clears(_ id: String, next: String) -> [String] {
+    private static func clears(_ id: String, next: PrintState) -> [String] {
         var kinds: [PrintNotifyKind] = []
-        if next == "RUNNING" || next == "PREPARE" {
+        if next.isActive {
             kinds = [.finish, .pause, .fail]
         }
-        if next != "OFFLINE" {
+        if next != .offline {
             kinds.append(.offline)
         }
         return kinds.map { PrintNotifyAlert.identifier($0, serial: id) }

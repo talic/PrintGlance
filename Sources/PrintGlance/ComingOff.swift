@@ -126,7 +126,7 @@ struct ComingOff: Equatable {
         let jobId = printer.jobId ?? ""
         let key = "\(serial)|\(jobId)"
         let id = Self.notificationId(serial: serial, jobId: jobId)
-        let state = printer.state.uppercased()
+        let state = printer.printState
 
         var cancelIds: [String] = []
         for existing in Array(phase.keys) where existing.hasPrefix("\(serial)|") && existing != key {
@@ -140,7 +140,7 @@ struct ComingOff: Equatable {
 
         let action: ComingOffAction?
         switch state {
-        case "RUNNING":
+        case .printing:
             action = running(
                 printer: printer,
                 key: key,
@@ -149,9 +149,9 @@ struct ComingOff: Equatable {
                 now: now,
                 calendar: calendar
             )
-        case "PAUSE", "OFFLINE":
+        case .paused, .offline:
             action = pauseOrOffline(key: key, id: id)
-        case "FINISH", "IDLE", "FAILED":
+        case .finished, .idle, .failed:
             action = complete(key: key, id: id)
         default:
             action = nil

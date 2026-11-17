@@ -32,8 +32,9 @@ struct JobLog {
     var rows: [JobLogRow] = []
     /// Process-local. Not written to disk.
     var hadTimed: [String: Bool] = [:]
-    /// Each printer's last state, process-local, so a pause counts once and a relaunch doesn't recount it.
-    var lastState: [String: String] = [:]
+    /// Each printer's last state it reported, process-local, so a pause counts once and a relaunch doesn't
+    /// recount it. Offline isn't one: a pause seen right after a reconnect happened while printing.
+    var lastState: [String: PrintState] = [:]
 
     static func fileURL() -> URL {
         let fm = FileManager.default
@@ -83,7 +84,7 @@ struct JobLog {
     }
 
     func occupancyEndedAt(serial: String, state: String, jobId: String?) -> Date? {
-        guard state.uppercased() == "FINISH" else { return nil }
+        guard PrintState(state) == .finished else { return nil }
         let id = jobId ?? ""
         return rows.first { row in
             row.serial == serial
@@ -121,12 +122,12 @@ struct JobLog {
     }
 
     private mutating func observeOne(_ printer: Printer, now: Date) {
-        let next = printer.state.uppercased()
+        let next = printer.printState
         let jobId = printer.jobId ?? ""
         let prev = lastState[printer.id]
-        lastState[printer.id] = next
+        if next != .offline { lastState[printer.id] = next }
         switch next {
-        case "RUNNING", "PREPARE":
+        case .printing, .starting:
             hadTimed[printer.id] = true
             if let i = openIndex(serial: printer.id),
                !rows[i].jobId.isEmpty, !jobId.isEmpty, rows[i].jobId != jobId
@@ -134,7 +135,7 @@ struct JobLog {
                 rows[i].outcome = Self.outcomeOK
             }
             openOrUpdate(printer, jobId: jobId, now: now)
-        case "FINISH":
+        case .finished:
             close(
                 serial: printer.id,
                 jobId: jobId,
@@ -143,11 +144,11 @@ struct JobLog {
                 live: hadTimed[printer.id] == true
             )
             hadTimed[printer.id] = false
-        case "PAUSE":
-            if prev == "RUNNING" || prev == "PREPARE", let i = openIndex(serial: printer.id, jobId: jobId) {
+        case .paused:
+            if prev?.isActive == true, let i = openIndex(serial: printer.id, jobId: jobId) {
                 rows[i].pauses = (rows[i].pauses ?? []) + [GlanceContent.leadErrorCode(printer) ?? ""]
             }
-        case "FAILED":
+        case .failed:
             close(
                 serial: printer.id,
                 jobId: jobId,
@@ -157,7 +158,7 @@ struct JobLog {
                 failCode: GlanceContent.leadErrorCode(printer)
             )
             hadTimed[printer.id] = false
-        case "IDLE":
+        case .idle:
             close(
                 serial: printer.id,
                 jobId: jobId,
