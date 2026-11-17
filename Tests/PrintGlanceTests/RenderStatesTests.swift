@@ -150,6 +150,24 @@ final class RenderStatesTests: XCTestCase {
         }
     }
 
+    /// The line under the card after the version in the menu is clicked.
+    func testRenderPanelUpdateCheck() async throws {
+        let dir = try renderDir()
+        defer { StubGitHub.reset() }
+        for (name, reply) in [("up-to-date", #"{"tag_name":"v\#(ModelHarness.version)"}"#), ("update-available", #"{"tag_name":"v9.9.9"}"#), ("cant-check", nil)] {
+            StubGitHub.reset()
+            if let reply { StubGitHub.reply(200, reply) }
+            let h = ModelHarness(self)
+            let link = try XCTUnwrap(h.add(.x2d()).first)
+            link.accept()
+            link.report(Report.running(minutesLeft: 30))
+            h.model.checkForUpdate()
+            let done = await eventually { h.model.updateCheck != .checking }
+            XCTAssertTrue(done)
+            try write("panel-update-\(name)", GlanceView(model: h.model), to: dir)
+        }
+    }
+
     func testRenderSetup() throws {
         let dir = try renderDir()
         for (name, flow) in Self.setupStates() {

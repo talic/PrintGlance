@@ -32,6 +32,10 @@ struct GlanceView: View {
                         .foregroundStyle(.secondary)
                         .buttonStyle(.plain)
                         .accessibilityLabel("Download PrintGlance update")
+                    } else if let line = GlanceContent.updateCheckLine(model.updateCheck, available: model.availableUpdate) {
+                        Text(line)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(14)
@@ -43,6 +47,7 @@ struct GlanceView: View {
             showHistory = false
             openAtLogin = LoginItem.isEnabled
             model.refreshNotificationStatus()
+            model.forgetUpdateCheck()
         })
     }
 
@@ -152,8 +157,8 @@ struct GlanceView: View {
             }
             Toggle("Open at Login", isOn: $openAtLogin)
             Divider()
-            Button("PrintGlance \(AppUpdate.bundledVersion)") {}
-                .disabled(true)
+            Button("PrintGlance \(AppUpdate.bundledVersion)") { model.checkForUpdate() }
+                .disabled(model.updateCheck == .checking)
             if let tag = model.availableUpdate {
                 Button(GlanceContent.downloadTitle(tag: tag)) { model.openUpdatePage() }
             }

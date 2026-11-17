@@ -19,6 +19,13 @@ struct AMSGroup: Equatable {
     var header: String? { title.map { [$0, humidity].compactMap { $0 }.joined(separator: " · ") } }
 }
 
+/// How the update check the user asked for went. The daily check says nothing unless it finds one.
+enum UpdateCheck: Equatable, Sendable {
+    case checking
+    case upToDate
+    case failed
+}
+
 struct GlanceContent: Equatable, Sendable {
     var result: FeedResult
 
@@ -596,6 +603,17 @@ struct GlanceContent: Equatable, Sendable {
         let state = subtitle(row)
         guard namingPrinter, headline(row) != row.name else { return state }
         return "\(row.name) · \(state)"
+    }
+
+    /// The line under the card after the version in the menu is clicked. Nil when there is nothing to say,
+    /// or when an update is known: then the card offers **Update available** instead.
+    static func updateCheckLine(_ check: UpdateCheck?, available: String?) -> String? {
+        guard available == nil, let check else { return nil }
+        switch check {
+        case .checking: return "Checking for updates…"
+        case .upToDate: return "PrintGlance is up to date"
+        case .failed: return "Can't check for updates"
+        }
     }
 
     /// Release tags look like `v1.2.0`; the menu shows `Download PrintGlance 1.2.0`.

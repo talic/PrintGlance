@@ -416,6 +416,16 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.downloadTitle(tag: "1.2.0"), "Download PrintGlance 1.2.0")
     }
 
+    func testUpdateCheckLine() {
+        XCTAssertEqual(GlanceContent.updateCheckLine(.checking, available: nil), "Checking for updates…")
+        XCTAssertEqual(GlanceContent.updateCheckLine(.upToDate, available: nil), "PrintGlance is up to date")
+        XCTAssertEqual(GlanceContent.updateCheckLine(.failed, available: nil), "Can't check for updates")
+        XCTAssertNil(GlanceContent.updateCheckLine(nil, available: nil), "no click, no line")
+        for check in [UpdateCheck.checking, .upToDate, .failed] {
+            XCTAssertNil(GlanceContent.updateCheckLine(check, available: "v9.9.9"), "Update available says it")
+        }
+    }
+
     func testConnectingStripIsNotFeedDown() {
         XCTAssertEqual(GlanceContent.strip(.connecting).systemImage, "printer")
         XCTAssertEqual(GlanceContent.strip(.connecting).title, "…", "not the idle printer")

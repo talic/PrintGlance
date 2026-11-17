@@ -41,6 +41,8 @@ final class GlanceModel: ObservableObject {
     /// Per printer serial, separate from `content` and `Link.failed`.
     @Published private(set) var linkStatus: [String: LinkStatus] = [:]
     @Published private(set) var availableUpdate: String?
+    /// The check started from the version in the menu, until the panel next opens.
+    @Published private(set) var updateCheck: UpdateCheck?
     @Published var settings: SavedPrinters
     @Published var notifyPrefs: PrintNotifyPrefs {
         didSet {
@@ -93,7 +95,7 @@ final class GlanceModel: ObservableObject {
     private var rediscoverPausedSerial: String?
     private static let adoptGap: TimeInterval = 60
     private static let instanceTag = String(UInt16.random(in: .min ... .max), radix: 16)
-    private let updates = AppUpdateChecker()
+    private let updates: AppUpdateChecker
     private var filament: FilamentAlert
     private var runout: RunoutTracker
     private var overrun: Overrun
@@ -130,9 +132,11 @@ final class GlanceModel: ObservableObject {
         notifier: Notifier = Notifier(),
         makeClient: @escaping () -> any MQTTSession = { MQTT311Client() },
         scan: @escaping @Sendable () async -> [PrinterDiscovery.Hit] = { await PrinterDiscovery.scan() },
-        connectTimeout: Duration = .seconds(8)
+        connectTimeout: Duration = .seconds(8),
+        updates: AppUpdateChecker? = nil
     ) {
         self.defaults = defaults
+        self.updates = updates ?? AppUpdateChecker(defaults: defaults)
         self.logURL = logURL
         self.notifier = notifier
         self.makeClient = makeClient
@@ -152,6 +156,10 @@ final class GlanceModel: ObservableObject {
         self.runout = RunoutTracker.load(defaults)
         self.overrun = Overrun.load(defaults)
         self.filament = FilamentAlert.load(defaults)
+        self.updates.onAvailable = { [weak self] tag in
+            guard let self, self.availableUpdate != tag else { return }
+            self.availableUpdate = tag
+        }
     }
 
     nonisolated static let defaultLogURL = FileManager.default.homeDirectoryForCurrentUser
@@ -219,10 +227,6 @@ final class GlanceModel: ObservableObject {
         notifyPresenter.model = self
         UNUserNotificationCenter.current().delegate = notifyPresenter
         notifier.setCategories([Self.lookUpCategory()])
-        updates.onAvailable = { [weak self] tag in
-            guard let self, self.availableUpdate != tag else { return }
-            self.availableUpdate = tag
-        }
         updates.start()
         refreshNotificationStatus()
         pathMonitor.pathUpdateHandler = { [weak self] path in
@@ -329,6 +333,22 @@ final class GlanceModel: ObservableObject {
 
     func openUpdatePage() {
         NSWorkspace.shared.open(updates.downloadURL)
+    }
+
+    /// Clicking the version asks GitHub now. A newer version shows as **Update available**.
+    func checkForUpdate() {
+        guard updateCheck != .checking else { return }
+        updateCheck = .checking
+        Task { [weak self] in
+            guard let self else { return }
+            let answered = await self.updates.checkNow()
+            self.updateCheck = answered ? .upToDate : .failed
+        }
+    }
+
+    /// A finished check's line goes when the panel opens again. One still running stays.
+    func forgetUpdateCheck() {
+        if updateCheck != .checking { updateCheck = nil }
     }
 
     func removePrinter(serial: String) {

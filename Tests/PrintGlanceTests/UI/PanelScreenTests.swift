@@ -11,6 +11,45 @@ final class PanelScreenTests: XCTestCase {
         return s
     }
 
+    override func tearDown() {
+        StubGitHub.reset()
+        super.tearDown()
+    }
+
+    func testClickingTheVersionSaysPrintGlanceIsUpToDate() async throws {
+        let h = ModelHarness(self)
+        StubGitHub.reply(200, #"{"tag_name":"v\#(ModelHarness.version)"}"#)
+        h.model.checkForUpdate()
+        XCTAssertEqual(h.model.updateCheck, .checking)
+        h.model.checkForUpdate()
+        let done = await eventually { h.model.updateCheck == .upToDate }
+        XCTAssertTrue(done)
+        XCTAssertEqual(StubGitHub.requests.count, 1, "a second click while checking asks nothing")
+        XCTAssertEqual(try panel(h).texts, ["Add your printer", "PrintGlance is up to date"])
+        h.model.forgetUpdateCheck()
+        XCTAssertEqual(try panel(h).texts, ["Add your printer"], "the line goes when the panel opens again")
+    }
+
+    func testClickingTheVersionOffersANewerOne() async throws {
+        let h = ModelHarness(self)
+        StubGitHub.reply(200, #"{"tag_name":"v9.9.9"}"#)
+        h.model.checkForUpdate()
+        let done = await eventually { h.model.updateCheck == .upToDate }
+        XCTAssertTrue(done)
+        let s = try panel(h)
+        XCTAssertEqual(s.texts, ["Add your printer"])
+        XCTAssertNotNil(s.find("Download PrintGlance update"), "Update available, as if the daily check found it")
+        XCTAssertEqual(h.model.availableUpdate, "v9.9.9")
+    }
+
+    func testClickingTheVersionOfflineSaysItCantCheck() async throws {
+        let h = ModelHarness(self)
+        h.model.checkForUpdate()
+        let done = await eventually { h.model.updateCheck == .failed }
+        XCTAssertTrue(done)
+        XCTAssertEqual(try panel(h).texts, ["Add your printer", "Can't check for updates"])
+    }
+
     func testFirstRunOffersAddPrinter() throws {
         let s = try panel(ModelHarness(self))
         XCTAssertEqual(s.texts, ["Add your printer"])

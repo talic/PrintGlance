@@ -180,9 +180,13 @@ final class ModelHarness {
             notifier: notifications.notifier,
             makeClient: { [printers] in printers.make() },
             scan: network.scan,
-            connectTimeout: connectTimeout
+            connectTimeout: connectTimeout,
+            updates: AppUpdateChecker(defaults: defaults, localVersion: Self.version, session: StubGitHub.session())
         )
     }
+
+    /// The version the model thinks it is. Its update checks reach `StubGitHub`, which is offline until a test replies.
+    static let version = "1.3.0"
 
     /// Adds printers the way the setup window does and returns each one's connection.
     @discardableResult
