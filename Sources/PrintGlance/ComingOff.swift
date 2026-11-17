@@ -72,7 +72,7 @@ struct ComingOffAction: Equatable {
 struct ComingOff: Equatable {
     static let jumpS = 120
     static let listKey = "pg.comingoff.phase"
-    static let fireInKey = "pg.comingoff.fireAt"
+    static let fireAtKey = "pg.comingoff.fireAt"
     /// Held the delay from scheduling, which a steady print outran by a minute a minute. Dropped on
     /// save; a notice saved then has no fire time, so it reschedules once.
     static let oldFireInKey = "pg.comingoff.remain"
@@ -80,9 +80,7 @@ struct ComingOff: Equatable {
     var phase: [String: ComingOffPhase] = [:]
     /// When the scheduled notice fires, in whole seconds since 1970. It moves when the remaining
     /// time jumps or the lead time changes.
-    // ponytail: named for the delay it used to hold, kept so #79 merges cleanly; rename it
-    // `scheduledFireAt` once that lands.
-    var scheduledFireInS: [String: Int] = [:]
+    var scheduledFireAt: [String: Int] = [:]
 
     static func notificationId(serial: String, jobId: String) -> String {
         "pg.comingoff.\(serial).\(jobId)"
@@ -97,8 +95,8 @@ struct ComingOff: Equatable {
                 }
             }
         }
-        if let fireIn = d.dictionary(forKey: fireInKey) as? [String: Int] {
-            out.scheduledFireInS = fireIn
+        if let fireAt = d.dictionary(forKey: fireAtKey) as? [String: Int] {
+            out.scheduledFireAt = fireAt
         }
         return out
     }
@@ -110,7 +108,7 @@ struct ComingOff: Equatable {
         }
         d.set(raw, forKey: Self.listKey)
         d.removeObject(forKey: Self.oldFireInKey)
-        d.set(scheduledFireInS, forKey: Self.fireInKey)
+        d.set(scheduledFireAt, forKey: Self.fireAtKey)
     }
 
     /// Finishing soon was turned off: the notices on their way, to cancel. Turned on again, a print still
@@ -121,7 +119,7 @@ struct ComingOff: Equatable {
             guard let bar = key.firstIndex(of: "|") else { continue }
             ids.append(Self.notificationId(serial: String(key[..<bar]), jobId: String(key[key.index(after: bar)...])))
             phase[key] = nil
-            scheduledFireInS[key] = nil
+            scheduledFireAt[key] = nil
         }
         return ids.sorted()
     }
@@ -134,7 +132,7 @@ struct ComingOff: Equatable {
                 ids.append(Self.notificationId(serial: serial, jobId: String(key.dropFirst(serial.count + 1))))
             }
             phase[key] = nil
-            scheduledFireInS[key] = nil
+            scheduledFireAt[key] = nil
         }
         return ids
     }
@@ -158,7 +156,7 @@ struct ComingOff: Equatable {
                 cancelIds.append(Self.notificationId(serial: serial, jobId: jobId))
             }
             phase[existing] = nil
-            scheduledFireInS[existing] = nil
+            scheduledFireAt[existing] = nil
         }
 
         let action: ComingOffAction?
@@ -211,7 +209,7 @@ struct ComingOff: Equatable {
         let fireInS = max(0, remainingS - prefs.comingOffLead * 60)
         if let quiet = prefs.quietWindow, quiet.contains(now.addingTimeInterval(TimeInterval(fireInS)), calendar: calendar) {
             phase[key] = .done
-            scheduledFireInS[key] = nil
+            scheduledFireAt[key] = nil
             return ComingOffAction.cancelOnly(id)
         }
 
@@ -226,11 +224,11 @@ struct ComingOff: Equatable {
         // counts in whole minutes, so a steady print wobbles by under one. Every lead time is at
         // least 5 minutes from the next, so changing it moves the date past `jumpS` too.
         let fireAt = Int(now.timeIntervalSince1970.rounded()) + fireInS
-        let pending = phase[key] == .scheduled ? scheduledFireInS[key] : nil
+        let pending = phase[key] == .scheduled ? scheduledFireAt[key] : nil
 
         if fireInS == 0 {
             phase[key] = .done
-            scheduledFireInS[key] = nil
+            scheduledFireAt[key] = nil
             // The notice already scheduled is due, or came: no second one.
             if let pending, pending - fireAt <= Self.jumpS { return nil }
             return ComingOffAction(
@@ -248,7 +246,7 @@ struct ComingOff: Equatable {
             return nil
         }
         phase[key] = .scheduled
-        scheduledFireInS[key] = fireAt
+        scheduledFireAt[key] = fireAt
         return ComingOffAction(
             identifier: id,
             cancelIds: [id],
@@ -264,7 +262,7 @@ struct ComingOff: Equatable {
         if phase[key] == .done { return nil }
         if phase[key] == .scheduled {
             phase[key] = nil
-            scheduledFireInS[key] = nil
+            scheduledFireAt[key] = nil
             return ComingOffAction.cancelOnly(id)
         }
         return nil
@@ -276,7 +274,7 @@ struct ComingOff: Equatable {
     private mutating func complete(key: String, id: String) -> ComingOffAction? {
         guard let had = phase[key] else { return nil }
         phase[key] = .done
-        scheduledFireInS[key] = nil
+        scheduledFireAt[key] = nil
         return had == .scheduled ? ComingOffAction.cancelOnly(id) : nil
     }
 }

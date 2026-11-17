@@ -522,7 +522,7 @@ final class ComingOffTests: XCTestCase {
         d.set(["x2d|t1": 3000], forKey: "pg.comingoff.remain")
         var c = ComingOff.load(d)
         XCTAssertEqual(c.phase["x2d|t1"], .scheduled)
-        XCTAssertEqual(c.scheduledFireInS, [:])
+        XCTAssertEqual(c.scheduledFireAt, [:])
         let again = c.consider(printer: printer("RUNNING", remainingS: 3000, jobId: "t1"), prefs: .default, now: start)
         XCTAssertEqual(again?.interval, 2400)
         XCTAssertEqual(again?.cancelIds, ["pg.comingoff.x2d.t1"])
