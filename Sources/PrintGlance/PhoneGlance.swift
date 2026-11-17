@@ -286,8 +286,14 @@ struct PhoneLines: Equatable, Sendable {
     var short: String
     /// The menu bar's symbol for this state.
     var systemImage: String = "printer"
-    /// Paused or failed: the state and bar turn orange.
-    var alert = false
+    /// The color of the state line and bar, as on the Mac card. Nil keeps them plain.
+    var tint: PhoneTint? = nil
+}
+
+/// A card that needs you: the Mac card's orange for Paused and red for Failed.
+enum PhoneTint: Equatable, Sendable {
+    case paused
+    case failed
 }
 
 extension GlanceContent {
@@ -349,7 +355,7 @@ extension GlanceContent {
             footer: "Updated \(at(status.at))",
             short: humanState(st),
             systemImage: strip(row: row).systemImage,
-            alert: st.isStopped
+            tint: phoneTint(row)
         )
         switch st {
         case .printing, .starting:
@@ -380,6 +386,37 @@ extension GlanceContent {
             lines.short = parts.compactMap { $0 }.joined(separator: " · ")
         }
         return lines
+    }
+
+    /// Orange while paused and red once failed, like the Mac card's state line and bar.
+    static func phoneTint(_ row: Printer) -> PhoneTint? {
+        switch row.printState {
+        case .paused: return .paused
+        case .failed: return .failed
+        default: return nil
+        }
+    }
+
+    /// The search results in the Add Printer sheet, in the order found. A printer already saved shows its
+    /// name and "Added", and can't be picked again, like the Mac's setup list. A new one shows its serial,
+    /// which the printer's own screen shows too.
+    static func phoneHits(_ found: [PrinterSettings], saved: [PrinterSettings], form: PrinterSettings) -> [PhoneHit] {
+        found.map { hit in
+            let own = hit.saved(in: saved)
+            return PhoneHit(
+                serial: hit.serial,
+                ip: hit.ip,
+                title: own?.displayName ?? hit.serial,
+                added: own != nil,
+                picked: own == nil && hit.serial == form.trimmed.serial
+            )
+        }
+    }
+
+    /// Why **Connect** is off in the Add Printer sheet: the typed serial is a printer already saved, which
+    /// its card's Edit sheet changes instead.
+    static func phoneAlreadyAdded(_ form: PrinterSettings, saved: [PrinterSettings]) -> String? {
+        form.saved(in: saved) == nil ? nil : "You already added this printer. To change it, tap Cancel, then tap its card."
     }
 
     /// When the widget redraws: each minute while any finish time counts down, for up to two hours.
@@ -414,6 +451,36 @@ extension PrinterSettings {
         let own = trimmed.serial == hit.serial ? self : saved.first { $0.serial == hit.serial }
         return PrinterSettings(ip: hit.ip, serial: hit.serial, accessCode: own?.accessCode ?? "", name: own?.name ?? "")
     }
+
+    /// After a search: when exactly one printer found isn't saved yet and no IP or serial is typed, its IP and
+    /// serial fill the form by themselves. A code or name typed while searching stays: it's for this printer.
+    func autoPicking(from found: [PrinterSettings], saved: [PrinterSettings]) -> PrinterSettings {
+        let new = found.filter { $0.saved(in: saved) == nil }
+        guard new.count == 1, let hit = new.first, trimmed.ip.isEmpty, trimmed.serial.isEmpty else { return self }
+        var next = self
+        next.ip = hit.ip
+        next.serial = hit.serial
+        return next
+    }
+
+    /// The saved printer with this serial. Serials match ignoring case and spaces, like the Mac's setup list.
+    func saved(in list: [PrinterSettings]) -> PrinterSettings? {
+        let serial = trimmed.serial
+        guard !serial.isEmpty else { return nil }
+        return list.first { $0.trimmed.serial.caseInsensitiveCompare(serial) == .orderedSame }
+    }
+}
+
+/// A printer the iPhone's search found, as the Add Printer sheet lists it.
+struct PhoneHit: Equatable, Sendable {
+    var serial: String
+    var ip: String
+    /// The saved name of a printer already added; else its serial.
+    var title: String
+    /// Saved already: "Added", and not picked again.
+    var added: Bool
+    /// In the form now: a checkmark.
+    var picked: Bool
 }
 
 /// An alert in the iPhone app.
@@ -429,18 +496,32 @@ extension GlanceCopy {
         case .printer:
             return PhoneAlert(
                 title: "Connected to \(name)",
-                message: "Its status shows at the top of this screen. To see it on your Home Screen, add the PrintGlance widget."
+                message: "Its card shows on this screen. To see it on your Home Screen, add the PrintGlance widget."
             )
         case let .failed(reason):
             return PhoneAlert(title: "Can't connect to \(name)", message: phoneFetchFailed(reason: reason))
         }
     }
 
-    /// **Connect** with four printers saved already, the Mac's limit too.
-    static func phoneTooMany(name: String) -> PhoneAlert {
+    /// After **Save** in the Edit sheet: nothing when the printer answers, since its card shows it; else why not.
+    static func phoneSaved(_ outcome: PrinterFetch.Outcome, name: String) -> PhoneAlert? {
+        guard case .failed = outcome else { return nil }
+        return phoneConnected(outcome, name: name)
+    }
+
+    /// **+** with four printers saved already, the Mac's limit too.
+    static func phoneTooMany() -> PhoneAlert {
         PhoneAlert(
-            title: "Can't add \(name)",
-            message: "PrintGlance watches up to four printers. To add this one, swipe left on another and remove it."
+            title: "Can't add another printer",
+            message: "PrintGlance watches up to four printers. To add another, tap a printer, then tap Remove Printer."
+        )
+    }
+
+    /// **Remove Printer** in the Edit sheet asks first, in the Mac's words.
+    static func phoneRemove(name: String) -> PhoneAlert {
+        PhoneAlert(
+            title: "Remove \(name)?",
+            message: "PrintGlance stops watching this printer. To watch it again, add it and enter its access code."
         )
     }
 

@@ -198,8 +198,14 @@ The iPhone talks to the printer on your Wi-Fi, the same way the Mac does. It doe
    ```
 
 2. Open `iOS/PrintGlance.xcodeproj`, choose your iPhone, and click **Run**.
-3. Open the app. When iOS asks to find devices on your local network, tap **Allow**. Under **Printers on this Wi-Fi**, tap your printer, enter its access code, then tap **Connect**. If your printer is not listed, tap **Search Again**, or type its IP address and serial number. To add another printer, tap it in the list, enter its access code, and tap **Connect** again. To remove one, swipe left on it under **Your printers**.
-4. Touch and hold the Home Screen or Lock Screen, tap **Edit**, then **Add Widget**, and choose **PrintGlance**.
+3. Open the app. The **Add Printer** screen opens. When iOS asks to find devices on your local network, tap **Allow**.
+4. Under **Printers on this Wi-Fi**, tap your printer. A printer you haven't added shows its serial number, which the printer's screen also shows. One you already added shows **Added**. If your printer is not listed, tap **Search Again**, or type its IP address and serial number.
+5. Enter the **Access code** from the printer's screen. **Name** is optional. Tap **Connect**.
+6. Touch and hold the Home Screen or Lock Screen, tap **Edit**, then **Add Widget**, and choose **PrintGlance**.
+
+The app adds the printer when it answers, and shows its card. If it does not answer, the app says why, such as **The access code was rejected.** Fix the entry and tap **Connect** again, or tap **Cancel**.
+
+To add another printer, tap **+**. To change a printer's access code, name, or IP address, tap its card, then tap **Save**. To remove it, tap **Remove Printer** there, or swipe left on its card. To update the cards, pull down.
 
 The access code you enter stays on that iPhone. Like the Mac app, the iPhone app only reads status and never pauses, stops, or starts a print. With a free Apple account, an app you build yourself stops opening after 7 days. Run it from Xcode again to renew it.
 
