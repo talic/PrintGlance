@@ -220,10 +220,6 @@ final class SetupFlow: ObservableObject {
         hit.name.isEmpty ? PrinterDiscovery.modelName(hit.model) : hit.name
     }
 
-    nonisolated static func codeHint(_ code: String) -> String? {
-        let code = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        return code.isEmpty || code.count == 8 ? nil : "Access codes are usually 8 characters."
-    }
 
     nonisolated private static func sameSerial(_ a: String, _ b: String) -> Bool {
         PrinterSettings.normalizedSerial(a) == PrinterSettings.normalizedSerial(b)
@@ -388,7 +384,7 @@ struct SetupView: View {
                 .padding(.top, 4)
             }
             field("Access code", $flow.draft.accessCode, monospaced: true)
-            if let hint = SetupFlow.codeHint(flow.draft.accessCode) {
+            if let hint = PrinterSettings.codeHint(flow.draft.accessCode) {
                 Text(hint)
                     .font(.caption)
                     .foregroundStyle(.secondary)
