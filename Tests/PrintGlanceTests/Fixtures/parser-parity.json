@@ -28,6 +28,31 @@
       "id": "remaining-capped-at-30-days",
       "print": {"gcode_state": "RUNNING", "mc_remaining_time": 100000},
       "remainingS": 2592000
+    },
+    {
+      "id": "heating-reads-starting",
+      "print": {"gcode_state": "RUNNING", "stg_cur": 2, "layer_num": 0},
+      "state": "PREPARE"
+    },
+    {
+      "id": "stage-as-string-reads-starting",
+      "print": {"gcode_state": "RUNNING", "stg_cur": "13"},
+      "state": "PREPARE"
+    },
+    {
+      "id": "filament-change-mid-print-is-printing",
+      "print": {"gcode_state": "RUNNING", "stg_cur": 4, "layer_num": 12},
+      "state": "RUNNING"
+    },
+    {
+      "id": "stage-zero-is-printing",
+      "print": {"gcode_state": "RUNNING", "stg_cur": 0, "layer_num": 0},
+      "state": "RUNNING"
+    },
+    {
+      "id": "paused-with-a-stage-stays-paused",
+      "print": {"gcode_state": "PAUSE", "stg_cur": 6, "layer_num": 0},
+      "state": "PAUSE"
     }
   ]
 }

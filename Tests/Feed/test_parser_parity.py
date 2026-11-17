@@ -36,6 +36,14 @@ class ParserParityTests(unittest.TestCase):
                         f"{case['id']}: bambu.active_filament drifted from BambuPrint.activeFilament "
                         f"({SOURCE}). Update bambu._find_ams_tray to match it.",
                     )
+                if "state" in case:
+                    row = bambu.printer_row("x", "X", print_obj, online=True)
+                    self.assertEqual(
+                        row["state"],
+                        case["state"],
+                        f"{case['id']}: bambu.printer_row drifted from BambuPrint.row and BambuPrint.isStartSequence "
+                        f"({SOURCE}). Update bambu.is_start_sequence to match it.",
+                    )
                 if "remainingS" in case:
                     row = bambu.printer_row("x", "X", print_obj, online=True)
                     self.assertEqual(

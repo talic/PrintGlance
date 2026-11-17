@@ -28,6 +28,13 @@ final class ParserParityTests: XCTestCase {
                     "\(id): BambuPrint.activeFilament is the source of truth. Update bambu.active_filament and bambu._find_ams_tray to match it."
                 )
             }
+            if let state = item["state"] as? String {
+                XCTAssertEqual(
+                    BambuPrint.row(id: "x", name: "X", printObj: printObj, online: true).state,
+                    state,
+                    "\(id): BambuPrint.row and BambuPrint.isStartSequence are the source of truth. Update bambu.is_start_sequence to match them."
+                )
+            }
             if let remaining = BambuJSON.intValue(item["remainingS"]) {
                 let row = BambuPrint.row(id: "x", name: "X", printObj: printObj, online: true)
                 XCTAssertEqual(
