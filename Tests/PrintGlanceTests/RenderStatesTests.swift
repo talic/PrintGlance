@@ -92,6 +92,22 @@ final class RenderStatesTests: XCTestCase {
         }
     }
 
+    /// The iPhone widget's card at about the small and medium widget sizes. The medium one is also the
+    /// iPhone app's row.
+    func testRenderPhoneCards() throws {
+        let dir = try renderDir()
+        var gmt = Calendar(identifier: .gregorian)
+        gmt.timeZone = TimeZone(identifier: "GMT")!
+        let x2d = PrinterSettings(ip: "", serial: "x2d", accessCode: "", name: "X2D")
+        for (name, row) in [("printing", Rows.printing()), ("paused", Rows.paused()), ("failed", Rows.failed())] {
+            let lines = GlanceContent.phone(
+                PhoneStatus(printer: row, at: Self.now), printer: x2d, now: Self.now, calendar: gmt, locale: Locale(identifier: "en_GB")
+            )
+            try write("phone-small-\(name)", PhoneCard(lines: lines).padding(16).frame(width: 158, height: 158), to: dir)
+            try write("phone-medium-\(name)", PhoneCard(lines: lines, showsExtra: true).padding(16).frame(width: 338, height: 158), to: dir)
+        }
+    }
+
     private func card(row: Printer, endedAt: Date?, reason: String?, onUpdateCode: (() -> Void)? = nil) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             CardHeader(
