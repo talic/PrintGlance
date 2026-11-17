@@ -353,7 +353,7 @@ extension GlanceContent {
             // With a job in the title, name the printer, so two printers' cards tell apart.
             state: title == row.name ? subtitle(row) : "\(row.name) · \(subtitle(row))",
             footer: "Updated \(at(status.at))",
-            short: humanState(st),
+            short: stateWord(row),
             systemImage: strip(row: row).systemImage,
             tint: phoneTint(row)
         )
@@ -370,7 +370,8 @@ extension GlanceContent {
             lines.hero = hero(row)
             lines.detail = errorReason(row)
         case .failed:
-            lines.detail = errorReason(row)
+            // Canceled: the state line already says so.
+            lines.detail = isCanceled(row) ? nil : errorReason(row)
         default:
             break
         }
@@ -388,11 +389,12 @@ extension GlanceContent {
         return lines
     }
 
-    /// Orange while paused and red once failed, like the Mac card's state line and bar.
+    /// Orange while paused and red once failed, like the Mac card's state line and bar. A canceled
+    /// print stays plain: nothing went wrong.
     static func phoneTint(_ row: Printer) -> PhoneTint? {
         switch row.printState {
         case .paused: return .paused
-        case .failed: return .failed
+        case .failed: return isCanceled(row) ? nil : .failed
         default: return nil
         }
     }

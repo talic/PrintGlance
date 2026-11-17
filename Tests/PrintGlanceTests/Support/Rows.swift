@@ -97,7 +97,12 @@ enum Rows {
         onUpdateCode: (() -> Void)? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row), state: row.state)
+            CardHeader(
+                headline: GlanceContent.headline(row),
+                subtitle: GlanceContent.subtitle(row),
+                state: row.state,
+                canceled: GlanceContent.isCanceled(row)
+            )
             PrinterDetail(row: row, endedAt: endedAt, now: now, disconnectReason: reason, onUpdateCode: onUpdateCode)
         }
         .padding(14)
