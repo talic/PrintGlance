@@ -67,6 +67,16 @@ final class CardScreenTests: XCTestCase {
         XCTAssertFalse(s.has("37%"), "no progress bar once it stopped")
     }
 
+    func testCanceledHasNoCodeToLookUp() throws {
+        var row = Rows.failed()
+        row.printError = GlanceContent.cancelCode
+        let s = try screen(row)
+        XCTAssertEqual(Array(s.texts.prefix(2)), ["Benchy", "Canceled"])
+        XCTAssertFalse(s.has("Error 0300-400C"))
+        XCTAssertFalse(s.has("No error reported."))
+        XCTAssertTrue(s.controls.isEmpty, "nothing to look up")
+    }
+
     func testFinishedSaysHowLongAgo() throws {
         let s = try screen(Rows.finished(), endedAt: Rows.now - 40 * 60)
         XCTAssertEqual(Array(s.texts.prefix(4)), ["Benchy", "Finished", "40m ago", "X2D"])
@@ -110,6 +120,21 @@ final class CardScreenTests: XCTestCase {
         XCTAssertTrue(s.has(GlanceCopy.feedDownDetail(reason: "ECONNREFUSED")))
     }
 
+    func testSwitchedOffReadsCalm() throws {
+        let s = try screen(Rows.offline(was: "IDLE"), reason: "connect timed out")
+        XCTAssertEqual(Array(s.texts.prefix(2)), ["X2D", "Offline"])
+        XCTAssertTrue(s.texts[2].hasPrefix("Last update "), "\(s.texts)")
+        XCTAssertEqual(Array(s.texts.dropFirst(3)), ["It may be switched off. If it's on, check Wi-Fi and the IP address."])
+        XCTAssertTrue(s.controls.isEmpty, "nothing to fix")
+
+        let never = try screen(Printer(id: "x2d", name: "X2D", state: "OFFLINE"), reason: "ECONNREFUSED")
+        XCTAssertEqual(never.texts, [
+            "X2D",
+            "Offline",
+            "It may be switched off or still starting up. If it's on, check the IP address on the printer's LAN or Network page.",
+        ])
+    }
+
     func testRejectedCodeOffersToUpdateIt() throws {
         var pressed = 0
         let s = try screen(Printer(id: "x2d", name: "X2D", state: "OFFLINE"), reason: "MQTT CONNACK 5", onUpdateCode: { pressed += 1 })
@@ -147,6 +172,23 @@ final class CardScreenTests: XCTestCase {
         ])
         try s.press("P1S, Paused, 52 percent")
         XCTAssertEqual(selected, ["p1s"])
+    }
+
+    func testPrinterListSaysCanceledAndOffline() throws {
+        var canceled = Rows.failed()
+        canceled.printError = GlanceContent.cancelCode
+        var off = Rows.offline(was: "IDLE")
+        off.id = "p1s"
+        off.name = "P1S"
+        let s = try Screen(PrinterList(
+            printers: [canceled, off],
+            shownId: "x2d",
+            onSelect: { _ in },
+            onEdit: { _ in },
+            onRemove: { _ in }
+        ).frame(width: 220))
+        assertReadsWell(s)
+        XCTAssertEqual(s.controls.map(\.label), ["X2D, Canceled", "P1S, Offline"])
     }
 }
 

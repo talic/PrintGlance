@@ -173,8 +173,18 @@ final class GlanceModel: ObservableObject {
         GlanceContent.strip(
             content.result,
             occupancyEndedAt: occupancyEndedAt,
-            now: occupancyNow
+            now: occupancyNow,
+            feedDownReason: feedDownReason
         )
+    }
+
+    /// Why no printer has reported yet, for the menu bar and the panel: see `GlanceCopy.feedDownReason`.
+    var feedDownReason: String? {
+        let reasons = settings.printers.compactMap { p -> String? in
+            if case let .failed(reason) = linkStatus[p.serial] { return reason }
+            return nil
+        }
+        return GlanceCopy.feedDownReason(focused: disconnectReason(for: settings.focusId), all: reasons)
     }
 
     var occupancyEndedAt: Date? {
@@ -624,6 +634,12 @@ final class GlanceModel: ObservableObject {
                 reusing: reported.map { id in parsedRows.filter { $0.key != id } } ?? [:]
             )
             parsedRows = Dictionary(doc.printers.map { ($0.id, $0) }) { first, _ in first }
+            // After the cache, so a reused row follows its link. Only the link knows a rejected code, which tells a real problem from a printer switched off.
+            for i in doc.printers.indices where doc.printers[i].printState == .offline {
+                if case let .failed(reason) = linkStatus[doc.printers[i].id], GlanceCopy.codeRejected(reason) {
+                    doc.printers[i].codeRejected = true
+                }
+            }
             // First, so everything after it sees when the printer should really report Finished.
             let lateBefore = overrun.late
             for i in doc.printers.indices {
