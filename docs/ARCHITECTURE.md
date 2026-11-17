@@ -36,7 +36,7 @@ These are product promises (README, "Private and read-only") or hard-won constra
 | Rule | Why | Guarded by |
 |---|---|---|
 | **Read-only.** The app publishes exactly one message: `{"pushing":{"command":"pushall","sequence_id":"0"}}` to `device/<serial>/request`. Never pause, stop, resume, print, or change settings. | The README promises it, and a bug here could ruin a print. | `SecurityTests.testOnlyEverAsksForAFullReport`, `GlanceModelTests.testHandshakeSubscribesAndAsksForEverything`, `MQTTWireTests`, Python `MqttCallbackTests` |
-| **LAN only.** The app's only internet request is the daily GitHub release check. Bambu web pages open in the browser only when the user clicks **Look up**. | Privacy promise. | `ShippingTests.testReadOnlyAndLocalPromise`, `UpdateCheckTests` |
+| **LAN only.** The app's only internet request is the daily GitHub release check. Bambu web pages open in the browser only when the user clicks **Look up** on the card or **Look Up** on a notice. | Privacy promise. | `ShippingTests.testReadOnlyAndLocalPromise`, `UpdateCheckTests` |
 | **The access code stays on this Mac**, and only ever travels as the MQTT password to the printer's own IP. Never log it, never put it in a notification or a URL. The iPhone app keeps the code typed into it on that iPhone, under the same rules. | Privacy promise; the code grants LAN control of the printer. | `SecurityTests.testAccessCodeIsOnlyEverTheMQTTPassword`, `PhoneGlanceTests.testOneLookAsksForAFullReportAndHangsUp` |
 | **No dependencies.** The package has none; system frameworks only. | Simplicity and supply chain. | Review |
 | `Printer`, `PrintDoc`, `AMSTray`, `AMSUnit`, `Temp`, `Runout` stay `Codable`; only add optional fields with `= nil` defaults. | The JSON fixtures pin the Python feed's format (`PrintDocTests`). | `PrintDocTests` |
@@ -60,7 +60,7 @@ All app code is one SwiftPM executable target, `Sources/PrintGlance`. The iPhone
 | `GlanceView.swift` | SwiftUI views: `GlanceView` (the panel: header, card, printer list, overflow menu), `CardHeader`, `PrinterList`, `PrinterDetail` (one printer's card body), `HistoryView`, `CapsuleBar` (progress with runout marker), `StripLabel` (menu bar label). |
 | `PrintGlancePanel.swift` | `hugMenuBarPanel()` (sizes the panel window to the card), `PanelOpened` (runs a closure each time the panel opens), `MenuBarHug.frame` (pure frame math). |
 | `PrintNotify.swift` | Print-state notifications: preferences (`PrintNotifyPrefs`), edge detection per printer (`PrintNotify`), offline suppression when this Mac caused it, `PendingSelection` (a clicked notification opens that printer). |
-| `ComingOff.swift` | `QuietHours` and `ComingOff`, the once-per-job "Print finishing soon" notice scheduled ahead of time. |
+| `ComingOff.swift` | `QuietHours` (the chosen nine-hour window) and `ComingOff`, the once-per-job "Print finishing soon" notice scheduled ahead of time. |
 | `Overrun.swift` | `Overrun`: how long each printer runs past its own time left, learned from the prints the app watches finish and added to the row's time left and finish time. |
 | `FilamentAlert.swift` | `FilamentAlert` (spool under 20%), `RunoutTracker` (where a spool runs out, from its AMS percent against progress), and `Pace` (how fast the print moves by the clock). |
 | `PrinterFile.swift` | `printers.json` for other apps on this Mac (see [What is stored where](#what-is-stored-where)). |
@@ -204,7 +204,7 @@ Print alerts read printer and state first, then the job, then why: the title is 
 
 | Notice | Trigger | Identifier | Default | Quiet Hours |
 |---|---|---|---|---|
-| Finished | `RUNNING`/`PREPARE` → `FINISH` | `pg.finish.<serial>` | on | Delayed to 7 AM (`UNCalendarNotificationTrigger`) |
+| Finished | `RUNNING`/`PREPARE` → `FINISH` | `pg.finish.<serial>` | on | Delayed to the window's end (`UNCalendarNotificationTrigger`) |
 | Failed | `RUNNING`/`PREPARE` → `FAILED` | `pg.fail.<serial>` | on | Delivered |
 | Paused | `RUNNING`/`PREPARE` → `PAUSE` | `pg.pause.<serial>` | on | Delivered |
 | Lost connection | `RUNNING`/`PREPARE`/`PAUSE` → `OFFLINE` | `pg.offline.<serial>` | on | Delivered |
@@ -218,8 +218,11 @@ Print alerts read printer and state first, then the job, then why: the title is 
 - **Lost connection** isn't sent while this Mac has no network, or for 2 minutes after its network changes (`NWPathMonitor` in `start()`), because then the Mac lost the printer, not the other way round.
 - **Turning a notice off** withdraws what is already on its way: **Print Finishing Soon** cancels every scheduled notice (`ComingOff.cancelScheduled`; turned on again, a running print is scheduled anew), and **Print Finished** drops a finish Quiet Hours is holding. A new Starting or Printing report drops that printer's held finish too (`PrintNotifyOutcome.unsent`), as it clears the delivered one.
 - **Finishing soon** is scheduled once per job as a time-interval notification at `remaining − lead`. The app keeps the date it should fire, not the delay, since the delay shrinks as the print runs. Each report's `now + remaining − lead` is compared with that date, and the notice is rescheduled only when they differ by more than 2 minutes (the remaining time jumped) or the lead time changes. When a steady print reaches the lead time, the scheduled notice is the only one. Pause or Offline cancels it until printing resumes; Finish, Failed, or Idle cancels it for good. A job the app never saw starting or printing is left alone: when a new print starts, the printer sends the new job's `task_id` for one report while `gcode_state` still says `FINISH`, and marking that job done would silence its notice for the whole print (measured 2026-11-10). Inside the lead time it fires at once and says what's actually left.
+- **Quiet Hours** is nine hours from the chosen start: 9 PM, 10 PM, 11 PM, or midnight (`QuietHours.starts`; `PrintNotifyPrefs.quietWindow` is nil when off). The start is saved under `pg.notify.quietHoursStart` (default 22, so Quiet Hours turned on before the choice keeps 10 PM–7 AM). Finished waits for the window's end; finishing soon that would fire inside it is skipped for that job.
+- **Menu.** **Print Finishing Soon** and **Quiet Hours** are one picker each, titled with their value ("Print Finishing Soon (10 Min Before)", "Quiet Hours (Off)"). Choosing **Off** clears `comingOff` or `quietHours` and keeps the last lead time or start for next time (`finishingSoonLead`, `quietWindow`). Titles follow the Mac's 12- or 24-hour clock (`GlanceContent.quietHoursChoice`).
 - **Permission** is requested on the first Starting or Printing report each launch (not on Finish, so the prompt can't eat that alert), and after the first printer is set up. If notifications are off in System Settings, the Notifications menu starts with **Notifications Are Off…**.
-- **Presentation.** `PrintNotifyPresenter` shows banners while the app is frontmost (a menu bar app always is), and turns a click into `PendingSelection`.
+- **Look Up.** A paused or failed alert with an error code carries the code it explains (`PrintNotifyAlert.code`, from `leadErrorCode`) in `userInfo["code"]` next to the serial, and joins the `pg.errorCode` category. `start()` registers that category, with its **Look Up** button, through `Notifier.setCategories`. The button opens `GlanceContent.errorLookup` in the browser like the card's **Look up** (copying a `print_error` code) and sets `PendingSelection`. Opening the panel itself isn't possible: `performClick` doesn't open a window-style extra on macOS 27.
+- **Presentation.** `PrintNotifyPresenter` shows banners while the app is frontmost (a menu bar app always is). In `didReceive` it reads the action, serial, and code as Strings on Apple's queue and hops to the main actor with only those: a click becomes `PendingSelection`, **Look Up** calls `GlanceModel.lookUpError`.
 - **Pause default migration.** Pause alerts became default-on; `pg.notify.pauseOn.v1` turns them on once for older installs.
 
 ## Filament: low spool and runout estimate
@@ -262,7 +265,8 @@ A row also keeps what went wrong, as codes so the words improve with the reasons
 
 `SetupFlow` phases: `form` → `connecting` → `connected` (closes after 1 s) or `welcome` (first printer) or `failed(message)`.
 
-1. On open it scans the Wi-Fi (`PrinterDiscovery`). No results opens **Enter IP and serial instead**. A printer already saved shows **Added** and can't be picked. Picking fills IP, serial, and a suggested name (a typed name is kept).
+1. **Add** scans the Wi-Fi on open (`SetupFlow.opened`, `PrinterDiscovery`). The window has two groups: the printer (the list, then **Printer not listed?**, which shows IP and serial under it), then the access code with its hint and the name. No results opens **Printer not listed?**. A printer already saved shows **Added** and can't be picked. Picking fills IP, serial, and a suggested name (a typed name is kept).
+   **Edit** doesn't scan or list printers: a pick there swapped the printer for another and kept the old code, which failed. It opens on the access code, then name and IP, and shows the serial as text, since another serial is another printer.
 2. **Connect** saves the printer through `GlanceModel.saveSettings` (so the real link dials it) and watches `linkStatus` for that serial. Success (the printer's first report) ends the wait; a failure shows why and offers **Try Again**; a later success still counts (rediscovery may find the printer at a new IP). After 20 s with no answer it says so.
 3. Every attempt starts from the printer list as it was before the first Connect, so retries replace the attempt instead of adding rows. **Cancel**, Esc, ⌘W, and the close button restore that list.
 4. Editing a printer pauses its rediscovery until the window closes.
@@ -282,7 +286,7 @@ Preferences live in the `local.PrintGlance` domain (`UserDefaults.standard` in t
 | `printerFocusId` | The focused serial. |
 | `printerIP`, `printerSerial`, `printerAccessCode`, `printerName` | Pre-multi-printer settings, migrated into `printers` on first load. `make install` writes them from `.env`. |
 | Keychain `local.PrintGlance.accessCode` | 1.1.7's access codes. Copied onto the row once, then deleted. |
-| `pg.notify.finish`, `.fail`, `.pause`, `.offline`, `.comingOff`, `.quietHours`, `.lowFilament`, `.comingOffLead` | Notification preferences. |
+| `pg.notify.finish`, `.fail`, `.pause`, `.offline`, `.comingOff`, `.quietHours`, `.lowFilament`, `.comingOffLead`, `.quietHoursStart` | Notification preferences. |
 | `pg.notify.pauseOn.v1` | One-time migration flag. |
 | `pg.comingoff.phase`, `pg.comingoff.fireAt` | Finishing-soon state per printer and job (`fireAt` holds when the scheduled notice fires, in seconds since 1970). Saving drops `pg.comingoff.remain`, which held the delay from scheduling; a notice saved with it reschedules once. |
 | `pg.runout` | `RunoutTracker` as JSON. |

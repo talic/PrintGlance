@@ -35,7 +35,7 @@ enum SetupWindow {
             // The hosting view sizes itself a run-loop turn later; center the real size, not 0×0.
             window.setContentSize(hosting.view.fittingSize)
             window.center()
-            flow.scan()
+            flow.opened()
         }
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)

@@ -14,7 +14,8 @@ Add a printer finds printers on this Wi-Fi, takes the access code, and stays ope
 - The Add Printer window opens the first time PrintGlance opens, and whenever it opens with no printer saved.
 - To add another, click the printer icon, click …, and choose Add Printer….
 - Under Printers on this Wi-Fi, click the printer, type the access code from the printer's screen, and click Connect.
-- If the list is empty, click Enter IP and serial instead, then type the IP address and the serial.
+- If the printer is not in the list, click Printer not listed?, then type the IP address and the serial. With an empty list it opens by itself.
+- To change a printer, click … and choose Edit followed by its name. The Edit window does not search: it shows the access code, name, and IP address, and the serial as text.
 
 ## Driving it with Screen
 

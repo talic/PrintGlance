@@ -22,6 +22,10 @@ struct Notifier {
     var isDenied: @Sendable () async -> Bool = {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
     }
+    /// The notices' buttons: Look Up on paused and failed notices that name an error code.
+    var setCategories: (Set<UNNotificationCategory>) -> Void = {
+        UNUserNotificationCenter.current().setNotificationCategories($0)
+    }
 }
 
 enum LinkStatus: Equatable {
@@ -199,6 +203,7 @@ final class GlanceModel: ObservableObject {
         }
         notifyPresenter.model = self
         UNUserNotificationCenter.current().delegate = notifyPresenter
+        notifier.setCategories([Self.lookUpCategory()])
         updates.onAvailable = { [weak self] tag in
             guard let self, self.availableUpdate != tag else { return }
             self.availableUpdate = tag
@@ -278,6 +283,33 @@ final class GlanceModel: ObservableObject {
 
     func notificationClicked(serial: String) {
         pendingSelection.serial = serial
+    }
+
+    /// A notice's Look Up button, like the card's Look up. The next panel open shows that printer, as a click would.
+    func lookUpError(code: String, serial: String) {
+        if !serial.isEmpty { pendingSelection.serial = serial }
+        Self.openLookup(code: code, serial: serial)
+    }
+
+    /// Bambu's page for a code in the browser, as the card's **Look up** and the notice's **Look Up** do.
+    /// A `print_error` code's page is a table, so the code also goes on the clipboard.
+    static func openLookup(code: String, serial: String) {
+        let lookup = GlanceContent.errorLookup(code: code, serial: serial)
+        if lookup.copiesCode {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(code, forType: .string)
+        }
+        NSWorkspace.shared.open(lookup.url)
+    }
+
+    /// Paused and failed notices with an error code join this category for their Look Up button.
+    static func lookUpCategory() -> UNNotificationCategory {
+        UNNotificationCategory(
+            identifier: PrintNotifyAlert.lookUpCategory,
+            actions: [UNNotificationAction(identifier: PrintNotifyAlert.lookUpAction, title: "Look Up", options: [])],
+            intentIdentifiers: [],
+            options: []
+        )
     }
 
     func openUpdatePage() {
@@ -668,6 +700,7 @@ final class GlanceModel: ObservableObject {
         subtitle: String = "",
         body: String,
         serial: String,
+        code: String? = nil,
         trigger: UNNotificationTrigger? = nil
     ) {
         let content = UNMutableNotificationContent()
@@ -677,7 +710,12 @@ final class GlanceModel: ObservableObject {
         content.sound = .default
         // Notification Center stacks each printer's alerts on their own.
         content.threadIdentifier = serial
-        content.userInfo = [PendingSelection.serialKey: serial]
+        var info = [PendingSelection.serialKey: serial]
+        if let code, !code.isEmpty {
+            content.categoryIdentifier = PrintNotifyAlert.lookUpCategory
+            info[PrintNotifyAlert.codeKey] = code
+        }
+        content.userInfo = info
         notifier.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
 
@@ -768,19 +806,14 @@ final class GlanceModel: ObservableObject {
                 subtitle: alert.subtitle,
                 body: alert.body,
                 serial: alert.serial,
+                code: alert.code,
                 trigger: finishTrigger(alert, now: now)
             )
         }
     }
 
     private func finishTrigger(_ alert: PrintNotifyAlert, now: Date) -> UNNotificationTrigger? {
-        guard alert.kind == .finish, notifyPrefs.quietHours else { return nil }
-        guard QuietHours.contains(now) else { return nil }
-        let fire = QuietHours.nextMorning(from: now)
-        let comps = Calendar.current.dateComponents(
-            [.year, .month, .day, .hour, .minute, .second],
-            from: fire
-        )
+        guard alert.kind == .finish, let comps = notifyPrefs.quietWindow?.finishShowsAt(now) else { return nil }
         return UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
     }
 
@@ -820,15 +853,21 @@ private final class PrintNotifyPresenter: NSObject, UNUserNotificationCenterDele
         completionHandler([.banner, .list, .sound])
     }
 
-    /// Runs on Apple's queue: read the serial here, then hop to the main actor with only a String.
+    /// Runs on Apple's queue: read the strings here, then hop to the main actor with only Strings.
+    /// A click picks the printer; Look Up opens the code's page.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let serial = response.notification.request.content.userInfo[PendingSelection.serialKey] as? String
-        if response.actionIdentifier == UNNotificationDefaultActionIdentifier, let serial, !serial.isEmpty {
-            let model = self.model
+        let info = response.notification.request.content.userInfo
+        let action = response.actionIdentifier
+        let serial = info[PendingSelection.serialKey] as? String ?? ""
+        let code = info[PrintNotifyAlert.codeKey] as? String ?? ""
+        let model = self.model
+        if action == PrintNotifyAlert.lookUpAction, !code.isEmpty {
+            Task { @MainActor in model?.lookUpError(code: code, serial: serial) }
+        } else if action == UNNotificationDefaultActionIdentifier, !serial.isEmpty {
             Task { @MainActor in model?.notificationClicked(serial: serial) }
         }
         completionHandler()

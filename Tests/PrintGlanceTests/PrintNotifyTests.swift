@@ -207,6 +207,26 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertEqual(out.alert?.body, "The filament cutter is stuck.")
     }
 
+    /// The code the body explains goes with the alert, for its Look Up button. Finished and lost connection have none.
+    func testPausedAndFailedAlertsCarryTheirCode() {
+        var n = PrintNotify(prefs: .default)
+        _ = n.observe(row("RUNNING", jobId: "t1"))
+        var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 16, job: "Print in Parts", jobId: "t1")
+        paused.hmsCode = "0503-0000-0003-0027"
+        paused.printError = "0500-8062"
+        XCTAssertEqual(n.observe(fleet(focus: "x2d", [paused])).alert?.code, "0500-8062", "the one with a reason")
+        _ = n.observe(row("RUNNING", jobId: "t1"))
+        XCTAssertNil(n.observe(row("PAUSE", jobId: "t2")).alert?.code, "no code, no button")
+        _ = n.observe(row("RUNNING", jobId: "t3"))
+        var failed = Printer(id: "x2d", name: "X2D", state: "FAILED", percent: 16, job: "Print in Parts", jobId: "t3")
+        failed.printError = "0300-806E"
+        XCTAssertEqual(n.observe(fleet(focus: "x2d", [failed])).alert?.code, "0300-806E")
+        _ = n.observe(row("RUNNING", jobId: "t4"))
+        let finish = n.observe(row("FINISH", jobId: "t4")).alert
+        XCTAssertEqual(finish?.kind, .finish)
+        XCTAssertNil(finish?.code)
+    }
+
     func testPauseBeforeTheFirstLayerLeavesOutZeroPercent() {
         var n = PrintNotify(prefs: .default)
         _ = n.observe(row("PREPARE", jobId: "t1"))

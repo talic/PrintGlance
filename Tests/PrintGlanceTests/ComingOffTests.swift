@@ -365,21 +365,118 @@ final class ComingOffTests: XCTestCase {
 
     func testQuietHoursContainsAndNextMorning() {
         let cal = utc()
-        XCTAssertTrue(QuietHours.contains(date(hour: 23, calendar: cal), calendar: cal))
-        XCTAssertTrue(QuietHours.contains(date(hour: 2, calendar: cal), calendar: cal))
-        XCTAssertFalse(QuietHours.contains(date(hour: 8, calendar: cal), calendar: cal))
-        let fromNight = QuietHours.nextMorning(from: date(hour: 23, calendar: cal), calendar: cal)
+        let quiet = QuietHours.default
+        XCTAssertTrue(quiet.contains(date(hour: 23, calendar: cal), calendar: cal))
+        XCTAssertTrue(quiet.contains(date(hour: 2, calendar: cal), calendar: cal))
+        XCTAssertFalse(quiet.contains(date(hour: 8, calendar: cal), calendar: cal))
+        let fromNight = quiet.nextMorning(from: date(hour: 23, calendar: cal), calendar: cal)
         XCTAssertEqual(cal.component(.hour, from: fromNight), 7)
         XCTAssertEqual(cal.component(.day, from: fromNight), 24)
-        let fromDawn = QuietHours.nextMorning(from: date(hour: 2, calendar: cal), calendar: cal)
+        let fromDawn = quiet.nextMorning(from: date(hour: 2, calendar: cal), calendar: cal)
         XCTAssertEqual(cal.component(.hour, from: fromDawn), 7)
         XCTAssertEqual(cal.component(.day, from: fromDawn), 23)
     }
 
+    func testEachQuietHoursWindowIsNineHours() {
+        let cal = utc()
+        for start in QuietHours.starts {
+            let quiet = QuietHours(startHour: start)
+            let inside = (0..<24).filter { quiet.contains(date(hour: $0, calendar: cal), calendar: cal) }
+            XCTAssertEqual(inside.count, 9, "\(start)")
+            XCTAssertTrue(inside.contains(start), "\(start)")
+            XCTAssertFalse(inside.contains(quiet.endHour), "ends on the hour: \(start)")
+            XCTAssertEqual(quiet.endHour, (start + 9) % 24)
+        }
+        let midnight = QuietHours(startHour: 0)
+        XCTAssertFalse(midnight.contains(date(hour: 23, calendar: cal), calendar: cal))
+        XCTAssertTrue(midnight.contains(date(hour: 8, calendar: cal), calendar: cal))
+        let morning = midnight.nextMorning(from: date(hour: 3, calendar: cal), calendar: cal)
+        XCTAssertEqual(cal.component(.hour, from: morning), 9)
+        XCTAssertEqual(cal.component(.day, from: morning), 23)
+        let fromNine = QuietHours(startHour: 21).nextMorning(from: date(hour: 21, calendar: cal), calendar: cal)
+        XCTAssertEqual(cal.component(.hour, from: fromNine), 6)
+        XCTAssertEqual(cal.component(.day, from: fromNine), 24)
+    }
+
+    /// The Finished notice's trigger: held to the chosen window's end, or shown now outside it.
+    func testFinishedWaitsForTheChosenWindowsEnd() {
+        let cal = utc()
+        let late = QuietHours(startHour: 23)
+        let held = late.finishShowsAt(date(hour: 23, calendar: cal), calendar: cal)
+        XCTAssertEqual([held?.day, held?.hour, held?.minute], [24, 8, 0], "an 11 PM–8 AM window waits for 8 the next morning")
+        let dawn = late.finishShowsAt(date(hour: 7, calendar: cal), calendar: cal)
+        XCTAssertEqual([dawn?.day, dawn?.hour], [23, 8], "inside the window after midnight: that morning")
+        XCTAssertNil(late.finishShowsAt(date(hour: 22, calendar: cal), calendar: cal), "before the window: now")
+        XCTAssertNil(QuietHours.default.finishShowsAt(date(hour: 7, calendar: cal), calendar: cal), "the default window has ended at 7")
+        let midnight = QuietHours(startHour: 0).finishShowsAt(date(hour: 0, calendar: cal), calendar: cal)
+        XCTAssertEqual([midnight?.day, midnight?.hour], [23, 9])
+    }
+
+    func testQuietHoursSkipsComingOffInTheChosenWindow() {
+        let cal = utc()
+        var prefs = PrintNotifyPrefs.default
+        prefs.quietWindow = QuietHours(startHour: 0)
+        var c = ComingOff()
+        let late = c.consider(printer: printer("RUNNING", remainingS: 3600, jobId: "t1"), prefs: prefs, now: date(hour: 22, calendar: cal), calendar: cal)
+        XCTAssertEqual(late?.interval, 3000, "22:50 is before midnight")
+        var d = ComingOff()
+        let night = d.consider(printer: printer("RUNNING", remainingS: 3600, jobId: "t1"), prefs: prefs, now: date(hour: 7, calendar: cal), calendar: cal)
+        XCTAssertNil(night?.interval, "07:50 is inside midnight–9")
+        XCTAssertEqual(d.phase["x2d|t1"], .done)
+    }
+
     func testQuietHoursTitleFollowsHourCycle() {
-        XCTAssertEqual(GlanceContent.quietHoursTitle(locale: Locale(identifier: "en_US")), "Quiet Hours (10 PM–7 AM)")
-        XCTAssertEqual(GlanceContent.quietHoursTitle(locale: Locale(identifier: "en_GB")), "Quiet Hours (22:00–07:00)")
-        XCTAssertEqual(GlanceContent.quietHoursTitle(locale: Locale(identifier: "de_DE")), "Quiet Hours (22:00–07:00)", "quoted Uhr is not an hour letter")
+        let us = Locale(identifier: "en_US")
+        XCTAssertEqual(GlanceContent.quietHoursTitle(.default, locale: us), "Quiet Hours (10 PM–7 AM)")
+        XCTAssertEqual(GlanceContent.quietHoursTitle(.default, locale: Locale(identifier: "en_GB")), "Quiet Hours (22:00–07:00)")
+        XCTAssertEqual(GlanceContent.quietHoursTitle(.default, locale: Locale(identifier: "de_DE")), "Quiet Hours (22:00–07:00)", "quoted Uhr is not an hour letter")
+        XCTAssertEqual(GlanceContent.quietHoursTitle(nil, locale: us), "Quiet Hours (Off)")
+        XCTAssertEqual(
+            PrintNotifyPrefs.quietHoursChoices.map { GlanceContent.quietHoursChoice($0, locale: us) },
+            ["Off", "9 PM–6 AM", "10 PM–7 AM", "11 PM–8 AM", "Midnight–9 AM"]
+        )
+        XCTAssertEqual(
+            PrintNotifyPrefs.quietHoursChoices.map { GlanceContent.quietHoursChoice($0, locale: Locale(identifier: "en_GB")) },
+            ["Off", "21:00–06:00", "22:00–07:00", "23:00–08:00", "00:00–09:00"]
+        )
+    }
+
+    func testFinishingSoonMenuShowsItsValue() {
+        XCTAssertEqual(GlanceContent.finishingSoonTitle(lead: 10), "Print Finishing Soon (10 Min Before)")
+        XCTAssertEqual(GlanceContent.finishingSoonTitle(lead: nil), "Print Finishing Soon (Off)")
+        XCTAssertEqual(
+            PrintNotifyPrefs.finishingSoonChoices.map(GlanceContent.finishingSoonChoice(lead:)),
+            ["Off", "5 Minutes Before", "10 Minutes Before", "15 Minutes Before", "30 Minutes Before"]
+        )
+    }
+
+    /// One menu choice sets the on/off flag and the value together; off keeps the last value.
+    func testOneChoiceSetsTheFlagAndTheValue() throws {
+        var prefs = PrintNotifyPrefs.default
+        XCTAssertEqual(prefs.finishingSoonLead, 10)
+        XCTAssertNil(prefs.quietWindow)
+        prefs.finishingSoonLead = nil
+        XCTAssertFalse(prefs.comingOff)
+        XCTAssertEqual(prefs.comingOffLead, 10)
+        prefs.finishingSoonLead = 30
+        XCTAssertTrue(prefs.comingOff)
+        XCTAssertEqual(prefs.comingOffLead, 30)
+        prefs.quietWindow = QuietHours(startHour: 23)
+        XCTAssertTrue(prefs.quietHours)
+        XCTAssertEqual(prefs.quietHoursStart, 23)
+        prefs.quietWindow = nil
+        XCTAssertFalse(prefs.quietHours)
+        XCTAssertEqual(prefs.quietHoursStart, 23)
+
+        let d = scratchDefaults()
+        XCTAssertEqual(PrintNotifyPrefs.load(d).quietHoursStart, 22, "fresh install")
+        prefs.quietWindow = QuietHours(startHour: 0)
+        prefs.save(d)
+        XCTAssertEqual(d.object(forKey: "pg.notify.quietHoursStart") as? Int, 0)
+        XCTAssertEqual(d.object(forKey: "pg.notify.quietHours") as? Bool, true)
+        XCTAssertEqual(PrintNotifyPrefs.load(d).quietWindow, QuietHours(startHour: 0), "midnight is a choice, not a missing key")
+        d.set(5, forKey: "pg.notify.quietHoursStart")
+        XCTAssertEqual(PrintNotifyPrefs.load(d).quietHoursStart, 22, "not a choice in the menu")
     }
 
     func testPrefOffDoesNotSchedule() {
@@ -425,7 +522,7 @@ final class ComingOffTests: XCTestCase {
         d.set(["x2d|t1": 3000], forKey: "pg.comingoff.remain")
         var c = ComingOff.load(d)
         XCTAssertEqual(c.phase["x2d|t1"], .scheduled)
-        XCTAssertEqual(c.scheduledFireInS, [:])
+        XCTAssertEqual(c.scheduledFireAt, [:])
         let again = c.consider(printer: printer("RUNNING", remainingS: 3000, jobId: "t1"), prefs: .default, now: start)
         XCTAssertEqual(again?.interval, 2400)
         XCTAssertEqual(again?.cancelIds, ["pg.comingoff.x2d.t1"])
