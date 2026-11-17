@@ -213,7 +213,7 @@ final class SetupFlow: ObservableObject {
         if GlanceCopy.codeRejected(reason) {
             return "The access code was rejected. Check it on the printer: Settings, then LAN or Network."
         }
-        if reason?.contains("ECONNREFUSED") == true {
+        if reason?.contains("ECONNREFUSED") == true || GlanceCopy.wrongSerial(reason) != nil {
             return GlanceCopy.feedDownDetail(reason: reason)
         }
         return "No answer from \(ip). Check that the printer is on and on the same Wi-Fi as this Mac."
@@ -232,8 +232,7 @@ final class SetupFlow: ObservableObject {
 
 
     nonisolated private static func sameSerial(_ a: String, _ b: String) -> Bool {
-        a.trimmingCharacters(in: .whitespacesAndNewlines)
-            .caseInsensitiveCompare(b.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+        PrinterSettings.normalizedSerial(a) == PrinterSettings.normalizedSerial(b)
     }
 }
 

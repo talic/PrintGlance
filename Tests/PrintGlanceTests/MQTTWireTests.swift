@@ -24,7 +24,10 @@ final class MQTTWireTests: XCTestCase {
     }
 
     private func dial(_ broker: FakeBroker, password: String = "a1b2c3d4") {
-        client.connect(host: "127.0.0.1", port: broker.port, clientID: "pg-app-700123-beef", username: "bblp", password: password)
+        client.connect(
+            host: "127.0.0.1", port: broker.port, clientID: "pg-app-700123-beef", username: "bblp", password: password,
+            serial: serial
+        )
     }
 
     private func connected() throws -> FakeBroker {
@@ -78,7 +81,7 @@ final class MQTTWireTests: XCTestCase {
         let port = try XCTUnwrap(broker?.port)
         broker = nil // closes the listener; nothing answers on that port now
         events.settle(0.1)
-        client.connect(host: "127.0.0.1", port: port, clientID: "pg-app-test", username: "bblp", password: "x")
+        client.connect(host: "127.0.0.1", port: port, clientID: "pg-app-test", username: "bblp", password: "x", serial: serial)
         XCTAssertTrue(events.wait { !self.events.disconnects.isEmpty })
         XCTAssertEqual(events.disconnects, ["ECONNREFUSED"])
     }
@@ -95,6 +98,21 @@ final class MQTTWireTests: XCTestCase {
         // ponytail in MQTT311Client: the printer's certificate is signed by Bambu's own CA, so the client
         // trusts anything. This pins that behavior so a future pinning change is deliberate.
         _ = try connected()
+    }
+
+    func testCertificateNamingAnotherPrinterIsRefusedBeforeTheAccessCode() throws {
+        let broker = try FakeBroker(commonName: "01P00A000000001")
+        dial(broker)
+        XCTAssertTrue(events.wait { !self.events.disconnects.isEmpty })
+        XCTAssertEqual(events.disconnects, ["serial mismatch 01P00A000000001"])
+        XCTAssertTrue(broker.packets(ofType: 1).isEmpty, "CONNECT, which carries the access code, is never sent")
+        XCTAssertEqual(events.connects, 0)
+    }
+
+    func testCertificateNamingThisPrinterConnects() throws {
+        let broker = try FakeBroker(commonName: serial)
+        dial(broker)
+        XCTAssertTrue(events.wait { self.events.connects == 1 })
     }
 
     // MARK: - Reading reports
@@ -213,6 +231,20 @@ final class MQTTWireTests: XCTestCase {
         XCTAssertTrue(events.wait { self.events.connects == 2 })
         events.settle()
         XCTAssertTrue(events.disconnects.isEmpty, "the old socket closing must not fail the new attempt")
+    }
+
+    /// The old socket's drop is already on its way to the main queue when the next connect starts (after
+    /// wake, say). Delivered late, it would mark the new attempt failed and redial over it.
+    func testADropDeliveredAfterTheNextConnectIsIgnored() throws {
+        let first = try connected()
+        let second = try FakeBroker()
+        first.close()
+        Thread.sleep(forTimeInterval: 0.3) // the client's queue fails the socket; main hasn't run the callback
+        dial(second)
+        Thread.sleep(forTimeInterval: 0.1) // the client's queue starts the new connect
+        XCTAssertTrue(events.wait { self.events.connects == 2 })
+        events.settle()
+        XCTAssertTrue(events.disconnects.isEmpty, "the drop was the old socket's")
     }
 
     // MARK: - Packet builders

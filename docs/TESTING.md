@@ -1,6 +1,6 @@
 # Testing PrintGlance
 
-The suite has two parts: **415 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **72 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
+The suite has two parts: **435 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **72 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Running
 
@@ -107,7 +107,7 @@ All in `Tests/PrintGlanceTests/Support`.
 | README and Info.plist | `ShippingTests` |
 | Hostile input | `SecurityTests` (fuzzing), `MQTTWireTests` (frames, oversized packets), `GlanceModelTests.testGarbageMessagesChangeNothing`, `PrepareAmsHmsTests.testHostileNumbersDoNotTrap`, Python `ActiveFilamentTests.test_garbage_shapes_do_not_raise`, `PrinterRowTests.test_infinite_and_huge_numbers…`, `MqttCallbackTests.test_message_ignores_bad_payloads` |
 | Job names (extensions, slicer suffixes) | `PrintDocTests.testJobLabel…`, Python `JobLabelTests` |
-| Feed parser matches the app (job label, second AMS tray, 30-day remaining cap) | `ParserParityTests`, Python `ParserParityTests` in `test_parser_parity.py`, fixture `Tests/PrintGlanceTests/Fixtures/parser-parity.json` |
+| Feed parser matches the app (job label, second AMS tray, 30-day remaining cap, Starting state) | `ParserParityTests`, Python `ParserParityTests` in `test_parser_parity.py`, fixture `Tests/PrintGlanceTests/Fixtures/parser-parity.json` |
 | Feed exposure: bind address, token, idle timeout, `Server` header, no secrets in responses | Python `BindTests`, `HttpTests` |
 | iPhone app and widget: one look (pushall only, own client ID, timeout, rejected code), the search (subnet, serial-shaped names, certificate read over real TLS with nothing sent, picking a printer drops another's code, saved printers marked Added, one new printer filling the form), the access code hint matching the Mac's, the Connect, Save, Remove, and four-printer alerts, Paused orange and Failed red, asking every printer at once, App Group statuses for several printers, ranking cards like the menu bar, widget words, timeline, card | `PhoneGlanceTests`; CI builds `iOS/` for the simulator |
 

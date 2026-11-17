@@ -37,11 +37,14 @@ final class GlanceModelTests: XCTestCase {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)
         link.accept()
-        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connected)
+        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connecting, "a CONNACK only says the access code is right")
         XCTAssertEqual(link.subscriptions, ["device/20P9AJ5B0700123/report"])
         XCTAssertEqual(link.publishes.map(\.topic), ["device/20P9AJ5B0700123/request"])
         XCTAssertEqual(link.publishes.map(\.payload), [pushall])
+        XCTAssertEqual(link.serials, [x2d.serial], "a certificate naming another printer is refused")
         XCTAssertEqual(h.model.content.result, .connecting, "connected but no report yet")
+        link.report(Report.state("IDLE"))
+        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connected, "the printer talks, so the serial is right")
     }
 
     func testIncompletePrinterIsNotDialed() {
@@ -187,6 +190,18 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertNil(h.row(x2d.serial)?.codeRejected, "only offline rows carry it")
     }
 
+    func testAnotherPrintersCertificateSaysWhichSerialAnswered() async throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.drop("serial mismatch 01P00A000000001")
+        XCTAssertEqual(h.model.content.result, .feedDown)
+        let detail = GlanceCopy.feedDownDetail(reason: h.model.disconnectReason(for: x2d.serial))
+        XCTAssertEqual(detail, "The printer at this IP address has serial 01P00A000000001. Check the serial number and the IP address on the printer's LAN or Network page.")
+        XCTAssertEqual(SetupFlow.failureMessage("serial mismatch 01P00A000000001", ip: x2d.ip), detail)
+        let searched = await eventually { h.network.scans == 1 }
+        XCTAssertTrue(searched, "the printer may have moved, so this one's IP is searched for")
+    }
+
     func testDroppedPrinterKeepsItsProgressThroughTheGrace() throws {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)
@@ -203,6 +218,7 @@ final class GlanceModelTests: XCTestCase {
         let link = try XCTUnwrap(h.add(x2d).first)
         link.drop("closed")
         link.accept()
+        link.report(Report.state("IDLE"))
         XCTAssertEqual(h.model.linkStatus[x2d.serial], .connected)
         XCTAssertNil(h.model.disconnectReason(for: x2d.serial))
     }
@@ -212,6 +228,7 @@ final class GlanceModelTests: XCTestCase {
         let link = try XCTUnwrap(h.add(x2d).first)
         link.drop("closed")
         link.accept()
+        link.report(Report.state("IDLE"))
         let searched = await eventually { h.network.scans == 1 }
         XCTAssertTrue(searched)
         try await Task.sleep(for: .milliseconds(1500))
@@ -273,14 +290,87 @@ final class GlanceModelTests: XCTestCase {
 
     // MARK: - Changing printers
 
-    func testSavingSettingsReplacesEveryConnection() throws {
+    func testAddingAPrinterKeepsTheOthersConnected() throws {
         let h = ModelHarness(self)
-        let old = try XCTUnwrap(h.add(x2d).first)
-        h.add(p1s)
-        XCTAssertEqual(old.disconnects, 1)
-        XCTAssertNil(old.onMessage, "a late message from the old socket goes nowhere")
-        XCTAssertNil(old.onDisconnect)
-        XCTAssertEqual(h.printers.clients.count, 3, "one for the first save, two for the second")
+        let printing = try XCTUnwrap(h.add(x2d).first)
+        printing.accept()
+        printing.report(Report.running())
+        let added = try XCTUnwrap(h.add(p1s).last)
+        XCTAssertEqual(printing.disconnects, 0)
+        XCTAssertTrue(h.printers.latest(x2d.serial) === printing)
+        XCTAssertEqual(h.printers.clients.count, 2)
+        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connected)
+        added.accept()
+        added.report(Report.state("IDLE"))
+        XCTAssertEqual(h.row(x2d.serial)?.state, "RUNNING", "the printing printer kept its report")
+        XCTAssertFalse(h.notifications.titles().contains("Lost connection to X2D"))
+    }
+
+    /// A report rebuilds only its own printer's row; the tick rebuilds the rest.
+    func testAReportLeavesTheOtherPrintersRowsAsTheyWere() throws {
+        let h = ModelHarness(self)
+        let links = h.add(x2d, p1s)
+        links.forEach { $0.accept() }
+        links[0].report(Report.running())
+        links[1].report(Report.state("IDLE"))
+        let before = h.row(x2d.serial)
+        links[1].report(["mc_percent": 3])
+        XCTAssertEqual(h.row(x2d.serial), before)
+        XCTAssertEqual(h.row(p1s.serial)?.percent, 3)
+    }
+
+    func testRenamingAPrinterKeepsItsConnection() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running())
+        var renamed = x2d
+        renamed.name = "Voyager"
+        h.model.saveSettings(h.model.settings.replacing(renamed, serial: x2d.serial))
+        XCTAssertEqual(link.disconnects, 0)
+        XCTAssertEqual(h.row(x2d.serial)?.name, "Voyager")
+        XCTAssertEqual(h.row(x2d.serial)?.state, "RUNNING")
+    }
+
+    func testANewAddressReplacesThatConnectionWithoutALostConnectionNotice() throws {
+        let h = ModelHarness(self)
+        let links = h.add(x2d, p1s)
+        links.forEach { $0.accept() }
+        links[0].report(Report.running())
+        var moved = x2d
+        moved.ip = "192.0.2.50"
+        h.model.saveSettings(h.model.settings.replacing(moved, serial: x2d.serial))
+        XCTAssertEqual(links[0].disconnects, 1)
+        XCTAssertNil(links[0].onMessage, "a late message from the old socket goes nowhere")
+        XCTAssertNil(links[0].onDisconnect)
+        XCTAssertEqual(links[1].disconnects, 0)
+        XCTAssertEqual(h.printers.latest(x2d.serial)?.dials.first?.host, "192.0.2.50")
+        links[1].report(Report.state("IDLE"))
+        XCTAssertEqual(h.row(x2d.serial)?.state, "OFFLINE", "no report on the new connection yet")
+        XCTAssertFalse(h.notifications.titles().contains("Lost connection to X2D"), "the user moved it")
+    }
+
+    func testSavingAgainRedialsAFailingPrinter() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.drop("MQTT CONNACK 5")
+        XCTAssertEqual(link.dials.count, 1)
+        h.model.saveSettings(h.model.settings)
+        XCTAssertEqual(link.dials.count, 2, "Connect in the setup window is a fresh try")
+        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connecting)
+    }
+
+    func testRemovingAPrintingPrinterCancelsItsNoticesAndForgetsIt() throws {
+        let h = ModelHarness(self)
+        let links = h.add(x2d, p1s)
+        links.forEach { $0.accept() }
+        links[0].report(Report.running(minutesLeft: 84))
+        XCTAssertTrue(h.model.historyRows.contains { $0.serial == x2d.serial && $0.isOpen })
+        h.model.removePrinter(serial: x2d.serial)
+        XCTAssertTrue(h.notifications.cancelled.contains("pg.comingoff.\(x2d.serial).t1"), "finishing soon would still fire")
+        XCTAssertTrue(h.notifications.cancelled.contains("pg.finish.\(x2d.serial)"), "a finish held for the morning")
+        XCTAssertFalse(h.model.historyRows.contains { $0.serial == x2d.serial && $0.isOpen }, "it would never close")
+        XCTAssertEqual(links[1].disconnects, 0)
     }
 
     func testRemovingAPrinterStopsWatchingIt() throws {
@@ -426,6 +516,40 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(h.notifications.posted.filter { $0.id == id }.count, 1)
     }
 
+    func testTurningOffFinishingSoonCancelsTheScheduledNotice() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running(minutesLeft: 84))
+        let id = "pg.comingoff.\(x2d.serial).t1"
+        h.model.notifyPrefs.comingOff = false
+        XCTAssertEqual(h.notifications.cancelled.last, id)
+        link.report(Report.running(minutesLeft: 83))
+        XCTAssertEqual(h.notifications.posted.filter { $0.id == id }.count, 1, "off stays off")
+        h.model.notifyPrefs.comingOff = true
+        link.report(Report.running(minutesLeft: 82))
+        XCTAssertEqual(h.notifications.posted.filter { $0.id == id }.last?.fireIn, 72 * 60, "on again, it is scheduled anew")
+    }
+
+    func testTurningOffPrintFinishedDropsAFinishHeldForTheMorning() throws {
+        let h = ModelHarness(self)
+        h.add(x2d)
+        h.model.notifyPrefs.finish = false
+        XCTAssertEqual(h.notifications.cancelled, ["pg.finish.\(x2d.serial)"])
+    }
+
+    func testANewPrintDropsAFinishHeldForTheMorning() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running())
+        link.report(Report.state("FINISH"))
+        let before = h.notifications.cancelled.count
+        link.report(Report.running(task: "t2"))
+        XCTAssertTrue(h.notifications.cancelled.dropFirst(before).contains("pg.finish.\(x2d.serial)"))
+        XCTAssertTrue(h.notifications.removed.contains("pg.finish.\(x2d.serial)"), "and the delivered one")
+    }
+
     /// The printer names the next job while it still says Finished. That must not use up the
     /// job's notice.
     func testFinishingSoonComesForAPrintStartedWhileWatching() throws {
@@ -472,10 +596,12 @@ final class GlanceModelTests: XCTestCase {
         link.accept()
         link.report(Report.running().merging(Report.ams(remain: 15)))
         link.report(Report.running(percent: 53).merging(Report.ams(remain: 14)))
-        let low = h.notifications.posted.filter { $0.title == "Low filament" }
+        let low = h.notifications.posted.filter { $0.title == "X2D low on filament" }
         XCTAssertEqual(low.count, 1)
-        XCTAssertEqual(low.first?.body, "X2D is using PLA Matte at 15%.")
-        XCTAssertEqual(low.first?.id, "filament.\(x2d.serial)|0|t1")
+        XCTAssertEqual(low.first?.subtitle, "Benchy")
+        XCTAssertEqual(low.first?.body, "PLA Matte in A1 is at 15%.")
+        XCTAssertEqual(low.first?.id, "filament.\(x2d.serial)|A1|t1")
+        XCTAssertNotNil(h.defaults.data(forKey: FilamentAlert.defaultsKey), "survives a relaunch mid-print")
     }
 
     func testLowFilamentOffSendsNothing() throws {
@@ -484,7 +610,10 @@ final class GlanceModelTests: XCTestCase {
         let link = try XCTUnwrap(h.add(x2d).first)
         link.accept()
         link.report(Report.running().merging(Report.ams(remain: 15)))
-        XCTAssertFalse(h.notifications.titles().contains("Low filament"))
+        XCTAssertFalse(h.notifications.titles().contains("X2D low on filament"))
+        h.model.notifyPrefs.lowFilament = true
+        link.report(Report.running(percent: 53).merging(Report.ams(remain: 14)))
+        XCTAssertTrue(h.notifications.titles().contains("X2D low on filament"), "turned on during the print, it still warns once")
     }
 
     func testFallingSpoolMarksTheBarAndNotifiesOnce() throws {
@@ -499,9 +628,10 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertTrue((29...30).contains(runout.percent), "\(runout.percent)")
         XCTAssertEqual(runout.tray, "A1")
         XCTAssertEqual(runout.name, "PLA Matte")
-        let notices = h.notifications.posted.filter { $0.title == "Filament may run out" }
+        let notices = h.notifications.posted.filter { $0.title == "X2D may run out of filament" }
         XCTAssertEqual(notices.count, 1)
-        XCTAssertTrue(notices.first?.body.hasPrefix("X2D: PLA Matte in A1 runs out") == true, notices.first?.body ?? "")
+        XCTAssertEqual(notices.first?.subtitle, "Benchy")
+        XCTAssertTrue(notices.first?.body.hasPrefix("PLA Matte in A1 runs out") == true, notices.first?.body ?? "")
         XCTAssertNotNil(h.defaults.data(forKey: RunoutTracker.defaultsKey), "survives a relaunch mid-print")
     }
 

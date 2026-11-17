@@ -36,20 +36,10 @@ struct PrintNotifyOutcome: Equatable {
     var alerts: [PrintNotifyAlert]
     /// Delivered alerts that are no longer true, to take out of Notification Center.
     var clears: [String] = []
+    /// Alerts still waiting to be delivered that are no longer true: a finish Quiet Hours holds for the morning.
+    var unsent: [String] = []
 
     var alert: PrintNotifyAlert? { alerts.first }
-
-    init(requestPermission: Bool, alert: PrintNotifyAlert?, clears: [String] = []) {
-        self.requestPermission = requestPermission
-        self.alerts = alert.map { [$0] } ?? []
-        self.clears = clears
-    }
-
-    init(requestPermission: Bool, alerts: [PrintNotifyAlert], clears: [String] = []) {
-        self.requestPermission = requestPermission
-        self.alerts = alerts
-        self.clears = clears
-    }
 }
 
 struct PrintNotifyPrefs: Equatable {
@@ -153,190 +143,94 @@ struct PendingSelection: Equatable {
     }
 }
 
-struct PrintNotifyStamp: Equatable {
-    var serial: String
-    var state: String
-    var jobId: String
-
-    static let listKey = "pg.notify.stamps"
-
-    static func load(_ d: UserDefaults) -> PrintNotifyStamp? {
-        guard let serial = d.string(forKey: "pg.notify.stamp.serial"), !serial.isEmpty,
-              let state = d.string(forKey: "pg.notify.stamp.state"), !state.isEmpty
-        else { return nil }
-        return PrintNotifyStamp(
-            serial: serial,
-            state: state,
-            jobId: d.string(forKey: "pg.notify.stamp.jobId") ?? ""
-        )
-    }
-
-    static func loadAll(_ d: UserDefaults) -> [String: PrintNotifyStamp] {
-        if let raw = d.array(forKey: listKey) {
-            var out: [String: PrintNotifyStamp] = [:]
-            for item in raw {
-                guard let dict = item as? [String: String],
-                      let serial = dict["serial"], !serial.isEmpty,
-                      let state = dict["state"], !state.isEmpty
-                else { continue }
-                out[serial] = PrintNotifyStamp(
-                    serial: serial,
-                    state: state,
-                    jobId: dict["jobId"] ?? ""
-                )
-            }
-            if !out.isEmpty { return out }
-        }
-        if let one = load(d) {
-            return [one.serial: one]
-        }
-        return [:]
-    }
-
-    static func saveAll(_ stamps: [String: PrintNotifyStamp], to d: UserDefaults) {
-        let arr: [[String: String]] = stamps.values.map {
-            ["serial": $0.serial, "state": $0.state, "jobId": $0.jobId]
-        }
-        d.set(arr, forKey: listKey)
-        clear(d)
-    }
-
-    static func clear(_ d: UserDefaults) {
-        d.removeObject(forKey: "pg.notify.stamp.serial")
-        d.removeObject(forKey: "pg.notify.stamp.state")
-        d.removeObject(forKey: "pg.notify.stamp.jobId")
-    }
-}
-
-/// Decides print alerts from glance snapshot edges. Permission is requested on the first
-/// RUNNING or PREPARE snapshot, not on FINISH, so the grant prompt cannot drop that alert.
-/// State is keyed by printer serial so a focus change is not a print edge.
+/// Decides print alerts from each printer's state changes. Permission is requested on the first
+/// RUNNING or PREPARE row, not on FINISH, so the grant prompt cannot drop that alert.
+/// State is kept per printer serial, so a focus change is not a print edge. A relaunch starts with no
+/// last state, so a printer already Finished or Paused is not an edge either.
 struct PrintNotify {
-    var serial: String
     var prefs: PrintNotifyPrefs
-    var stamps: [String: PrintNotifyStamp]
     var askedPermission = false
-    var lastBySerial: [String: String] = [:]
-    var timedBySerial: [String: Bool] = [:]
+    var lastBySerial: [String: PrintState] = [:]
 
-    var stamp: PrintNotifyStamp? {
-        get { stamps[serial] }
-        set { stamps[serial] = newValue }
+    init(prefs: PrintNotifyPrefs) {
+        self.prefs = prefs
     }
 
-    init(serial: String, prefs: PrintNotifyPrefs, stamp: PrintNotifyStamp?) {
-        self.serial = serial
-        self.prefs = prefs
-        if let stamp {
-            self.stamps = [stamp.serial: stamp]
-        } else {
-            self.stamps = [:]
+    /// Duplicate-alert stamps, saved by older builds. Edges already allow one alert per change, so they are dropped.
+    static func forgetStamps(_ d: UserDefaults) {
+        for key in ["pg.notify.stamps", "pg.notify.stamp.serial", "pg.notify.stamp.state", "pg.notify.stamp.jobId"] {
+            d.removeObject(forKey: key)
         }
-    }
-
-    init(serial: String, prefs: PrintNotifyPrefs, stamps: [String: PrintNotifyStamp]) {
-        self.serial = serial
-        self.prefs = prefs
-        self.stamps = stamps
     }
 
     mutating func observe(_ content: GlanceContent) -> PrintNotifyOutcome {
-        switch content.result {
-        case let .doc(doc):
-            var requestPermission = false
-            var alerts: [PrintNotifyAlert] = []
-            var clears: [String] = []
-            for printer in doc.printers {
-                let one = observePrinter(printer)
-                requestPermission = requestPermission || one.requestPermission
-                alerts.append(contentsOf: one.alerts)
-                clears.append(contentsOf: one.clears)
-            }
-            return PrintNotifyOutcome(requestPermission: requestPermission, alerts: alerts, clears: clears)
-        case .feedDown:
-            var alerts: [PrintNotifyAlert] = []
-            let ids = Set(lastBySerial.keys).union(timedBySerial.keys)
-            let keys = ids.isEmpty && !serial.isEmpty ? [serial] : Array(ids)
-            for id in keys {
-                let one = observeNamed(id, next: "FEEDDOWN", row: nil)
-                alerts.append(contentsOf: one.alerts)
-            }
-            return PrintNotifyOutcome(requestPermission: false, alerts: alerts)
-        default:
-            // Connecting / setup: not a print edge and must not clear hadTimedJob.
+        // Connecting, setup, and no printer reachable before any report: not print edges.
+        guard case let .doc(doc) = content.result else {
             return PrintNotifyOutcome(requestPermission: false, alerts: [])
         }
-    }
-
-    private mutating func observePrinter(_ row: Printer) -> PrintNotifyOutcome {
-        let next = row.state.uppercased()
-        return observeNamed(row.id, next: next.isEmpty ? "OTHER" : next, row: row)
-    }
-
-    private mutating func observeNamed(
-        _ id: String,
-        next: String,
-        row: Printer?
-    ) -> PrintNotifyOutcome {
         var requestPermission = false
-        if next == "RUNNING" || next == "PREPARE" {
-            requestPermission = !askedPermission
-            askedPermission = true
-            stamps[id] = nil
+        var alerts: [PrintNotifyAlert] = []
+        var clears: [String] = []
+        var unsent: [String] = []
+        for printer in doc.printers {
+            let one = observe(printer)
+            requestPermission = requestPermission || one.requestPermission
+            alerts.append(contentsOf: one.alerts)
+            clears.append(contentsOf: one.clears)
+            unsent.append(contentsOf: one.unsent)
         }
+        return PrintNotifyOutcome(requestPermission: requestPermission, alerts: alerts, clears: clears, unsent: unsent)
+    }
+
+    private mutating func observe(_ row: Printer) -> PrintNotifyOutcome {
+        let id = row.id
+        let next = row.printState
+        let requestPermission = next.isActive && !askedPermission
+        if next.isActive { askedPermission = true }
 
         let prev = lastBySerial[id]
-        let hadTimed = timedBySerial[id] ?? false
+        let wasPrinting = prev?.isActive == true
         var alert: PrintNotifyAlert?
-        if next == "FINISH", Self.isPrepareOrRunning(prev), prefs.finish {
-            alert = Self.alert(.finish, row, serial: id)
-        } else if next == "FAILED", Self.isPrepareOrRunning(prev), prefs.fail, row.map(GlanceContent.isCanceled) != true {
+        if next == .finished, wasPrinting, prefs.finish {
+            alert = Self.alert(.finish, row)
+        } else if next == .failed, wasPrinting, prefs.fail, !GlanceContent.isCanceled(row) {
             // Bambu reports a cancel as FAILED. Whoever canceled the print needs no alert about it.
-            alert = Self.alert(.fail, row, serial: id)
-        } else if next == "PAUSE", Self.isPrepareOrRunning(prev), prefs.pause {
-            alert = Self.alert(.pause, row, serial: id)
-        } else if next == "OFFLINE", prefs.offline, Self.isOfflineEdge(prev: prev, hadTimedJob: hadTimed) {
-            alert = Self.alert(.offline, row, serial: id)
-        }
-
-        if alert != nil {
-            let candidate = PrintNotifyStamp(serial: id, state: next, jobId: row?.jobId ?? "")
-            if stamps[id] == candidate {
-                alert = nil
-            } else {
-                stamps[id] = candidate
-            }
+            alert = Self.alert(.fail, row)
+        } else if next == .paused, wasPrinting, prefs.pause {
+            alert = Self.alert(.pause, row)
+        } else if next == .offline, prev?.isTimed == true, prefs.offline {
+            alert = Self.alert(.offline, row)
         }
 
         let clears = prev == next ? [] : Self.clears(id, next: next)
+        // A new print makes a finish held for the morning old news, like the delivered one.
+        let finished = PrintNotifyAlert.identifier(.finish, serial: id)
+        let unsent = clears.contains(finished) ? [finished] : []
         lastBySerial[id] = next
-        switch next {
-        case "RUNNING", "PREPARE", "PAUSE":
-            timedBySerial[id] = true
-        case "FEEDDOWN", "OFFLINE":
-            break
-        default:
-            timedBySerial[id] = false
-        }
+        return PrintNotifyOutcome(
+            requestPermission: requestPermission,
+            alerts: alert.map { [$0] } ?? [],
+            clears: clears,
+            unsent: unsent
+        )
+    }
 
-        return PrintNotifyOutcome(requestPermission: requestPermission, alert: alert, clears: clears)
+    /// A printer that was removed or now has a new connection: its next row starts over, not an edge.
+    mutating func forget(_ serial: String) {
+        lastBySerial[serial] = nil
     }
 
     /// What a new state makes untrue. A new or resumed print ends the last finish, pause, or failure,
     /// and any report at all ends a lost connection. Also runs on the first report after launch.
-    private static func clears(_ id: String, next: String) -> [String] {
+    private static func clears(_ id: String, next: PrintState) -> [String] {
         var kinds: [PrintNotifyKind] = []
-        if next == "RUNNING" || next == "PREPARE" {
+        if next.isActive {
             kinds = [.finish, .pause, .fail]
         }
-        if next != "OFFLINE", next != "FEEDDOWN" {
+        if next != .offline {
             kinds.append(.offline)
         }
         return kinds.map { PrintNotifyAlert.identifier($0, serial: id) }
-    }
-
-    func persistStamp(_ d: UserDefaults) {
-        PrintNotifyStamp.saveAll(stamps, to: d)
     }
 
     /// Mac network changes this long ago or less explain a lost connection.
@@ -349,25 +243,9 @@ struct PrintNotify {
         return now.timeIntervalSince(networkChangedAt) >= networkSettle
     }
 
-    private static func isPrepareOrRunning(_ prev: String?) -> Bool {
-        prev == "RUNNING" || prev == "PREPARE"
-    }
-
-    private static func isOfflineEdge(prev: String?, hadTimedJob: Bool) -> Bool {
-        switch prev {
-        case "RUNNING", "PREPARE", "PAUSE":
-            return true
-        case "FEEDDOWN":
-            return hadTimedJob
-        default:
-            return false
-        }
-    }
-
     /// "X2D paused" over "Benchy · 62%" over the reason. The code shows only when there's no reason:
     /// the card lists every code with a Look up link.
-    private static func alert(_ kind: PrintNotifyKind, _ row: Printer?, serial: String) -> PrintNotifyAlert? {
-        guard let row else { return nil }
+    private static func alert(_ kind: PrintNotifyKind, _ row: Printer) -> PrintNotifyAlert {
         let name = row.name.isEmpty ? "Printer" : row.name
         let job = row.job.flatMap { $0.isEmpty ? nil : $0 }
         let progress = row.percent.flatMap { $0 > 0 ? "\($0)%" : nil }
@@ -388,6 +266,6 @@ struct PrintNotify {
             body = (row.percent.map { "\(job ?? name) was at \($0)%. " } ?? "") + "PrintGlance keeps trying."
         }
         let code = kind == .fail || kind == .pause ? GlanceContent.leadErrorCode(row) : nil
-        return PrintNotifyAlert(kind: kind, title: title, subtitle: subtitle, body: body, serial: serial, code: code)
+        return PrintNotifyAlert(kind: kind, title: title, subtitle: subtitle, body: body, serial: row.id, code: code)
     }
 }

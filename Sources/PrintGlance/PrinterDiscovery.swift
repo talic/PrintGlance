@@ -75,17 +75,16 @@ enum PrinterDiscovery {
     static func ipChanges(saved: [PrinterSettings], hits: [Hit]) -> [(serial: String, ip: String)] {
         var ipBySerial: [String: String] = [:]
         for hit in hits {
-            let serial = hit.serial.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = PrinterSettings.normalizedSerial(hit.serial)
             let ip = hit.ip.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !serial.isEmpty, !ip.isEmpty else { continue }
-            let key = serial.lowercased()
+            guard !key.isEmpty, !ip.isEmpty else { continue }
             if ipBySerial[key] == nil {
                 ipBySerial[key] = ip
             }
         }
         var out: [(serial: String, ip: String)] = []
         for printer in saved {
-            let key = printer.serial.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let key = PrinterSettings.normalizedSerial(printer.serial)
             guard !key.isEmpty, let ip = ipBySerial[key] else { continue }
             if ip == printer.ip.trimmingCharacters(in: .whitespacesAndNewlines) { continue }
             out.append((printer.serial, ip))

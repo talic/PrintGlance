@@ -107,6 +107,32 @@ struct ComingOff: Equatable {
         d.set(scheduledFireInS, forKey: Self.fireInKey)
     }
 
+    /// Finishing soon was turned off: the notices on their way, to cancel. Turned on again, a print still
+    /// running gets its notice scheduled anew.
+    mutating func cancelScheduled() -> [String] {
+        var ids: [String] = []
+        for (key, p) in phase where p == .scheduled {
+            guard let bar = key.firstIndex(of: "|") else { continue }
+            ids.append(Self.notificationId(serial: String(key[..<bar]), jobId: String(key[key.index(after: bar)...])))
+            phase[key] = nil
+            scheduledFireInS[key] = nil
+        }
+        return ids.sorted()
+    }
+
+    /// A removed printer: its scheduled notices, to cancel.
+    mutating func forget(serial: String) -> [String] {
+        var ids: [String] = []
+        for key in Array(phase.keys) where key.hasPrefix("\(serial)|") {
+            if phase[key] == .scheduled {
+                ids.append(Self.notificationId(serial: serial, jobId: String(key.dropFirst(serial.count + 1))))
+            }
+            phase[key] = nil
+            scheduledFireInS[key] = nil
+        }
+        return ids
+    }
+
     mutating func consider(
         printer: Printer,
         prefs: PrintNotifyPrefs,
@@ -117,7 +143,7 @@ struct ComingOff: Equatable {
         let jobId = printer.jobId ?? ""
         let key = "\(serial)|\(jobId)"
         let id = Self.notificationId(serial: serial, jobId: jobId)
-        let state = printer.state.uppercased()
+        let state = printer.printState
 
         var cancelIds: [String] = []
         for existing in Array(phase.keys) where existing.hasPrefix("\(serial)|") && existing != key {
@@ -131,7 +157,7 @@ struct ComingOff: Equatable {
 
         let action: ComingOffAction?
         switch state {
-        case "RUNNING":
+        case .printing:
             action = running(
                 printer: printer,
                 key: key,
@@ -140,9 +166,9 @@ struct ComingOff: Equatable {
                 now: now,
                 calendar: calendar
             )
-        case "PAUSE", "OFFLINE":
+        case .paused, .offline:
             action = pauseOrOffline(key: key, id: id)
-        case "FINISH", "IDLE", "FAILED":
+        case .finished, .idle, .failed:
             action = complete(key: key, id: id)
         default:
             action = nil

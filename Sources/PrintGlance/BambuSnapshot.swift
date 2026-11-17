@@ -88,20 +88,29 @@ enum BambuPrint {
             stem = String(stem.dropLast(ext.count))
         }
         if stem.count < 2 { return nil }
-        if stem.range(of: "^[0-9a-fA-F]{8,}$", options: .regularExpression) != nil { return nil }
-        if stem.range(of: "^\\d{6,}$", options: .regularExpression) != nil { return nil }
+        if matches(patterns.hexName, stem) || matches(patterns.numberName, stem) { return nil }
         return stem
+    }
+
+    /// Built once: every row of every pass reads the job label. NSRegularExpression is immutable and safe to
+    /// share between threads; older SDKs don't mark it Sendable, hence the wrapper.
+    private struct Patterns: @unchecked Sendable {
+        let hexName = try! NSRegularExpression(pattern: "^[0-9a-fA-F]{8,}$")
+        let numberName = try! NSRegularExpression(pattern: "^\\d{6,}$")
+        let processSuffix = try! NSRegularExpression(pattern: #"\s+0?\.\d+\s*mm\b.*"#, options: [.caseInsensitive])
+    }
+
+    private static let patterns = Patterns()
+
+    private static func matches(_ re: NSRegularExpression, _ s: String) -> Bool {
+        re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil
     }
 
     /// Cuts a slicer suffix like " 0.16mm layer, 2 walls, 10% infill". Only layer heights (under 1 mm)
     /// count, so a size in the name, like "Spacer 20mm", stays.
     static func stripProcessSuffix(_ name: String) -> String {
-        let pattern = #"\s+0?\.\d+\s*mm\b.*"#
-        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return name
-        }
         let range = NSRange(name.startIndex..., in: name)
-        return re.stringByReplacingMatches(in: name, range: range, withTemplate: "")
+        return patterns.processSuffix.stringByReplacingMatches(in: name, range: range, withTemplate: "")
             .trimmingCharacters(in: .whitespaces)
     }
 
@@ -112,15 +121,30 @@ enum BambuPrint {
         return sub.isEmpty ? nil : sub
     }
 
+    /// "plate_3": the sliced plate inside a project (`Metadata/plate_3.gcode`, what cloud prints send). It names
+    /// the plate, not the print; the slicer's task name (`subtask_name`) does that.
+    static func isPlateFile(_ stem: String) -> Bool {
+        let low = stem.lowercased()
+        guard low.hasPrefix("plate_") else { return false }
+        let number = low.dropFirst("plate_".count)
+        return !number.isEmpty && number.allSatisfy { $0.isASCII && $0.isNumber }
+    }
+
+    /// The file's name, else the task name, else a plate's file name.
     static func jobLabel(_ printObj: [String: Any]) -> String? {
         var label: String
-        if let stem = humanGcodeStem(printObj["gcode_file"]) {
+        let stem = humanGcodeStem(printObj["gcode_file"])
+        if let stem, !isPlateFile(stem) {
             label = stem
-        } else {
-            guard let raw = BambuJSON.stringValue(printObj["subtask_name"])?
-                .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+        } else if let raw = BambuJSON.stringValue(printObj["subtask_name"])?
+            .trimmingCharacters(in: .whitespaces), !raw.isEmpty
+        {
             let stripped = stripProcessSuffix(raw)
             label = stripped.isEmpty ? raw : stripped
+        } else if let stem {
+            label = stem
+        } else {
+            return nil
         }
         if label.count > 40 {
             label = String(label.prefix(37)) + "..."
@@ -373,17 +397,13 @@ enum BambuPrint {
     }
 
     static func etaHM(
-        state: String,
+        state: PrintState,
         remainingS: Int?,
         now: Date = Date(),
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> String? {
-        switch state {
-        case "RUNNING", "PREPARE", "PAUSE": break
-        default: return nil
-        }
-        guard let remainingS, remainingS > 0 else { return nil }
+        guard state.isTimed, let remainingS, remainingS > 0 else { return nil }
         let t = now.addingTimeInterval(TimeInterval(remainingS))
         return GlanceContent.dayTime(t, now: now, calendar: calendar, locale: locale)
     }
@@ -393,7 +413,8 @@ enum BambuPrint {
         name: String,
         printObj: [String: Any],
         online: Bool,
-        lastReportAt: Date? = nil
+        lastReportAt: Date? = nil,
+        now: Date = Date()
     ) -> Printer {
         let raw = (BambuJSON.stringValue(printObj["gcode_state"]) ?? "").uppercased()
         let state: String
@@ -419,6 +440,7 @@ enum BambuPrint {
             layerTotal = BambuJSON.intValue(printObj["total_layer_num"])
         }
         let fil = activeFilament(printObj)
+        let slots = trays(printObj)
         var row = Printer(
             id: id,
             name: name,
@@ -428,14 +450,15 @@ enum BambuPrint {
             job: jobLabel(printObj),
             layer: layer,
             layerTotal: layerTotal,
-            eta: etaHM(state: state, remainingS: remainingS),
+            eta: etaHM(state: PrintState(state), remainingS: remainingS, now: now),
             filament: fil.type,
             filamentRemain: fil.remain,
             filamentColor: fil.color,
             nozzle: activeNozzle(printObj),
+            filamentSlot: fil.tray.flatMap { now in slots.first { $0.id == "\(now)" }?.label },
             jobId: jobIdentity(printObj),
-            stage: stageLabel(state: state, printObj: printObj),
-            trays: trays(printObj),
+            stage: stageLabel(state: PrintState(state), printObj: printObj),
+            trays: slots,
             humidity: amsHumidity(printObj),
             amsUnits: { let u = amsUnits(printObj); return u.isEmpty ? nil : u }(),
             hmsCode: firstHMSCode(printObj),
@@ -445,7 +468,7 @@ enum BambuPrint {
             row.lastSeen = lastReportAt
             row.lastState = raw.isEmpty ? nil : raw
         }
-        if state == "PREPARE" {
+        if PrintState(state) == .starting {
             row.nozzleTemp = nozzleTemp(printObj)
             row.bedTemp = bedTemp(printObj)
             row.chamberTemp = chamberTemp(printObj)
@@ -461,8 +484,8 @@ enum BambuPrint {
         return (BambuJSON.intValue(printObj["layer_num"]) ?? 0) == 0
     }
 
-    static func stageLabel(state: String, printObj: [String: Any]) -> String? {
-        guard state.uppercased() == "PREPARE" else { return nil }
+    static func stageLabel(state: PrintState, printObj: [String: Any]) -> String? {
+        guard state == .starting else { return nil }
         guard let stg = BambuJSON.intValue(printObj["stg_cur"]) else { return "Starting" }
         switch stg {
         case 2, 7, 15, 49, 54, 63: return "Heating"
@@ -637,24 +660,31 @@ final class BambuSnapshot {
         return now < trustedUntil
     }
 
-    func printer() -> Printer {
+    func printer(now: Date = Date()) -> Printer {
         BambuPrint.row(
             id: printerID,
             name: name.isEmpty ? "Printer" : name,
             printObj: printObj,
-            online: isOnline(),
-            lastReportAt: lastReportAt
+            online: isOnline(now: now),
+            lastReportAt: lastReportAt,
+            now: now
         )
     }
 
+    /// One row per complete saved printer, in saved order. A row in `cached` is used as it is.
     static func fleetDoc(
         printers: [PrinterSettings],
         snapshots: [String: BambuSnapshot],
-        focusId: String?
+        focusId: String?,
+        now: Date = Date(),
+        reusing cached: [String: Printer] = [:]
     ) -> PrintDoc {
         let rows: [Printer] = printers.map { p in
+            if let row = cached[p.serial] {
+                return row
+            }
             if let snap = snapshots[p.serial] {
-                return snap.printer()
+                return snap.printer(now: now)
             }
             return Printer(
                 id: p.serial,

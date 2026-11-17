@@ -82,15 +82,14 @@ struct GlanceContent: Equatable, Sendable {
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> StripPresentation {
-        let st = row.state.uppercased()
-        switch st {
-        case "PREPARE":
+        switch row.printState {
+        case .starting:
             return StripPresentation(
                 systemImage: "printer.fill",
                 title: shortStage(row.stage),
                 accessibilityLabel: a11y(row)
             )
-        case "RUNNING":
+        case .printing:
             let pct = paddedPercent(row.percent)
             let title: String
             if let eta = row.eta, !eta.isEmpty, let pct {
@@ -105,13 +104,13 @@ struct GlanceContent: Equatable, Sendable {
                 title: title,
                 accessibilityLabel: a11y(row)
             )
-        case "PAUSE":
+        case .paused:
             return StripPresentation(
                 systemImage: "pause.fill",
                 title: paddedPercent(row.percent) ?? "",
                 accessibilityLabel: a11y(row)
             )
-        case "FINISH":
+        case .finished:
             let ago = occupancyEndedAt.map { agoTitle(from: $0, now: now) }
             let fresh = occupancyEndedAt.map { now.timeIntervalSince($0) < finishTitleFor } ?? false
             return StripPresentation(
@@ -119,13 +118,13 @@ struct GlanceContent: Equatable, Sendable {
                 title: fresh ? ago ?? "" : "",
                 accessibilityLabel: a11y(row, ago: ago)
             )
-        case "FAILED":
+        case .failed:
             return StripPresentation(
                 systemImage: isCanceled(row) ? "stop.circle" : "xmark",
                 title: "",
                 accessibilityLabel: a11y(row)
             )
-        case "OFFLINE":
+        case .offline:
             let seen = row.lastSeen.map { "last update \(dayTime($0, now: now, calendar: calendar, locale: locale))" }
             return StripPresentation(
                 systemImage: offlineKind(row) == .switchedOff ? switchedOffImage : offlineImage,
@@ -153,16 +152,16 @@ struct GlanceContent: Equatable, Sendable {
         return String(repeating: "\u{2007}", count: max(0, 4 - s.count)) + s
     }
 
-    static func humanState(_ state: String) -> String {
-        switch state.uppercased() {
-        case "RUNNING": return "Printing"
-        case "PREPARE": return "Starting"
-        case "PAUSE": return "Paused"
-        case "FINISH": return "Finished"
-        case "FAILED": return "Failed"
-        case "IDLE": return "Idle"
-        case "OFFLINE": return "Offline"
-        default: return state
+    static func humanState(_ state: PrintState) -> String {
+        switch state {
+        case .printing: "Printing"
+        case .starting: "Starting"
+        case .paused: "Paused"
+        case .finished: "Finished"
+        case .failed: "Failed"
+        case .idle: "Idle"
+        case .offline: "Offline"
+        case let .other(raw): raw
         }
     }
 
@@ -172,7 +171,7 @@ struct GlanceContent: Equatable, Sendable {
     /// A FAILED report that is really a cancel. The row keeps FAILED, so `printers.json` still says what the
     /// printer said; only what this app shows changes.
     static func isCanceled(_ row: Printer) -> Bool {
-        row.state.uppercased() == "FAILED" && errorCodes(row).contains(cancelCode)
+        row.printState == .failed && errorCodes(row).contains(cancelCode)
     }
 
     /// A History row that ended in a cancel. `JobLog` saves the cancel code as the row's `failCode`.
@@ -182,7 +181,7 @@ struct GlanceContent: Equatable, Sendable {
 
     /// A row's state as one word: Canceled for a canceled print, else `humanState`.
     static func stateWord(_ row: Printer) -> String {
-        isCanceled(row) ? "Canceled" : humanState(row.state)
+        isCanceled(row) ? "Canceled" : humanState(row.printState)
     }
 
     /// Why an offline printer is offline, which decides its icon, rank, and words.
@@ -197,8 +196,8 @@ struct GlanceContent: Equatable, Sendable {
 
     /// Nil while the printer is online.
     static func offlineKind(_ row: Printer) -> OfflineKind? {
-        guard row.state.uppercased() == "OFFLINE" else { return nil }
-        if isTimed(row.lastState ?? "") { return .lost }
+        guard row.printState == .offline else { return nil }
+        if row.lastPrintState?.isTimed == true { return .lost }
         return row.codeRejected == true ? .codeRejected : .switchedOff
     }
 
@@ -237,16 +236,15 @@ struct GlanceContent: Equatable, Sendable {
 
     /// A printer list row's right side: "52% · 4:25 PM" while printing, else the state word.
     static func listDetail(_ row: Printer) -> String {
-        guard row.state.uppercased() == "RUNNING", let pct = row.percent else { return stateWord(row) }
+        guard row.printState == .printing, let pct = row.percent else { return stateWord(row) }
         guard let eta = row.eta, !eta.isEmpty else { return "\(pct)%" }
         return "\(pct)% · \(eta)"
     }
 
     /// The job name while there is a job to talk about (offline: the last known state); otherwise the printer name.
     static func headline(_ row: Printer) -> String {
-        var st = row.state.uppercased()
-        if st == "OFFLINE" { st = row.lastState?.uppercased() ?? "" }
-        guard ["PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED"].contains(st),
+        let st = row.printState == .offline ? row.lastPrintState : row.printState
+        guard let st, st.isTimed || st == .finished || st == .failed,
               let job = row.job, !job.isEmpty
         else { return row.name }
         return job
@@ -259,18 +257,18 @@ struct GlanceContent: Equatable, Sendable {
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> [String] {
-        guard row.state.uppercased() == "OFFLINE", let seen = row.lastSeen else { return [] }
+        guard row.printState == .offline, let seen = row.lastSeen else { return [] }
         func at(_ date: Date) -> String { dayTime(date, now: now, calendar: calendar, locale: locale) }
         var lines = ["Last update \(at(seen))"]
-        switch row.lastState?.uppercased() {
-        case "RUNNING", "PREPARE":
+        switch row.lastPrintState {
+        case .printing, .starting:
             let was = ["Was printing", row.percent.map { "\($0)%" }, layerLine(row)]
             lines.append(was.compactMap { $0 }.joined(separator: " · "))
             if let s = row.remainingS, s > 0 {
                 let due = seen + TimeInterval(s)
                 lines.append(due > now ? "Expected to finish \(at(due))" : "Was due to finish \(at(due))")
             }
-        case "PAUSE":
+        case .paused:
             lines.append(row.percent.map { "Was paused at \($0)%" } ?? "Was paused")
         default:
             break
@@ -280,7 +278,7 @@ struct GlanceContent: Equatable, Sendable {
 
     /// Paused and failed only: `print_error` can stay set after the problem is gone.
     static func errorCodes(_ row: Printer) -> [String] {
-        guard ["PAUSE", "FAILED"].contains(row.state.uppercased()) else { return [] }
+        guard row.printState.isStopped else { return [] }
         var codes: [String] = []
         for code in [row.hmsCode, row.printError] {
             if let code, !code.isEmpty, !codes.contains(code) { codes.append(code) }
@@ -574,20 +572,20 @@ struct GlanceContent: Equatable, Sendable {
     /// The reasons and codes block: always while paused or failed, saying "No error reported." when there's
     /// no code, but for a canceled print only when another code came with the cancel.
     static func showsErrors(_ row: Printer) -> Bool {
-        switch row.state.uppercased() {
-        case "PAUSE": return true
-        case "FAILED": return !isCanceled(row) || !codeLines(row).isEmpty
+        switch row.printState {
+        case .paused: return true
+        case .failed: return !isCanceled(row) || !codeLines(row).isEmpty
         default: return false
         }
     }
 
     /// Trays matter when you are at the printer: before a print, after one, or on a paused runout.
     static func showsAMS(_ row: Printer) -> Bool {
-        ["IDLE", "FINISH", "FAILED", "PAUSE"].contains(row.state.uppercased())
+        [.idle, .finished, .failed, .paused].contains(row.printState)
     }
 
     static func subtitle(_ row: Printer) -> String {
-        if row.state.uppercased() == "PREPARE", let stage = row.stage, !stage.isEmpty {
+        if row.printState == .starting, let stage = row.stage, !stage.isEmpty {
             return stage
         }
         return stateWord(row)
@@ -635,9 +633,9 @@ struct GlanceContent: Equatable, Sendable {
             to: calendar.startOfDay(for: date)
         ).day ?? 0
         if abs(days) > 6 {
-            return english(date, DateFormatter.dateFormat(fromTemplate: "MMMd", options: 0, locale: locale), calendar)
+            return english(date, DateFormats.shared.pattern("MMMd", locale), calendar)
         }
-        let time = english(date, DateFormatter.dateFormat(fromTemplate: "jmm", options: 0, locale: locale), calendar)
+        let time = english(date, DateFormats.shared.pattern("jmm", locale), calendar)
         switch days {
         case 0: return time
         case 1: return "\(time) tomorrow"
@@ -648,20 +646,9 @@ struct GlanceContent: Equatable, Sendable {
 
     /// Formats with the locale's pattern but English words (AM/PM, Mon, Sep).
     private static func english(_ date: Date, _ pattern: String?, _ calendar: Calendar) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        f.dateFormat = pattern ?? "HH:mm"
-        return f.string(from: date)
+        DateFormats.shared.string(date, pattern: pattern ?? "HH:mm", calendar: calendar)
     }
 
-    static func isTimed(_ state: String) -> Bool {
-        switch state.uppercased() {
-        case "RUNNING", "PREPARE", "PAUSE": return true
-        default: return false
-        }
-    }
 
     static func agoTitle(from ended: Date, now: Date) -> String {
         let s = max(0, Int(now.timeIntervalSince(ended)))
@@ -678,14 +665,14 @@ struct GlanceContent: Equatable, Sendable {
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> String? {
-        switch row.state.uppercased() {
-        case "RUNNING", "PREPARE":
+        switch row.printState {
+        case .printing, .starting:
             if let eta = row.eta, !eta.isEmpty { return eta }
             return row.remainingS.flatMap { $0 > 0 ? formatRemain($0) : nil }
-        case "PAUSE":
+        case .paused:
             // The finish time slides later while paused; time left holds still.
             return row.remainingS.flatMap { $0 > 0 ? "\(formatRemain($0)) left" : nil }
-        case "FINISH":
+        case .finished:
             guard let ended = occupancyEndedAt else { return nil }
             return now.timeIntervalSince(ended) < finishTitleFor
                 ? agoTitle(from: ended, now: now)
@@ -704,18 +691,18 @@ struct GlanceContent: Equatable, Sendable {
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> String? {
-        guard row.state.uppercased() != "PAUSE" else { return nil }
+        guard row.printState != .paused else { return nil }
         return hero(row, occupancyEndedAt: occupancyEndedAt, now: now, calendar: calendar, locale: locale)
     }
 
     /// "1h 24m left": under a finish-time hero while Starting or Printing, and under the bar while Paused.
     static func remainingLine(_ row: Printer) -> String? {
         guard let s = row.remainingS, s > 0 else { return nil }
-        switch row.state.uppercased() {
-        case "RUNNING", "PREPARE":
+        switch row.printState {
+        case .printing, .starting:
             guard let eta = row.eta, !eta.isEmpty else { return nil }
             return "\(formatRemain(s)) left"
-        case "PAUSE":
+        case .paused:
             return "\(formatRemain(s)) left"
         default:
             return nil
@@ -725,27 +712,27 @@ struct GlanceContent: Equatable, Sendable {
     /// "Took 4h 43m" under a finished print's hero, when PrintGlance saw the print start and end.
     /// The start is History's: when PrintGlance first saw the job.
     static func tookLine(_ row: Printer, startedAt: Date?, endedAt: Date?) -> String? {
-        guard row.state.uppercased() == "FINISH", let startedAt, let endedAt else { return nil }
+        guard row.printState == .finished, let startedAt, let endedAt else { return nil }
         let seconds = Int(endedAt.timeIntervalSince(startedAt))
         return seconds >= 60 ? "Took \(formatRemain(seconds))" : nil
     }
 
     /// "Stopped at 52% · Layer 18 / 29" on a failed or canceled print that got going.
     static func stoppedLine(_ row: Printer) -> String? {
-        guard row.state.uppercased() == "FAILED", let percent = row.percent, percent > 0 else { return nil }
+        guard row.printState == .failed, let percent = row.percent, percent > 0 else { return nil }
         let layer = (row.layer ?? 0) > 0 ? layerLine(row) : nil
         return ["Stopped at \(percent)%", layer].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// The bar and the layer line: Printing and Paused. Starting has neither yet, only 0% and layer 0.
     static func showsProgress(_ row: Printer) -> Bool {
-        ["RUNNING", "PAUSE"].contains(row.state.uppercased())
+        [.printing, .paused].contains(row.printState)
     }
 
     /// "Nozzle 186 / 220° · Bed 48 / 60°" while starting. A heater without a target shows only its
     /// temperature; the chamber shows only while it heats.
     static func heatLine(_ row: Printer) -> String? {
-        guard row.state.uppercased() == "PREPARE" else { return nil }
+        guard row.printState == .starting else { return nil }
         func reading(_ name: String, _ temp: Temp?) -> String? {
             guard let temp else { return nil }
             return temp.target > 0 ? "\(name) \(temp.current) / \(temp.target)°" : "\(name) \(temp.current)°"
@@ -818,13 +805,13 @@ struct GlanceContent: Equatable, Sendable {
     }
 
     private static func a11y(_ row: Printer, ago: String? = nil) -> String {
-        let st = row.state.uppercased()
-        let timed = isTimed(st)
+        let st = row.printState
+        let timed = st.isTimed
         var parts = [row.name, [stateWord(row).lowercased(), ago].compactMap { $0 }.joined(separator: " ")]
-        if let p = row.percent, timed || st == "FAILED" {
+        if let p = row.percent, timed || st == .failed {
             parts.append("\(p) percent")
         }
-        if st == "RUNNING" || st == "PREPARE", let eta = row.eta, !eta.isEmpty {
+        if st.isActive, let eta = row.eta, !eta.isEmpty {
             parts.append("finish \(eta)")
         }
         if timed, let layer = layerLine(row) {
@@ -834,6 +821,44 @@ struct GlanceContent: Equatable, Sendable {
             parts.append("\(nozzle.lowercased()) nozzle")
         }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// Every row's finish time is formatted on every pass, and a `DateFormatter` and a template lookup are slow
+/// to make: one of each per pattern, locale, and time zone, kept. A changed time zone or 12/24-hour setting is
+/// a new key. The lock guards the dictionaries and the formatter in use; the widget formats off the main thread.
+private final class DateFormats: @unchecked Sendable {
+    static let shared = DateFormats()
+    private let lock = NSLock()
+    private var patterns: [String: String] = [:]
+    private var formatters: [String: DateFormatter] = [:]
+
+    /// The locale's pattern for a template, such as "HH:mm" for "jmm" in en_GB.
+    func pattern(_ template: String, _ locale: Locale) -> String? {
+        let key = "\(template)|\(locale.identifier)|\(locale.hourCycle)"
+        lock.lock()
+        defer { lock.unlock() }
+        if let hit = patterns[key] { return hit }
+        let made = DateFormatter.dateFormat(fromTemplate: template, options: 0, locale: locale)
+        patterns[key] = made
+        return made
+    }
+
+    /// English words (AM/PM, Mon, Sep) in the calendar's time zone.
+    func string(_ date: Date, pattern: String, calendar: Calendar) -> String {
+        let key = "\(pattern)|\(calendar.identifier)|\(calendar.timeZone.identifier)"
+        lock.lock()
+        defer { lock.unlock() }
+        let f = formatters[key] ?? {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.calendar = calendar
+            f.timeZone = calendar.timeZone
+            f.dateFormat = pattern
+            formatters[key] = f
+            return f
+        }()
+        return f.string(from: date)
     }
 }
 
@@ -847,6 +872,9 @@ enum GlanceCopy {
         }
         if codeRejected(reason) {
             return "The access code was rejected. Check the access code on the printer's LAN or Network page."
+        }
+        if let other = wrongSerial(reason) {
+            return "The printer at this IP address has serial \(other). Check the serial number and the IP address on the printer's LAN or Network page."
         }
         return "Can't reach the printer. Check Wi-Fi and the IP address."
     }
@@ -862,6 +890,13 @@ enum GlanceCopy {
             return "It may be switched off or still starting up. If it's on, check the IP address on the printer's LAN or Network page."
         }
         return "It may be switched off. If it's on, check Wi-Fi and the IP address."
+    }
+
+    /// The serial the printer at that address named, when it isn't the one saved.
+    static func wrongSerial(_ reason: String?) -> String? {
+        let prefix = MQTT311Client.wrongSerialReason + " "
+        guard let reason, reason.hasPrefix(prefix) else { return nil }
+        return String(reason.dropFirst(prefix.count))
     }
 
     /// The printer answered and refused the access code.

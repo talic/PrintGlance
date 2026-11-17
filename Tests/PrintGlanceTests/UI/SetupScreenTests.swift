@@ -91,7 +91,7 @@ final class SetupScreenTests: XCTestCase {
         XCTAssertFalse(try s.control("Access code").enabled, "fields lock while it waits")
         XCTAssertFalse(try s.control("Connect").enabled)
 
-        try XCTUnwrap(h.printers.latest("20P9AJ5B0700123")).accept()
+        try XCTUnwrap(h.printers.latest("20P9AJ5B0700123")).answer()
         s.settle()
         XCTAssertEqual(s.texts, ["Connected", "PrintGlance is in your menu bar. Click it to see your print."])
         XCTAssertEqual(try s.control("Open at login").value, "1", "starts on")

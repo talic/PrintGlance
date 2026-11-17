@@ -4,30 +4,22 @@ import XCTest
 
 final class PrintNotifyTests: XCTestCase {
     func testNotifyIdentityAndOfflineInvariants() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
 
         _ = n.observe(GlanceContent(result: .connecting))
         let idle = n.observe(row("IDLE", jobId: nil, job: nil))
         XCTAssertFalse(idle.requestPermission, "permission not requested at idle launch")
         XCTAssertNil(idle.alert)
 
-        var relaunch = PrintNotify(
-            serial: "x2d",
-            prefs: .default,
-            stamp: PrintNotifyStamp(serial: "x2d", state: "FINISH", jobId: "task-1")
-        )
+        // A relaunch starts with no last state, so a printer already Finished is not a finish edge.
+        var relaunch = PrintNotify(prefs: .default)
         _ = relaunch.observe(GlanceContent(result: .connecting))
         XCTAssertNil(relaunch.observe(row("FINISH", jobId: "task-1")).alert, "no notify on relaunch already FINISH")
         XCTAssertFalse(relaunch.observe(row("FINISH", jobId: "task-1")).requestPermission)
 
-        var fresh = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
-        _ = fresh.observe(GlanceContent(result: .connecting))
-        XCTAssertNil(fresh.observe(row("FINISH", jobId: "task-1")).alert)
-
         let run = n.observe(row("RUNNING", jobId: "task-1"))
         XCTAssertTrue(run.requestPermission)
         XCTAssertNil(run.alert)
-        XCTAssertNil(n.stamp, "stamp clears on RUNNING")
         XCTAssertFalse(n.observe(row("RUNNING", jobId: "task-1")).requestPermission)
 
         let done = n.observe(row("FINISH", jobId: "task-1"))
@@ -36,14 +28,11 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertEqual(done.alert?.subtitle, "Print in Parts")
         XCTAssertEqual(done.alert?.body, "Ready to take off the plate.")
         XCTAssertFalse(done.requestPermission)
-        XCTAssertEqual(n.stamp, PrintNotifyStamp(serial: "x2d", state: "FINISH", jobId: "task-1"))
-        XCTAssertNil(n.observe(row("FINISH", jobId: "task-1")).alert)
+        XCTAssertNil(n.observe(row("FINISH", jobId: "task-1")).alert, "a second Finished report is not a second finish")
 
         _ = n.observe(row("RUNNING", jobId: "task-2"))
-        XCTAssertNil(n.stamp, "remain stamp clears on RUNNING")
         let second = n.observe(row("FINISH", jobId: "task-2", job: "Print in Parts"))
         XCTAssertEqual(second.alert?.kind, .finish, "second job with same display name still notifies if task_id changed")
-        XCTAssertEqual(n.stamp?.jobId, "task-2")
 
         _ = n.observe(row("RUNNING", jobId: "task-3"))
         let down = n.observe(GlanceContent(result: .feedDown))
@@ -52,7 +41,7 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertEqual(offline.alert?.kind, .offline)
         XCTAssertEqual(offline.alert?.title, "Lost connection to X2D")
         XCTAssertEqual(offline.alert?.body, "Print in Parts was at 16%. PrintGlance keeps trying.")
-        XCTAssertNil(n.observe(row("OFFLINE", jobId: "task-3")).alert, "feedDown then OFFLINE is one alert")
+        XCTAssertNil(n.observe(row("OFFLINE", jobId: "task-3")).alert, "a second Offline report is not a second alert")
 
         var pauseOff = n
         pauseOff.prefs.pause = false
@@ -98,7 +87,7 @@ final class PrintNotifyTests: XCTestCase {
     }
 
     func testFleetFinishNotifiesUnfocusedPrinter() {
-        var n = PrintNotify(serial: "aaa", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         let aRun = Printer(id: "aaa", name: "A", state: "RUNNING", percent: 16, job: "Job A", jobId: "t-a")
         var b = Printer(id: "bbb", name: "B", state: "RUNNING", percent: 40, job: "Job B", jobId: "t-b")
         XCTAssertNil(n.observe(fleet(focus: "aaa", [aRun, b])).alert)
@@ -115,15 +104,32 @@ final class PrintNotifyTests: XCTestCase {
     }
 
     func testFocusOntoAlreadyFinishedIsNotFinish() {
-        var n = PrintNotify(serial: "aaa", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         let aRun = Printer(id: "aaa", name: "A", state: "RUNNING", percent: 16, job: "Job A", jobId: "t-a")
         let bDone = Printer(id: "bbb", name: "B", state: "FINISH", percent: 100, job: "Job B", jobId: "t-b")
         XCTAssertNil(n.observe(fleet(focus: "aaa", [aRun])).alert)
         XCTAssertNil(n.observe(fleet(focus: "bbb", [aRun, bDone])).alert)
     }
 
+    /// A paused printer that drops twice gets two notices, like a printing one.
+    func testEachDropFromAPausedPrintIsALostConnection() {
+        var n = PrintNotify(prefs: .default)
+        _ = n.observe(row("RUNNING", jobId: "t1"))
+        _ = n.observe(row("PAUSE", jobId: "t1"))
+        XCTAssertEqual(n.observe(row("OFFLINE", jobId: "t1")).alert?.kind, .offline)
+        _ = n.observe(row("PAUSE", jobId: "t1"))
+        XCTAssertEqual(n.observe(row("OFFLINE", jobId: "t1")).alert?.kind, .offline)
+    }
+
+    func testForgottenPrinterStartsOver() {
+        var n = PrintNotify(prefs: .default)
+        _ = n.observe(row("RUNNING", jobId: "t1"))
+        n.forget("x2d")
+        XCTAssertNil(n.observe(row("OFFLINE", jobId: "t1")).alert, "a new connection's first row is not an edge")
+    }
+
     func testConnectingDoesNotClearOffline() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         XCTAssertNil(n.observe(row("RUNNING", jobId: "t1")).alert)
         XCTAssertNil(n.observe(GlanceContent(result: .connecting)).alert)
         XCTAssertNil(n.observe(GlanceContent(result: .feedDown)).alert)
@@ -149,11 +155,11 @@ final class PrintNotifyTests: XCTestCase {
     }
 
     func testLostConnectionBodyWithoutJobOrPercent() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         _ = n.observe(row("RUNNING", jobId: "t1", job: nil))
         XCTAssertEqual(n.observe(row("OFFLINE", jobId: "t1", job: nil)).alert?.body, "X2D was at 16%. PrintGlance keeps trying.")
 
-        var bare = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var bare = PrintNotify(prefs: .default)
         let running = Printer(id: "x2d", name: "X2D", state: "RUNNING", percent: nil, job: "Benchy", jobId: "t1")
         var offline = running
         offline.state = "OFFLINE"
@@ -190,7 +196,7 @@ final class PrintNotifyTests: XCTestCase {
     }
 
     func testPauseNamesThePrinterThenTheJobThenWhy() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         _ = n.observe(row("RUNNING", jobId: "t1"))
         var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 16, job: "Print in Parts", jobId: "t1")
         paused.printError = "0700-8002"
@@ -203,7 +209,7 @@ final class PrintNotifyTests: XCTestCase {
 
     /// The code the body explains goes with the alert, for its Look Up button. Finished and lost connection have none.
     func testPausedAndFailedAlertsCarryTheirCode() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         _ = n.observe(row("RUNNING", jobId: "t1"))
         var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 16, job: "Print in Parts", jobId: "t1")
         paused.hmsCode = "0503-0000-0003-0027"
@@ -222,7 +228,7 @@ final class PrintNotifyTests: XCTestCase {
     }
 
     func testPauseBeforeTheFirstLayerLeavesOutZeroPercent() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         _ = n.observe(row("PREPARE", jobId: "t1"))
         var paused = Printer(id: "x2d", name: "X2D", state: "PAUSE", percent: 0, job: "plate_8", jobId: "t1")
         paused.printError = "0500-8062"
@@ -232,7 +238,7 @@ final class PrintNotifyTests: XCTestCase {
     }
 
     func testACanceledPrintSendsNoFailedNotice() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         func doc(_ p: Printer) -> GlanceContent { fleet(focus: "x2d", [p]) }
         _ = n.observe(row("RUNNING", jobId: "t1"))
         var canceled = Printer(id: "x2d", name: "X2D", state: "FAILED", percent: 16, job: "Print in Parts", jobId: "t1")
@@ -240,7 +246,6 @@ final class PrintNotifyTests: XCTestCase {
         let out = n.observe(doc(canceled))
         XCTAssertNil(out.alert)
         XCTAssertEqual(out.clears, ["pg.offline.x2d"], "clearing is unchanged")
-        XCTAssertNil(n.stamp)
 
         _ = n.observe(row("RUNNING", jobId: "t2"))
         var failed = canceled
@@ -259,7 +264,7 @@ final class PrintNotifyTests: XCTestCase {
     }
 
     func testAlertsThatAreNoLongerTrueAreCleared() {
-        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        var n = PrintNotify(prefs: .default)
         XCTAssertEqual(
             n.observe(row("PAUSE", jobId: "t1")).clears,
             ["pg.offline.x2d"],

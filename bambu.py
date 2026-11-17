@@ -111,16 +111,25 @@ def strip_process_suffix(name: str) -> str:
     return re.sub(r"\s+0?\.\d+\s*mm\b.*", "", name, flags=re.I).strip()
 
 
+def is_plate_file(stem: str) -> bool:
+    """"plate_3": the sliced plate inside a project (Metadata/plate_3.gcode), like BambuPrint.isPlateFile.
+    It names the plate, not the print; subtask_name does that."""
+    return re.fullmatch(r"plate_[0-9]+", stem, flags=re.I) is not None
+
+
 def job_label(print_obj: dict[str, Any]) -> str | None:
+    """The file's name, else the task name, else a plate's file name: BambuPrint.jobLabel."""
     stem = human_gcode_stem(print_obj.get("gcode_file"))
-    if stem:
+    raw = print_obj.get("subtask_name")
+    if stem and not is_plate_file(stem):
         label = stem
-    else:
-        raw = print_obj.get("subtask_name")
-        if not isinstance(raw, str) or not raw.strip():
-            return None
+    elif isinstance(raw, str) and raw.strip():
         stripped = strip_process_suffix(raw)
         label = stripped or raw.strip()
+    elif stem:
+        label = stem
+    else:
+        return None
     if len(label) > 40:
         label = label[:37] + "..."
     return label or None
@@ -197,6 +206,18 @@ def eta_hm(state: str, remaining_s: int | None) -> str | None:
     return t.strftime("%H:%M")
 
 
+def is_start_sequence(raw: str, print_obj: dict[str, Any]) -> bool:
+    """Printers heat, level and calibrate under RUNNING with the layer still 0 and `stg_cur` naming the stage
+    (0 is printing). Like BambuPrint.isStartSequence, that is PREPARE (Starting); a stage after layer 0, such as
+    a filament change, is printing."""
+    if raw != "RUNNING":
+        return False
+    stage = _int_or_none(print_obj.get("stg_cur"))
+    if stage is None or stage == 0:
+        return False
+    return (_int_or_none(print_obj.get("layer_num")) or 0) == 0
+
+
 def printer_row(
     printer_id: str,
     name: str,
@@ -207,6 +228,8 @@ def printer_row(
     raw = str(print_obj.get("gcode_state") or "").upper()
     if not online:
         state = "OFFLINE"
+    elif is_start_sequence(raw, print_obj):
+        state = "PREPARE"
     elif raw in KNOWN_STATES:
         state = raw
     elif raw:

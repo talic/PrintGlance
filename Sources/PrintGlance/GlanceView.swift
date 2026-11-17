@@ -333,10 +333,10 @@ struct PrinterList: View {
 
     private func a11y(_ row: Printer) -> String {
         var parts = [row.name, GlanceContent.stateWord(row)]
-        if let pct = row.percent, GlanceContent.isTimed(row.state) {
+        if let pct = row.percent, row.printState.isTimed {
             parts.append("\(pct) percent")
         }
-        if ["RUNNING", "PREPARE"].contains(row.state.uppercased()), let eta = row.eta, !eta.isEmpty {
+        if row.printState.isActive, let eta = row.eta, !eta.isEmpty {
             parts.append("finish \(eta)")
         }
         return parts.joined(separator: ", ")
@@ -355,8 +355,8 @@ struct PrinterDetail: View {
     var onUpdateCode: (() -> Void)? = nil
 
     var body: some View {
-        let timed = GlanceContent.isTimed(row.state)
-        let state = row.state.uppercased()
+        let timed = row.printState.isTimed
+        let state = row.printState
 
         // Why it paused or failed is what the card was opened for, so it leads.
         if GlanceContent.showsErrors(row) {
@@ -424,14 +424,14 @@ struct PrinterDetail: View {
             .foregroundStyle(.orange)
         }
 
-        if state == "PAUSE", let left = GlanceContent.remainingLine(row) {
+        if state == .paused, let left = GlanceContent.remainingLine(row) {
             Text(left)
                 .font(.subheadline)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
 
-        if row.state.uppercased() == "OFFLINE" {
+        if row.printState == .offline {
             let lines = GlanceContent.offlineLines(row, now: now)
             if !lines.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
@@ -565,10 +565,10 @@ struct PrinterDetail: View {
 }
 
 private func stateColor(_ state: String?, otherwise: Color) -> Color {
-    switch state?.uppercased() {
-    case "PAUSE": return .orange
-    case "FAILED": return .red
-    default: return otherwise
+    switch state.map({ PrintState($0) }) {
+    case .paused: .orange
+    case .failed: .red
+    default: otherwise
     }
 }
 
