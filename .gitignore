@@ -9,3 +9,4 @@ dist/
 
 iOS/Local.xcconfig
 xcuserdata/
+iOS/build/
