@@ -370,8 +370,8 @@ extension GlanceContent {
             lines.hero = hero(row)
             lines.detail = errorReason(row)
         case .failed:
-            // Canceled: the state line already says so.
-            lines.detail = isCanceled(row) ? nil : errorReason(row)
+            // Canceled: the state line already says so; say how far it got instead.
+            lines.detail = isCanceled(row) ? stoppedLine(row) : errorReason(row)
         default:
             break
         }

@@ -8,10 +8,14 @@ final class CardScreenTests: XCTestCase {
     private func screen(
         _ row: Printer,
         endedAt: Date? = nil,
+        startedAt: Date? = nil,
         reason: String? = nil,
+        namingPrinter: Bool = false,
         onUpdateCode: (() -> Void)? = nil
     ) throws -> Screen {
-        let s = try Screen(Rows.card(row, endedAt: endedAt, reason: reason, onUpdateCode: onUpdateCode))
+        let s = try Screen(Rows.card(
+            row, endedAt: endedAt, startedAt: startedAt, reason: reason, namingPrinter: namingPrinter, onUpdateCode: onUpdateCode
+        ))
         assertReadsWell(s)
         return s
     }
@@ -20,6 +24,14 @@ final class CardScreenTests: XCTestCase {
         let s = try screen(Rows.printing())
         XCTAssertEqual(s.texts, ["Benchy", "Printing", "16:25", "1h 24m left", "52%", "Layer 18 / 29", "PLA Matte  80%"])
         XCTAssertTrue(s.controls.isEmpty, "nothing to press while it prints")
+    }
+
+    func testWithSeveralPrintersTheCardNamesItsPrinter() throws {
+        XCTAssertEqual(Array(try screen(Rows.printing(), namingPrinter: true).texts.prefix(2)), ["Benchy", "X2D · Printing"])
+        XCTAssertEqual(Array(try screen(Rows.paused(), namingPrinter: true).texts.prefix(2)), ["Benchy", "X2D · Paused"])
+        XCTAssertEqual(Array(try screen(Rows.idle(), namingPrinter: true).texts.prefix(2)), ["X2D", "Idle"])
+        XCTAssertFalse(try screen(Rows.finished(), endedAt: Rows.now - 600, namingPrinter: true).has("X2D"),
+                       "no separate printer-name line any more")
     }
 
     func testPrintingOnADualNozzlePrinterNamesTheNozzle() throws {
@@ -37,34 +49,61 @@ final class CardScreenTests: XCTestCase {
 
     func testStartingShowsTheStageAndHeaters() throws {
         let s = try screen(Rows.starting())
-        XCTAssertEqual(Array(s.texts.prefix(2)), ["Benchy", "Heating"])
-        XCTAssertTrue(s.has("Nozzle 186 / 220° · Bed 48 / 60°"))
-        XCTAssertTrue(s.has("0%"))
+        XCTAssertEqual(s.texts, ["Benchy", "Heating", "16:25", "1h 24m left", "Nozzle 186 / 220° · Bed 48 / 60°", "PLA Matte  80%"],
+                       "the heaters come right under the time, and there's no 0% bar or layer 0 yet")
     }
 
     func testPausedSaysWhyAndOffersTheLookup() throws {
         let s = try screen(Rows.paused())
-        XCTAssertEqual(Array(s.texts.prefix(5)), ["Benchy", "Paused", "1h 24m left", "52%", "Layer 18 / 29"])
+        XCTAssertEqual(s.texts, [
+            "Benchy", "Paused",
+            "Filament ran out in AMS A, slot 1.", "Error 0700-2000-0002-0001",
+            "52%", "Layer 18 / 29", "PLA Matte  80%",
+            "1h 24m left",
+            "AMS A · Humid", "A1 · PLA Matte  80%", "A2 · PLA Basic  12%", "A3 · Empty", "A4 · PETG HF  40%",
+        ], "the reason leads; time left, which holds still while paused, follows the bar")
         XCTAssertFalse(s.has("16:25"), "a paused finish time slides, so the card shows time left")
-        XCTAssertTrue(s.has("Filament ran out in AMS A, slot 1."))
-        XCTAssertTrue(s.has("Error 0700-2000-0002-0001"))
         XCTAssertEqual(try s.control("Look up error 0700-2000-0002-0001").role, "AXLink")
-        XCTAssertTrue(s.has("AMS A · Humid"), "trays matter when you walk to a paused printer")
-        XCTAssertTrue(s.has("A1 · PLA Matte  80%"))
+    }
+
+    func testPausedWithTwoCodesExplainsEach() throws {
+        var row = Rows.paused()
+        row.printError = "0700-8002"
+        let s = try screen(row)
+        XCTAssertEqual(Array(s.texts.prefix(6)), [
+            "Benchy", "Paused",
+            "Filament ran out in AMS A, slot 1.", "Error 0700-2000-0002-0001",
+            "The filament cutter is stuck.", "Error 0700-8002",
+        ])
+        XCTAssertEqual(s.controls.map(\.label), ["Look up error 0700-2000-0002-0001", "Look up error 0700-8002"])
+
+        row.hmsCode = "0700-4500-0002-0003"
+        let same = try screen(row)
+        XCTAssertEqual(Array(same.texts.prefix(5)), [
+            "Benchy", "Paused", "The filament cutter is stuck.", "Error 0700-4500-0002-0003", "Error 0700-8002",
+        ], "one reason, said once")
     }
 
     func testPausedWithoutACodeSaysSo() throws {
         let s = try screen(Rows.paused(hms: nil))
-        XCTAssertTrue(s.has("No error reported."))
+        XCTAssertEqual(Array(s.texts.prefix(4)), ["Benchy", "Paused", "No error reported.", "52%"])
         XCTAssertFalse(s.controls.contains { $0.role == "AXLink" })
     }
 
     func testFailed() throws {
         let s = try screen(Rows.failed())
-        XCTAssertEqual(Array(s.texts.prefix(3)), ["Benchy", "Failed", "X2D"])
-        XCTAssertTrue(s.has("The nozzle overheated. Turn the printer off and have it checked."))
-        XCTAssertTrue(s.has("Error 0300-806E"))
+        XCTAssertEqual(Array(s.texts.prefix(6)), [
+            "Benchy", "Failed",
+            "The nozzle overheated. Turn the printer off and have it checked.", "Error 0300-806E",
+            "Stopped at 37% · Layer 18 / 29", "AMS A · Humid",
+        ])
         XCTAssertFalse(s.has("37%"), "no progress bar once it stopped")
+    }
+
+    func testFailedBeforeItGotGoingHasNoStoppedLine() throws {
+        var row = Rows.failed()
+        row.percent = 0
+        XCTAssertFalse(try screen(row).texts.contains { $0.hasPrefix("Stopped at") })
     }
 
     func testCanceledHasNoCodeToLookUp() throws {
@@ -77,21 +116,30 @@ final class CardScreenTests: XCTestCase {
         XCTAssertTrue(s.controls.isEmpty, "nothing to look up")
     }
 
-    func testFinishedSaysHowLongAgo() throws {
-        let s = try screen(Rows.finished(), endedAt: Rows.now - 40 * 60)
-        XCTAssertEqual(Array(s.texts.prefix(4)), ["Benchy", "Finished", "40m ago", "X2D"])
+    func testFinishedSaysHowLongAgoAndHowLongItTook() throws {
+        let ended = Rows.now - 40 * 60
+        let s = try screen(Rows.finished(), endedAt: ended, startedAt: ended - 283 * 60)
+        XCTAssertEqual(Array(s.texts.prefix(5)), ["Benchy", "Finished", "40m ago", "Took 4h 43m", "AMS A · Humid"])
         XCTAssertTrue(s.has("A1 · PLA Matte  80%"))
+    }
+
+    func testFinishedHoursAgoShowsWhenItFinished() throws {
+        let ended = Rows.now - 3 * 3600
+        let s = try screen(Rows.finished(), endedAt: ended, startedAt: ended - 283 * 60)
+        XCTAssertEqual(s.texts[2], GlanceContent.dayTime(ended, now: Rows.now), "the clock time, not \"3h 00m ago\"")
+        XCTAssertEqual(s.texts[3], "Took 4h 43m")
+        XCTAssertFalse(s.texts.contains { $0.hasSuffix("ago") })
     }
 
     func testFinishedWhileTheAppWasClosedHasNoTime() throws {
         let s = try screen(Rows.finished())
-        XCTAssertEqual(Array(s.texts.prefix(3)), ["Benchy", "Finished", "X2D"])
-        XCTAssertFalse(s.texts.contains { $0.hasSuffix("ago") })
+        XCTAssertEqual(Array(s.texts.prefix(3)), ["Benchy", "Finished", "AMS A · Humid"])
+        XCTAssertFalse(s.texts.contains { $0.hasSuffix("ago") || $0.hasPrefix("Took") })
     }
 
     func testIdleListsTheSlotsLikeThePrinter() throws {
         let s = try screen(Rows.idle())
-        XCTAssertEqual(s.texts, ["X2D", "Idle", "AMS A · Humid", "A1 · PLA Matte  80%", "A2 · PLA Basic  12%", "A4 · PETG HF  40%"])
+        XCTAssertEqual(s.texts, ["X2D", "Idle", "AMS A · Humid", "A1 · PLA Matte  80%", "A2 · PLA Basic  12%", "A3 · Empty", "A4 · PETG HF  40%"])
     }
 
     func testIdleWithEveryUnitAndExternalSpools() throws {

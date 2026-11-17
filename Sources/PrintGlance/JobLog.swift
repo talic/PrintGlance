@@ -14,6 +14,16 @@ struct JobLogRow: Codable, Equatable, Sendable, Identifiable {
     var pauses: [String]? = nil
     /// The code a failed print stopped with.
     var failCode: String? = nil
+    /// Whether PrintGlance saw the job begin: Starting, or Printing at 1% or less. False for a print first
+    /// seen part-way through, whose `startAt` is only when PrintGlance noticed it. Nil on older rows.
+    var sawStart: Bool? = nil
+
+    /// How long the print took, only when PrintGlance saw both ends. A print first seen part-way
+    /// through would read short. Older rows, which didn't record it, keep their duration.
+    var duration: TimeInterval? {
+        guard let endedAt, sawStart != false else { return nil }
+        return max(0, endedAt.timeIntervalSince(startAt))
+    }
 
     var id: String {
         "\(serial)|\(jobId)|\(startAt.timeIntervalSince1970)"
@@ -87,13 +97,23 @@ struct JobLog {
     }
 
     func occupancyEndedAt(serial: String, state: String, jobId: String?) -> Date? {
+        occupancyRow(serial: serial, state: state, jobId: jobId)?.endedAt
+    }
+
+    /// When the print behind `occupancyEndedAt` started, for "Took 4h 43m". Nil when its end wasn't seen.
+    func occupancyStartedAt(serial: String, state: String, jobId: String?) -> Date? {
+        occupancyRow(serial: serial, state: state, jobId: jobId).flatMap { $0.duration == nil ? nil : $0.startAt }
+    }
+
+    /// The newest finished row for a printer that shows Finished.
+    private func occupancyRow(serial: String, state: String, jobId: String?) -> JobLogRow? {
         guard PrintState(state) == .finished else { return nil }
         let id = jobId ?? ""
         return rows.first { row in
             row.serial == serial
                 && row.outcome == Self.outcomeOK
                 && (id.isEmpty || row.jobId.isEmpty || row.jobId == id)
-        }?.endedAt
+        }
     }
 
     func csv() -> String {
@@ -103,12 +123,7 @@ struct JobLog {
         for row in rows {
             let started = iso.string(from: row.startAt)
             let ended = row.endedAt.map { iso.string(from: $0) } ?? ""
-            let duration: String
-            if let end = row.endedAt {
-                duration = "\(max(0, Int(end.timeIntervalSince(row.startAt) / 60)))"
-            } else {
-                duration = ""
-            }
+            let duration = row.duration.map { "\(Int($0 / 60))" } ?? ""
             lines.append(
                 [
                     started,
@@ -195,7 +210,8 @@ struct JobLog {
                 filament: printer.filament,
                 startAt: now,
                 endedAt: nil,
-                outcome: nil
+                outcome: nil,
+                sawStart: printer.printState == .starting || (printer.percent ?? 0) <= 1
             ),
             at: 0
         )
