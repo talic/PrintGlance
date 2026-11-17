@@ -554,10 +554,12 @@ final class GlanceModelTests: XCTestCase {
         link.accept()
         link.report(Report.running().merging(Report.ams(remain: 15)))
         link.report(Report.running(percent: 53).merging(Report.ams(remain: 14)))
-        let low = h.notifications.posted.filter { $0.title == "Low filament" }
+        let low = h.notifications.posted.filter { $0.title == "X2D low on filament" }
         XCTAssertEqual(low.count, 1)
-        XCTAssertEqual(low.first?.body, "X2D is using PLA Matte at 15%.")
-        XCTAssertEqual(low.first?.id, "filament.\(x2d.serial)|0|t1")
+        XCTAssertEqual(low.first?.subtitle, "Benchy")
+        XCTAssertEqual(low.first?.body, "PLA Matte in A1 is at 15%.")
+        XCTAssertEqual(low.first?.id, "filament.\(x2d.serial)|A1|t1")
+        XCTAssertNotNil(h.defaults.data(forKey: FilamentAlert.defaultsKey), "survives a relaunch mid-print")
     }
 
     func testLowFilamentOffSendsNothing() throws {
@@ -566,7 +568,10 @@ final class GlanceModelTests: XCTestCase {
         let link = try XCTUnwrap(h.add(x2d).first)
         link.accept()
         link.report(Report.running().merging(Report.ams(remain: 15)))
-        XCTAssertFalse(h.notifications.titles().contains("Low filament"))
+        XCTAssertFalse(h.notifications.titles().contains("X2D low on filament"))
+        h.model.notifyPrefs.lowFilament = true
+        link.report(Report.running(percent: 53).merging(Report.ams(remain: 14)))
+        XCTAssertTrue(h.notifications.titles().contains("X2D low on filament"), "turned on during the print, it still warns once")
     }
 
     func testFallingSpoolMarksTheBarAndNotifiesOnce() throws {
@@ -581,9 +586,10 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertTrue((29...30).contains(runout.percent), "\(runout.percent)")
         XCTAssertEqual(runout.tray, "A1")
         XCTAssertEqual(runout.name, "PLA Matte")
-        let notices = h.notifications.posted.filter { $0.title == "Filament may run out" }
+        let notices = h.notifications.posted.filter { $0.title == "X2D may run out of filament" }
         XCTAssertEqual(notices.count, 1)
-        XCTAssertTrue(notices.first?.body.hasPrefix("X2D: PLA Matte in A1 runs out") == true, notices.first?.body ?? "")
+        XCTAssertEqual(notices.first?.subtitle, "Benchy")
+        XCTAssertTrue(notices.first?.body.hasPrefix("PLA Matte in A1 runs out") == true, notices.first?.body ?? "")
         XCTAssertNotNil(h.defaults.data(forKey: RunoutTracker.defaultsKey), "survives a relaunch mid-print")
     }
 

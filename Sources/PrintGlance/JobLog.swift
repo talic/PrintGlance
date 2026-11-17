@@ -5,6 +5,7 @@ struct JobLogRow: Codable, Equatable, Sendable, Identifiable {
     var name: String
     var jobId: String
     var job: String?
+    /// Every filament the print used, comma-separated, in the order each first fed.
     var filament: String?
     var startAt: Date
     var endedAt: Date?
@@ -178,7 +179,7 @@ struct JobLog {
                 rows[i].jobId = jobId
             }
             if let job = printer.job, !job.isEmpty { rows[i].job = job }
-            if let fil = printer.filament, !fil.isEmpty { rows[i].filament = fil }
+            if let fil = printer.filament, !fil.isEmpty { rows[i].filament = Self.adding(fil, to: rows[i].filament) }
             rows[i].name = printer.name
             return
         }
@@ -195,6 +196,13 @@ struct JobLog {
             ),
             at: 0
         )
+    }
+
+    /// Each filament a print used, in the order it first fed: "PLA Basic, PETG HF". A multi-color print
+    /// changes spools many times; the list changes only when a new filament feeds.
+    static func adding(_ filament: String, to list: String?) -> String {
+        guard let list, !list.isEmpty else { return filament }
+        return list.components(separatedBy: ", ").contains(filament) ? list : "\(list), \(filament)"
     }
 
     private func openIndex(serial: String, jobId: String? = nil) -> Int? {

@@ -415,6 +415,7 @@ enum BambuPrint {
             layerTotal = BambuJSON.intValue(printObj["total_layer_num"])
         }
         let fil = activeFilament(printObj)
+        let slots = trays(printObj)
         var row = Printer(
             id: id,
             name: name,
@@ -429,9 +430,10 @@ enum BambuPrint {
             filamentRemain: fil.remain,
             filamentColor: fil.color,
             nozzle: activeNozzle(printObj),
+            filamentSlot: fil.tray.flatMap { now in slots.first { $0.id == "\(now)" }?.label },
             jobId: jobIdentity(printObj),
             stage: stageLabel(state: PrintState(state), printObj: printObj),
-            trays: trays(printObj),
+            trays: slots,
             humidity: amsHumidity(printObj),
             amsUnits: { let u = amsUnits(printObj); return u.isEmpty ? nil : u }(),
             hmsCode: firstHMSCode(printObj),

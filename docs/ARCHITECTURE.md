@@ -209,8 +209,8 @@ Print alerts read printer and state first, then the job, then why: the title is 
 | Paused | `RUNNING`/`PREPARE` → `PAUSE` | `pg.pause.<serial>` | on | Delivered |
 | Lost connection | `RUNNING`/`PREPARE`/`PAUSE` → `OFFLINE` | `pg.offline.<serial>` | on | Delivered |
 | Finishing soon | Scheduled lead time before the end of a `RUNNING` job | `pg.comingoff.<serial>.<jobId>` | on, 10 min | Skipped if it would fire in the window |
-| Low filament | Active spool < 20% while Starting or Printing | `filament.<serial>\|<tray>\|<task>` | on | Delivered |
-| Filament may run out | First runout estimate per job and slot | `runout.<serial>.<jobId>.<slot>` | on (with Low Filament) | Delivered |
+| Low filament ("X2D low on filament") | Active spool < 20% while Starting or Printing, once per slot and job; saved under `pg.filament`, so a relaunch doesn't repeat it | `filament.<serial>\|<slot>\|<task>` | on | Delivered |
+| Filament may run out ("X2D may run out of filament") | First runout estimate per job and slot | `runout.<serial>.<jobId>.<slot>` | on (with Low Filament) | Delivered |
 
 - **Edges, per printer.** `PrintNotify` remembers each printer's last state, so focus changes and adding a printer aren't print edges. `.connecting`, `.needsSetup`, and `.feedDown` change nothing. A relaunch starts with no last state, so a printer already Finished or Paused isn't an edge; a printer with a new connection (`forget`) starts over too. One alert per change, so a repeated report sends nothing. A printing or paused printer that drops twice gets two **Lost connection** notices. (Builds before this kept duplicate-alert stamps under `pg.notify.stamps`; they only ever stopped the second of those, and launch deletes them.)
 - **Reasons.** A pause or fail body is the plain reason for the code `GlanceContent.leadErrorCode` picks: the first code with a reason, else the first code. Printers can send an HMS code we don't explain next to a `print_error` we do, and the alert explains the second. With no reason the body is "Error <code>"; with no code, "The printer didn't say why." The card lists every code with **Look up**. Finished says "Ready to take off the plate."
@@ -226,7 +226,7 @@ Print alerts read printer and state first, then the job, then why: the title is 
 
 `BambuPrint.activeFilament` finds the spool in use from `ams.tray_now` (or `tray_tar`): 255 is none, 254 is the external spool (`vt_tray`), otherwise a global index where AMS A is 0–3, AMS B 4–7, and so on. The filament name prefers `tray_sub_brands`, then a table of Bambu SKUs from `tray_info_idx` ("GFA01" → "PLA Matte"), then `tray_type`. Remaining percent below 0 means no RFID reading.
 
-**Low filament.** `FilamentAlert` fires once per printer, slot, and job when the active spool is under 20% while Starting or Printing.
+**Low filament.** `FilamentAlert` fires once per printer, slot, and job when the active spool is under 20% while Starting or Printing. It reads the row: `Printer.filamentSlot` names the active spool's slot (A2, External), matched from `tray_now` against `trays`.
 
 **Runout.** The AMS percent is a gauge, not a count. On two dual-nozzle printers (2026-11-10) a spool near 50% read 58, then 47 within ten minutes, then 50, all while feeding. A line fitted to a few such readings takes one swing for the spool emptying, so `RunoutTracker` asks for more before it speaks. It keeps one reading per whole percent of print progress (`mc_percent`) for each spool and fits a least-squares line to them. Progress, not time, so pauses don't skew it. Where the line reaches 0 is the runout, when all of this holds:
 
@@ -250,7 +250,7 @@ Only paused and failed printers show codes (`print_error` can linger after the p
 
 ## History
 
-`JobLog` opens a row when a printer starts a job (Starting or Printing) and closes it when it finishes (ok), fails (fail), or goes idle (ok, no end time). A new job ID while a row is open closes the old row. `endedAt` is set only if PrintGlance saw the job running, so "took 4h 43m" is never a guess. Up to 50 rows are kept (the oldest closed rows go first; an open row never does) in `~/Library/Application Support/PrintGlance/jobs.json`; History shows them newest first and exports CSV (`started,ended,duration_min,printer,job,filament,outcome`, RFC 4180 quoting). The newest successful row's `endedAt` gives the menu bar's "40m ago".
+`JobLog` opens a row when a printer starts a job (Starting or Printing) and closes it when it finishes (ok), fails (fail), or goes idle (ok, no end time). A new job ID while a row is open closes the old row. `endedAt` is set only if PrintGlance saw the job running, so "took 4h 43m" is never a guess. Up to 50 rows are kept (the oldest closed rows go first; an open row never does) in `~/Library/Application Support/PrintGlance/jobs.json`; A row's filament lists each filament the print fed, in order (`JobLog.adding`), so a multi-color print isn't just its last spool. History shows them newest first and exports CSV (`started,ended,duration_min,printer,job,filament,outcome`, RFC 4180 quoting). The newest successful row's `endedAt` gives the menu bar's "40m ago".
 
 A row also keeps what went wrong, as codes so the words improve with the reasons table: `pauses` gets one entry per Printing or Starting → Paused change, looking through Offline, so a pause seen right after a reconnect counts (`GlanceContent.leadErrorCode`, or "" when the printer gave none), and a failed row gets `failCode`. `JobLog.lastState` is process-local, so a relaunch mid-pause doesn't count it again. `GlanceContent.historyNotes` turns them into lines under the caption: the failure's reason, then "Paused: <reason>", "Paused twice. Last: <reason>", or "Paused 3 times." The CSV leaves them out.
 
@@ -286,6 +286,7 @@ Preferences live in the `local.PrintGlance` domain (`UserDefaults.standard` in t
 | `pg.notify.pauseOn.v1` | One-time migration flag. |
 | `pg.comingoff.phase`, `pg.comingoff.remain` | Finishing-soon state per printer and job (`remain` holds the scheduled delay; the name predates lead times). |
 | `pg.runout` | `RunoutTracker` as JSON. |
+| `pg.filament` | `FilamentAlert` as JSON: the low-filament notices sent for each printer's current print. |
 | `pg.overrun` | `Overrun` as JSON: seconds late for each printer's last five watched finishes. |
 | `pg.update.lastCheck`, `.remoteTag`, `.remoteZip` | Update check cache. |
 | `~/Library/Application Support/PrintGlance/jobs.json` | History. |

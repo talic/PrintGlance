@@ -90,7 +90,7 @@ final class GlanceModel: ObservableObject {
     private static let adoptGap: TimeInterval = 60
     private static let instanceTag = String(UInt16.random(in: .min ... .max), radix: 16)
     private let updates = AppUpdateChecker()
-    private var filament = FilamentAlert()
+    private var filament: FilamentAlert
     private var runout: RunoutTracker
     private var overrun: Overrun
     private var staleTask: Task<Void, Never>?
@@ -144,6 +144,7 @@ final class GlanceModel: ObservableObject {
         self.comingOff = ComingOff.load(defaults)
         self.runout = RunoutTracker.load(defaults)
         self.overrun = Overrun.load(defaults)
+        self.filament = FilamentAlert.load(defaults)
     }
 
     nonisolated static let defaultLogURL = FileManager.default.homeDirectoryForCurrentUser
@@ -373,6 +374,7 @@ final class GlanceModel: ObservableObject {
         comingOff.save(defaults)
         runout.save(defaults)
         overrun.save(defaults)
+        filament.save(defaults)
         jobLog.save(to: jobLogURL)
         historyRows = jobLog.recent(JobLog.cap)
     }
@@ -608,29 +610,23 @@ final class GlanceModel: ObservableObject {
             }
             apply(GlanceContent(result: .doc(doc)))
             syncOccupancyClock()
-            for row in doc.printers {
-                guard let snap = snaps[row.id] else { continue }
-                let fil = BambuPrint.activeFilament(snap.printObj)
-                if let notice = filament.consider(
-                    serial: row.id,
-                    name: row.name,
-                    state: row.state,
-                    filament: fil.type,
-                    tray: fil.tray,
-                    remain: fil.remain,
-                    taskId: BambuPrint.jobIdentity(snap.printObj),
-                    enabled: notifyPrefs.lowFilament
-                ) {
-                    post(id: notice.identifier, title: notice.title, body: notice.body, serial: row.id)
+            let filamentBefore = filament
+            for row in doc.printers where notifyPrefs.lowFilament {
+                if let notice = filament.consider(row) {
+                    post(id: notice.identifier, title: notice.title, subtitle: notice.subtitle, body: notice.body, serial: row.id)
                 }
-                if let r = row.runout, notifyPrefs.lowFilament, runout.shouldNotify(serial: row.id, runout: r) {
+                if let r = row.runout, runout.shouldNotify(serial: row.id, runout: r) {
                     post(
                         id: "runout.\(row.id).\(row.jobId ?? "").\(r.tray ?? "")",
-                        title: "Filament may run out",
-                        body: "\(row.name): \(GlanceContent.runoutLine(r))",
+                        title: "\(row.name) may run out of filament",
+                        subtitle: row.job ?? "",
+                        body: GlanceContent.runoutLine(r),
                         serial: row.id
                     )
                 }
+            }
+            if filament != filamentBefore {
+                filament.save(defaults)
             }
             if runout != runoutBefore {
                 runout.save(defaults)

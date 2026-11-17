@@ -124,6 +124,8 @@ struct Printer: Codable, Equatable, Sendable {
     var filamentColor: String? = nil
     /// Dual-nozzle printers: Left or Right. Nil when the printer has one nozzle or does not send it.
     var nozzle: String? = nil
+    /// The active spool's slot: A1…D4, HT-A, External. Nil when no slot is in use or it isn't in `trays`.
+    var filamentSlot: String? = nil
     /// MQTT `task_id`, or `subtask_id` when `task_id` is missing. Not the display job label.
     var jobId: String? = nil
     /// PREPARE stage word. Nil when not preparing or the printer sent none.

@@ -1,44 +1,48 @@
 import Foundation
 
-/// One low-filament notice per printer, tray, and task while starting or printing.
-struct FilamentAlert {
+/// One low-filament notice per printer, slot, and print while starting or printing. Saved, so a relaunch
+/// mid-print doesn't send it again.
+struct FilamentAlert: Codable, Equatable {
     static let thresholdPercent = 20
+    static let defaultsKey = "pg.filament"
 
     struct Notice: Equatable, Sendable {
         var title: String
+        var subtitle: String
         var body: String
         var identifier: String
     }
 
+    /// `serial|slot|job` for each notice sent.
     private var fired: Set<String> = []
+
+    static func load(_ d: UserDefaults) -> FilamentAlert {
+        d.data(forKey: defaultsKey).flatMap { try? JSONDecoder().decode(FilamentAlert.self, from: $0) } ?? FilamentAlert()
+    }
+
+    func save(_ d: UserDefaults) {
+        d.set(try? JSONEncoder().encode(self), forKey: Self.defaultsKey)
+    }
 
     mutating func forget(_ serial: String) {
         fired = fired.filter { !$0.hasPrefix("\(serial)|") }
     }
 
-    mutating func consider(
-        serial: String,
-        name: String,
-        state: String,
-        filament: String?,
-        tray: Int?,
-        remain: Int?,
-        taskId: String?,
-        enabled: Bool = true
-    ) -> Notice? {
-        guard enabled else { return nil }
-        guard PrintState(state).isActive else { return nil }
-        guard let tray, let remain, remain < Self.thresholdPercent else { return nil }
-        let task = taskId ?? ""
-        let key = "\(serial)|\(tray)|\(task)"
-        if fired.contains(key) { return nil }
-        fired.insert(key)
-        let trimmed = filament?.trimmingCharacters(in: .whitespaces) ?? ""
-        let material = trimmed.isEmpty ? "filament" : trimmed
-        let who = name.isEmpty ? "Printer" : name
+    /// The spool in use under 20%: "X2D low on filament", the job, then "PLA Matte in A2 is at 15%."
+    mutating func consider(_ row: Printer) -> Notice? {
+        guard row.printState.isActive else { return nil }
+        let job = row.jobId ?? ""
+        // This printer's earlier prints are done with.
+        fired = fired.filter { !$0.hasPrefix("\(row.id)|") || $0.hasSuffix("|\(job)") }
+        guard let remain = row.filamentRemain, remain < Self.thresholdPercent else { return nil }
+        let key = "\(row.id)|\(row.filamentSlot ?? "")|\(job)"
+        guard fired.insert(key).inserted else { return nil }
+        let material = row.filament.flatMap { $0.isEmpty ? nil : $0 } ?? "Filament"
+        let what = [material, row.filamentSlot.map { "in \($0)" }].compactMap { $0 }.joined(separator: " ")
         return Notice(
-            title: "Low filament",
-            body: "\(who) is using \(material) at \(remain)%.",
+            title: "\(row.name.isEmpty ? "Printer" : row.name) low on filament",
+            subtitle: row.job ?? "",
+            body: "\(what) is at \(remain)%.",
             identifier: "filament.\(key)"
         )
     }
