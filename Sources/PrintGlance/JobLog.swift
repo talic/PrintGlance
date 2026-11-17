@@ -71,6 +71,13 @@ struct JobLog {
         rows.removeAll { !$0.isOpen }
     }
 
+    /// A removed printer's print in progress, which would otherwise stay open for good.
+    mutating func forgetOpen(serial: String) {
+        rows.removeAll { $0.serial == serial && $0.isOpen }
+        hadTimed[serial] = nil
+        lastState[serial] = nil
+    }
+
     func recent(_ n: Int) -> [JobLogRow] {
         Array(rows.prefix(n))
     }

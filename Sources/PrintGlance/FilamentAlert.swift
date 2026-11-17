@@ -12,6 +12,10 @@ struct FilamentAlert {
 
     private var fired: Set<String> = []
 
+    mutating func forget(_ serial: String) {
+        fired = fired.filter { !$0.hasPrefix("\(serial)|") }
+    }
+
     mutating func consider(
         serial: String,
         name: String,

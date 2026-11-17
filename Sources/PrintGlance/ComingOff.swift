@@ -90,6 +90,19 @@ struct ComingOff: Equatable {
         d.set(scheduledFireInS, forKey: Self.fireInKey)
     }
 
+    /// A removed printer: its scheduled notices, to cancel.
+    mutating func forget(serial: String) -> [String] {
+        var ids: [String] = []
+        for key in Array(phase.keys) where key.hasPrefix("\(serial)|") {
+            if phase[key] == .scheduled {
+                ids.append(Self.notificationId(serial: serial, jobId: String(key.dropFirst(serial.count + 1))))
+            }
+            phase[key] = nil
+            scheduledFireInS[key] = nil
+        }
+        return ids
+    }
+
     mutating func consider(
         printer: Printer,
         prefs: PrintNotifyPrefs,

@@ -298,6 +298,13 @@ struct PrintNotify {
         return kinds.map { PrintNotifyAlert.identifier($0, serial: id) }
     }
 
+    /// A printer that was removed or now has a new connection: its next row starts over, not an edge.
+    mutating func forget(_ serial: String) {
+        lastBySerial[serial] = nil
+        timedBySerial[serial] = nil
+        stamps[serial] = nil
+    }
+
     func persistStamp(_ d: UserDefaults) {
         PrintNotifyStamp.saveAll(stamps, to: d)
     }

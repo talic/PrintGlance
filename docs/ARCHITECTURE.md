@@ -163,7 +163,7 @@ stateDiagram-v2
     Rediscover --> Dialing: printer found at a new IP (candidate)
     Rediscover --> Backoff: not found, or searched < 60 s ago
     Backoff --> Dialing: 1, 2, 4, 8, 16, then 30 s
-    Connected --> [*]: settings saved (all links rebuilt)
+    Connected --> [*]: settings saved with a new IP or code (that link rebuilt)
 ```
 
 `GlanceModel` keeps one `Link` per complete saved printer, keyed by serial. The details that matter:
@@ -177,7 +177,7 @@ stateDiagram-v2
 - **Backoff.** `MQTT311Client.reconnectDelaySeconds`: 1, 2, 4, 8, 16, then 30 s. The attempt counter resets only after a session that lasted 30 s, so accept-then-drop keeps backing off.
 - **Status.** `linkStatus[serial]` is `.connecting`, `.connected`, or `.failed(reason)`. A failed link stays `.failed` through retries until a connect succeeds (see workarounds). The setup window watches it.
 - **Sleep and wake.** `willSleep` freezes snapshots; `didWake` reconnects every link immediately (failed, non-rejected links rediscover first) and checks for updates.
-- **Settings change.** `saveSettings` tears down every link (callbacks cleared, socket closed) and builds new ones. Focus changes don't.
+- **Settings change.** `saveSettings` keeps a printer's link, and its last report, when its IP and access code didn't change; a rename only renames it. Rebuilding every link made the printing printer's first row read Offline whenever another printer reported first, which sent **Lost connection**. A printer with a new IP or code gets a new link (callbacks cleared, socket closed) and starts its notification edges over. A kept link that is failing dials again at once, so **Connect** in the setup window is a fresh try. A removed printer's scheduled notices (finishing soon, a finish held for the morning) are canceled, and what PrintGlance learned about it goes: lateness, runout readings, low-filament notices, and a print still open in History (it would never close). Its ended prints stay. A running rediscovery scan is not canceled; links that went away are skipped when it finishes. Focus changes don't touch links.
 - **Generations.** `MQTT311Client` bumps a generation on every connect, disconnect, and failure; callbacks from an older socket are ignored. A cancelled socket can never fail the attempt that replaced it.
 
 ## Which printer the menu bar shows

@@ -41,6 +41,11 @@ struct Overrun: Codable, Equatable {
         d.set(try? JSONEncoder().encode(self), forKey: Self.defaultsKey)
     }
 
+    mutating func forget(_ id: String) {
+        late[id] = nil
+        promises[id] = nil
+    }
+
     /// Whole seconds this printer runs late: the middle of its remembered prints, 0 before the first.
     func lateBy(_ id: String) -> Int {
         let sorted = (late[id] ?? []).sorted()

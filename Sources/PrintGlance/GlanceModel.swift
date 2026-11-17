@@ -83,7 +83,6 @@ final class GlanceModel: ObservableObject {
 
     private var links: [String: Link] = [:]
     private var adoptScan: Task<Void, Never>?
-    private var adoptGeneration: UInt64 = 0
     private var lastAdoptScanAt: Date?
     private var waitingOnScan: Set<String> = []
     private var rediscoverPausedSerial: String?
@@ -285,27 +284,48 @@ final class GlanceModel: ObservableObject {
     }
 
     func saveSettings(_ next: SavedPrinters) {
+        let before = settings
         next.save(to: defaults)
         settings = next
-        applySettingsAndConnect()
+        applySettingsAndConnect(before: before)
     }
 
-    private func applySettingsAndConnect() {
-        cancelAdoptScan()
-        for link in links.values {
-            link.tearDown()
-        }
-        links.removeAll()
+    /// A printer whose IP and access code didn't change keeps its connection and its last report, so editing
+    /// or adding one printer doesn't drop the others (whose first rows would read as Offline after Printing).
+    /// A kept printer that is failing dials again at once, so Connect in the setup window is a fresh try.
+    private func applySettingsAndConnect(before: SavedPrinters? = nil) {
         let complete = settings.printers.filter(\.isComplete)
-        let fresh = Dictionary(complete.map { ($0.serial, LinkStatus.connecting) }) { first, _ in first }
-        if linkStatus != fresh { linkStatus = fresh }
+        let wanted = Dictionary(complete.map { ($0.serial, $0) }) { first, _ in first }
+        var redial: [String] = []
+        var removed: [String] = []
+        for (id, link) in links {
+            if let next = wanted[id], let old = before?.printers.first(where: { $0.serial == id }),
+               old.ip == next.ip, old.accessCode == next.accessCode
+            {
+                link.printer.name = next.name
+                link.snapshot.name = next.displayName
+                if link.failed { redial.append(id) }
+                continue
+            }
+            link.tearDown()
+            links[id] = nil
+            waitingOnScan.remove(id)
+            // A new connection: its first rows are not print edges.
+            notify.forget(id)
+            if wanted[id] == nil { removed.append(id) }
+        }
+        forgetPrinters(removed)
+        let status = Dictionary(complete.map { p in
+            let kept = links[p.serial] != nil && !redial.contains(p.serial)
+            return (p.serial, kept ? linkStatus[p.serial] ?? .connecting : LinkStatus.connecting)
+        }) { first, _ in first }
+        if linkStatus != status { linkStatus = status }
         guard !complete.isEmpty else {
             writePrinterFile(PrintDoc(v: 1, printers: []), [:])
             apply(GlanceContent(result: .needsSetup))
             return
         }
-        apply(GlanceContent(result: .connecting))
-        for printer in complete {
+        for printer in complete where links[printer.serial] == nil {
             let id = printer.serial
             let link = Link(printer: printer, mqtt: makeClient())
             link.mqtt.onConnect = { [weak self] in self?.didConnect(id) }
@@ -314,6 +334,35 @@ final class GlanceModel: ObservableObject {
             links[id] = link
             beginConnect(id)
         }
+        for id in redial {
+            guard let link = links[id] else { continue }
+            link.reconnectAttempt = 0
+            waitingOnScan.remove(id)
+            beginConnect(id)
+        }
+        publishSnapshot()
+    }
+
+    /// Removed printers: their pending notices are canceled and what PrintGlance learned about them goes.
+    /// History keeps their ended prints; a print still open would never close, so it goes too.
+    private func forgetPrinters(_ serials: [String]) {
+        guard !serials.isEmpty else { return }
+        var pending: [String] = []
+        for id in serials {
+            pending += comingOff.forget(serial: id)
+            pending.append(PrintNotifyAlert.identifier(.finish, serial: id))
+            notify.forget(id)
+            runout.jobs[id] = nil
+            overrun.forget(id)
+            filament.forget(id)
+            jobLog.forgetOpen(serial: id)
+        }
+        notifier.removePending(pending)
+        comingOff.save(defaults)
+        runout.save(defaults)
+        overrun.save(defaults)
+        jobLog.save(to: jobLogURL)
+        historyRows = jobLog.recent(JobLog.cap)
     }
 
     private func reconnectAfterWake() {
@@ -395,12 +444,10 @@ final class GlanceModel: ObservableObject {
     }
 
     private func startAdoptScan() {
-        adoptGeneration &+= 1
-        let generation = adoptGeneration
         lastAdoptScanAt = Date()
         adoptScan = Task { @MainActor [weak self, scan] in
             let hits = await scan()
-            guard let self, !Task.isCancelled, generation == self.adoptGeneration else { return }
+            guard let self else { return }
             self.adoptScan = nil
             self.finishAdoptScan(hits: hits)
         }
@@ -429,13 +476,6 @@ final class GlanceModel: ObservableObject {
             guard let link = links[id], link.failed else { continue }
             scheduleReconnect(id)
         }
-    }
-
-    private func cancelAdoptScan() {
-        adoptGeneration &+= 1
-        adoptScan?.cancel()
-        adoptScan = nil
-        waitingOnScan = []
     }
 
     private func formBlocksRediscover(_ serial: String) -> Bool {

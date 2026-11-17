@@ -244,14 +244,74 @@ final class GlanceModelTests: XCTestCase {
 
     // MARK: - Changing printers
 
-    func testSavingSettingsReplacesEveryConnection() throws {
+    func testAddingAPrinterKeepsTheOthersConnected() throws {
         let h = ModelHarness(self)
-        let old = try XCTUnwrap(h.add(x2d).first)
-        h.add(p1s)
-        XCTAssertEqual(old.disconnects, 1)
-        XCTAssertNil(old.onMessage, "a late message from the old socket goes nowhere")
-        XCTAssertNil(old.onDisconnect)
-        XCTAssertEqual(h.printers.clients.count, 3, "one for the first save, two for the second")
+        let printing = try XCTUnwrap(h.add(x2d).first)
+        printing.accept()
+        printing.report(Report.running())
+        let added = try XCTUnwrap(h.add(p1s).last)
+        XCTAssertEqual(printing.disconnects, 0)
+        XCTAssertTrue(h.printers.latest(x2d.serial) === printing)
+        XCTAssertEqual(h.printers.clients.count, 2)
+        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connected)
+        added.accept()
+        added.report(Report.state("IDLE"))
+        XCTAssertEqual(h.row(x2d.serial)?.state, "RUNNING", "the printing printer kept its report")
+        XCTAssertFalse(h.notifications.titles().contains("Lost connection to X2D"))
+    }
+
+    func testRenamingAPrinterKeepsItsConnection() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running())
+        var renamed = x2d
+        renamed.name = "Voyager"
+        h.model.saveSettings(h.model.settings.replacing(renamed, serial: x2d.serial))
+        XCTAssertEqual(link.disconnects, 0)
+        XCTAssertEqual(h.row(x2d.serial)?.name, "Voyager")
+        XCTAssertEqual(h.row(x2d.serial)?.state, "RUNNING")
+    }
+
+    func testANewAddressReplacesThatConnectionWithoutALostConnectionNotice() throws {
+        let h = ModelHarness(self)
+        let links = h.add(x2d, p1s)
+        links.forEach { $0.accept() }
+        links[0].report(Report.running())
+        var moved = x2d
+        moved.ip = "192.0.2.50"
+        h.model.saveSettings(h.model.settings.replacing(moved, serial: x2d.serial))
+        XCTAssertEqual(links[0].disconnects, 1)
+        XCTAssertNil(links[0].onMessage, "a late message from the old socket goes nowhere")
+        XCTAssertNil(links[0].onDisconnect)
+        XCTAssertEqual(links[1].disconnects, 0)
+        XCTAssertEqual(h.printers.latest(x2d.serial)?.dials.first?.host, "192.0.2.50")
+        links[1].report(Report.state("IDLE"))
+        XCTAssertEqual(h.row(x2d.serial)?.state, "OFFLINE", "no report on the new connection yet")
+        XCTAssertFalse(h.notifications.titles().contains("Lost connection to X2D"), "the user moved it")
+    }
+
+    func testSavingAgainRedialsAFailingPrinter() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.drop("MQTT CONNACK 5")
+        XCTAssertEqual(link.dials.count, 1)
+        h.model.saveSettings(h.model.settings)
+        XCTAssertEqual(link.dials.count, 2, "Connect in the setup window is a fresh try")
+        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connecting)
+    }
+
+    func testRemovingAPrintingPrinterCancelsItsNoticesAndForgetsIt() throws {
+        let h = ModelHarness(self)
+        let links = h.add(x2d, p1s)
+        links.forEach { $0.accept() }
+        links[0].report(Report.running(minutesLeft: 84))
+        XCTAssertTrue(h.model.historyRows.contains { $0.serial == x2d.serial && $0.isOpen })
+        h.model.removePrinter(serial: x2d.serial)
+        XCTAssertTrue(h.notifications.cancelled.contains("pg.comingoff.\(x2d.serial).t1"), "finishing soon would still fire")
+        XCTAssertTrue(h.notifications.cancelled.contains("pg.finish.\(x2d.serial)"), "a finish held for the morning")
+        XCTAssertFalse(h.model.historyRows.contains { $0.serial == x2d.serial && $0.isOpen }, "it would never close")
+        XCTAssertEqual(links[1].disconnects, 0)
     }
 
     func testRemovingAPrinterStopsWatchingIt() throws {
