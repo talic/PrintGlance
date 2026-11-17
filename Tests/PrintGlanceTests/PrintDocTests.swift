@@ -454,6 +454,20 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(spaced(at(-12, us)), "10:00 PM yesterday")
     }
 
+    /// Formatters are kept per pattern, locale, and time zone, so a changed time zone or clock style isn't
+    /// served the last one's.
+    func testDayTimeKeepsEachTimeZoneAndClockApart() throws {
+        let now = Date(timeIntervalSince1970: 1_787_392_800) // 10:00 GMT
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let gb = Locale(identifier: "en_GB")
+        for _ in 0..<2 {
+            XCTAssertEqual(GlanceContent.dayTime(now, now: now, calendar: gmt, locale: gb), "10:00")
+            XCTAssertEqual(GlanceContent.dayTime(now, now: now, calendar: tokyo, locale: gb), "19:00")
+            XCTAssertEqual(spaced(GlanceContent.dayTime(now, now: now, calendar: gmt, locale: Locale(identifier: "en_US"))), "10:00 AM")
+        }
+    }
+
     func testFormatRemainUsesDaysPastADay() {
         XCTAssertEqual(GlanceContent.formatRemain(0), "0m")
         XCTAssertEqual(GlanceContent.formatRemain(5 * 60), "5m")

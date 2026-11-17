@@ -99,6 +99,9 @@ final class GlanceModel: ObservableObject {
     private var pendingSelection = PendingSelection()
     private var jobLog: JobLog
     private let jobLogURL: URL
+    /// Each printer's row as its report reads, before lateness and runout: reused for the printers that didn't
+    /// report this pass.
+    private var parsedRows: [String: Printer] = [:]
     /// What `printers.json` last got, so it is written only when a printer or its history changes.
     private var printerFileInput: ([Printer], [JobLogRow])?
     private var occupancyTask: Task<Void, Never>?
@@ -322,6 +325,7 @@ final class GlanceModel: ObservableObject {
             }
             link.tearDown()
             links[id] = nil
+            parsedRows[id] = nil
             waitingOnScan.remove(id)
             // A new connection: its first rows are not print edges.
             notify.forget(id)
@@ -564,13 +568,18 @@ final class GlanceModel: ObservableObject {
         // serial that isn't the printer's subscribes to a topic it never sends on.
         setLink(id, .connected)
         link.snapshot.ingest(obj)
-        publishSnapshot()
+        publishSnapshot(reported: id)
     }
 
-    private func publishSnapshot() {
+    /// One pass from the snapshots to `content` and its side effects, all on one clock. `reported` is the
+    /// printer whose report started the pass: only its row is built again, and the others are reused until the
+    /// 5-second tick, which rebuilds every row so a silent printer goes Offline and finish times move on time.
+    private func publishSnapshot(reported: String? = nil) {
+        let now = Date()
         let complete = settings.printers.filter(\.isComplete)
         guard !complete.isEmpty else {
-            apply(GlanceContent(result: .needsSetup))
+            parsedRows = [:]
+            apply(GlanceContent(result: .needsSetup), now: now)
             return
         }
         let snaps = Dictionary(uniqueKeysWithValues: links.map { ($0.key, $0.value.snapshot) })
@@ -578,37 +587,40 @@ final class GlanceModel: ObservableObject {
             var doc = BambuSnapshot.fleetDoc(
                 printers: complete,
                 snapshots: snaps,
-                focusId: settings.focusId
+                focusId: settings.focusId,
+                now: now,
+                reusing: reported.map { id in parsedRows.filter { $0.key != id } } ?? [:]
             )
+            parsedRows = Dictionary(doc.printers.map { ($0.id, $0) }) { first, _ in first }
             // First, so everything after it sees when the printer should really report Finished.
             let lateBefore = overrun.late
             for i in doc.printers.indices {
-                overrun.observe(&doc.printers[i])
+                overrun.observe(&doc.printers[i], now: now)
             }
             if overrun.late != lateBefore {
                 overrun.save(defaults)
             }
             let runoutBefore = runout
             for i in doc.printers.indices {
-                doc.printers[i].runout = runout.observe(doc.printers[i])
+                doc.printers[i].runout = runout.observe(doc.printers[i], now: now)
             }
             let rowsBefore = jobLog.rows
-            jobLog.observe(printers: doc.printers)
+            jobLog.observe(printers: doc.printers, now: now)
             if jobLog.rows != rowsBefore {
                 jobLog.save(to: jobLogURL)
                 historyRows = jobLog.recent(JobLog.cap)
             }
-            writePrinterFile(doc, snaps)
+            writePrinterFile(doc, snaps, now: now)
             let comingOffBefore = comingOff
             for row in doc.printers {
-                if let action = comingOff.consider(printer: row, prefs: notifyPrefs) {
+                if let action = comingOff.consider(printer: row, prefs: notifyPrefs, now: now) {
                     deliverComingOff(action, serial: row.id)
                 }
             }
             if comingOff != comingOffBefore {
                 comingOff.save(defaults)
             }
-            apply(GlanceContent(result: .doc(doc)))
+            apply(GlanceContent(result: .doc(doc)), now: now)
             syncOccupancyClock()
             let filamentBefore = filament
             for row in doc.printers where notifyPrefs.lowFilament {
@@ -633,19 +645,20 @@ final class GlanceModel: ObservableObject {
             }
             return
         }
+        parsedRows = [:]
         if links.values.contains(where: { !$0.failed }) {
-            apply(GlanceContent(result: .connecting))
+            apply(GlanceContent(result: .connecting), now: now)
         } else {
-            apply(GlanceContent(result: .feedDown))
+            apply(GlanceContent(result: .feedDown), now: now)
         }
     }
 
     /// Hands the printers to other apps on this Mac. Rows stay equal between reports, so this writes about once a
     /// minute while printing and not at all while idle.
-    private func writePrinterFile(_ doc: PrintDoc, _ snaps: [String: BambuSnapshot]) {
+    private func writePrinterFile(_ doc: PrintDoc, _ snaps: [String: BambuSnapshot], now: Date = Date()) {
         if let last = printerFileInput, last.0 == doc.printers, last.1 == jobLog.rows { return }
         printerFileInput = (doc.printers, jobLog.rows)
-        PrinterFile.make(doc: doc, reports: snaps.mapValues(\.printObj), history: jobLog.rows)
+        PrinterFile.make(doc: doc, reports: snaps.mapValues(\.printObj), history: jobLog.rows, now: now)
             .save(to: PrinterFile.url(besideHistory: jobLogURL))
     }
 
@@ -683,9 +696,9 @@ final class GlanceModel: ObservableObject {
         return id.flatMap { reason(linkStatus[$0]) } ?? linkStatus.values.lazy.compactMap(reason).first
     }
 
-    private func apply(_ next: GlanceContent) {
+    private func apply(_ next: GlanceContent, now: Date = Date()) {
         if content != next {
-            deliver(notify.observe(next))
+            deliver(notify.observe(next), now: now)
             content = next
         }
         if case .doc = next.result {
@@ -730,7 +743,7 @@ final class GlanceModel: ObservableObject {
         }
     }
 
-    private func deliver(_ outcome: PrintNotifyOutcome) {
+    private func deliver(_ outcome: PrintNotifyOutcome, now: Date) {
         if outcome.requestPermission {
             requestNotificationPermission()
         }
@@ -744,7 +757,7 @@ final class GlanceModel: ObservableObject {
             if alert.kind == .offline, !PrintNotify.offlineAlertAllowed(
                 macOnline: macOnline,
                 networkChangedAt: networkChangedAt,
-                now: Date()
+                now: now
             ) {
                 log("skipped lost connection alert \(alert.serial): this Mac's network")
                 continue
@@ -755,14 +768,13 @@ final class GlanceModel: ObservableObject {
                 subtitle: alert.subtitle,
                 body: alert.body,
                 serial: alert.serial,
-                trigger: finishTrigger(alert)
+                trigger: finishTrigger(alert, now: now)
             )
         }
     }
 
-    private func finishTrigger(_ alert: PrintNotifyAlert) -> UNNotificationTrigger? {
+    private func finishTrigger(_ alert: PrintNotifyAlert, now: Date) -> UNNotificationTrigger? {
         guard alert.kind == .finish, notifyPrefs.quietHours else { return nil }
-        let now = Date()
         guard QuietHours.contains(now) else { return nil }
         let fire = QuietHours.nextMorning(from: now)
         let comps = Calendar.current.dateComponents(

@@ -277,6 +277,19 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertFalse(h.notifications.titles().contains("Lost connection to X2D"))
     }
 
+    /// A report rebuilds only its own printer's row; the tick rebuilds the rest.
+    func testAReportLeavesTheOtherPrintersRowsAsTheyWere() throws {
+        let h = ModelHarness(self)
+        let links = h.add(x2d, p1s)
+        links.forEach { $0.accept() }
+        links[0].report(Report.running())
+        links[1].report(Report.state("IDLE"))
+        let before = h.row(x2d.serial)
+        links[1].report(["mc_percent": 3])
+        XCTAssertEqual(h.row(x2d.serial), before)
+        XCTAssertEqual(h.row(p1s.serial)?.percent, 3)
+    }
+
     func testRenamingAPrinterKeepsItsConnection() throws {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)

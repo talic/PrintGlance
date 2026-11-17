@@ -88,20 +88,29 @@ enum BambuPrint {
             stem = String(stem.dropLast(ext.count))
         }
         if stem.count < 2 { return nil }
-        if stem.range(of: "^[0-9a-fA-F]{8,}$", options: .regularExpression) != nil { return nil }
-        if stem.range(of: "^\\d{6,}$", options: .regularExpression) != nil { return nil }
+        if matches(patterns.hexName, stem) || matches(patterns.numberName, stem) { return nil }
         return stem
+    }
+
+    /// Built once: every row of every pass reads the job label. NSRegularExpression is immutable and safe to
+    /// share between threads; older SDKs don't mark it Sendable, hence the wrapper.
+    private struct Patterns: @unchecked Sendable {
+        let hexName = try! NSRegularExpression(pattern: "^[0-9a-fA-F]{8,}$")
+        let numberName = try! NSRegularExpression(pattern: "^\\d{6,}$")
+        let processSuffix = try! NSRegularExpression(pattern: #"\s+0?\.\d+\s*mm\b.*"#, options: [.caseInsensitive])
+    }
+
+    private static let patterns = Patterns()
+
+    private static func matches(_ re: NSRegularExpression, _ s: String) -> Bool {
+        re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil
     }
 
     /// Cuts a slicer suffix like " 0.16mm layer, 2 walls, 10% infill". Only layer heights (under 1 mm)
     /// count, so a size in the name, like "Spacer 20mm", stays.
     static func stripProcessSuffix(_ name: String) -> String {
-        let pattern = #"\s+0?\.\d+\s*mm\b.*"#
-        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return name
-        }
         let range = NSRange(name.startIndex..., in: name)
-        return re.stringByReplacingMatches(in: name, range: range, withTemplate: "")
+        return patterns.processSuffix.stringByReplacingMatches(in: name, range: range, withTemplate: "")
             .trimmingCharacters(in: .whitespaces)
     }
 
@@ -389,7 +398,8 @@ enum BambuPrint {
         name: String,
         printObj: [String: Any],
         online: Bool,
-        lastReportAt: Date? = nil
+        lastReportAt: Date? = nil,
+        now: Date = Date()
     ) -> Printer {
         let raw = (BambuJSON.stringValue(printObj["gcode_state"]) ?? "").uppercased()
         let state: String
@@ -425,7 +435,7 @@ enum BambuPrint {
             job: jobLabel(printObj),
             layer: layer,
             layerTotal: layerTotal,
-            eta: etaHM(state: PrintState(state), remainingS: remainingS),
+            eta: etaHM(state: PrintState(state), remainingS: remainingS, now: now),
             filament: fil.type,
             filamentRemain: fil.remain,
             filamentColor: fil.color,
@@ -635,24 +645,31 @@ final class BambuSnapshot {
         return now < trustedUntil
     }
 
-    func printer() -> Printer {
+    func printer(now: Date = Date()) -> Printer {
         BambuPrint.row(
             id: printerID,
             name: name.isEmpty ? "Printer" : name,
             printObj: printObj,
-            online: isOnline(),
-            lastReportAt: lastReportAt
+            online: isOnline(now: now),
+            lastReportAt: lastReportAt,
+            now: now
         )
     }
 
+    /// One row per complete saved printer, in saved order. A row in `cached` is used as it is.
     static func fleetDoc(
         printers: [PrinterSettings],
         snapshots: [String: BambuSnapshot],
-        focusId: String?
+        focusId: String?,
+        now: Date = Date(),
+        reusing cached: [String: Printer] = [:]
     ) -> PrintDoc {
         let rows: [Printer] = printers.map { p in
+            if let row = cached[p.serial] {
+                return row
+            }
             if let snap = snapshots[p.serial] {
-                return snap.printer()
+                return snap.printer(now: now)
             }
             return Printer(
                 id: p.serial,

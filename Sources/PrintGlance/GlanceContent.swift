@@ -471,9 +471,9 @@ struct GlanceContent: Equatable, Sendable {
             to: calendar.startOfDay(for: date)
         ).day ?? 0
         if abs(days) > 6 {
-            return english(date, DateFormatter.dateFormat(fromTemplate: "MMMd", options: 0, locale: locale), calendar)
+            return english(date, DateFormats.shared.pattern("MMMd", locale), calendar)
         }
-        let time = english(date, DateFormatter.dateFormat(fromTemplate: "jmm", options: 0, locale: locale), calendar)
+        let time = english(date, DateFormats.shared.pattern("jmm", locale), calendar)
         switch days {
         case 0: return time
         case 1: return "\(time) tomorrow"
@@ -484,12 +484,7 @@ struct GlanceContent: Equatable, Sendable {
 
     /// Formats with the locale's pattern but English words (AM/PM, Mon, Sep).
     private static func english(_ date: Date, _ pattern: String?, _ calendar: Calendar) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        f.dateFormat = pattern ?? "HH:mm"
-        return f.string(from: date)
+        DateFormats.shared.string(date, pattern: pattern ?? "HH:mm", calendar: calendar)
     }
 
 
@@ -597,6 +592,44 @@ struct GlanceContent: Equatable, Sendable {
             parts.append("\(nozzle.lowercased()) nozzle")
         }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// Every row's finish time is formatted on every pass, and a `DateFormatter` and a template lookup are slow
+/// to make: one of each per pattern, locale, and time zone, kept. A changed time zone or 12/24-hour setting is
+/// a new key. The lock guards the dictionaries and the formatter in use; the widget formats off the main thread.
+private final class DateFormats: @unchecked Sendable {
+    static let shared = DateFormats()
+    private let lock = NSLock()
+    private var patterns: [String: String] = [:]
+    private var formatters: [String: DateFormatter] = [:]
+
+    /// The locale's pattern for a template, such as "HH:mm" for "jmm" in en_GB.
+    func pattern(_ template: String, _ locale: Locale) -> String? {
+        let key = "\(template)|\(locale.identifier)|\(locale.hourCycle)"
+        lock.lock()
+        defer { lock.unlock() }
+        if let hit = patterns[key] { return hit }
+        let made = DateFormatter.dateFormat(fromTemplate: template, options: 0, locale: locale)
+        patterns[key] = made
+        return made
+    }
+
+    /// English words (AM/PM, Mon, Sep) in the calendar's time zone.
+    func string(_ date: Date, pattern: String, calendar: Calendar) -> String {
+        let key = "\(pattern)|\(calendar.identifier)|\(calendar.timeZone.identifier)"
+        lock.lock()
+        defer { lock.unlock() }
+        let f = formatters[key] ?? {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.calendar = calendar
+            f.timeZone = calendar.timeZone
+            f.dateFormat = pattern
+            formatters[key] = f
+            return f
+        }()
+        return f.string(from: date)
     }
 }
 
