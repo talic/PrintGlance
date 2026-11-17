@@ -124,7 +124,7 @@ final class ShippingTests: XCTestCase {
 
     func testPausedNoticeReadsAsTheREADMEShowsIt() throws {
         try readme(contains: "A paused print reads **X2D paused**, then **Benchy · 52%**, then a short reason")
-        var notify = PrintNotify(serial: "x2d", prefs: .default, stamps: [:])
+        var notify = PrintNotify(prefs: .default)
         let row = Printer(id: "x2d", name: "X2D", state: "RUNNING", percent: 52, job: "Benchy", jobId: "t1")
         _ = notify.observe(GlanceContent(result: .doc(PrintDoc(v: 1, focusId: nil, printers: [row]))))
         var paused = row
@@ -144,7 +144,7 @@ final class ShippingTests: XCTestCase {
 
     func testLostConnectionNoticeWording() throws {
         try readme(contains: "**Lost connection to X2D** with **Benchy was at 52%. PrintGlance keeps trying.**")
-        var notify = PrintNotify(serial: "x2d", prefs: .default, stamps: [:])
+        var notify = PrintNotify(prefs: .default)
         let row = Printer(id: "x2d", name: "X2D", state: "RUNNING", percent: 52, job: "Benchy", jobId: "t1")
         _ = notify.observe(GlanceContent(result: .doc(PrintDoc(v: 1, focusId: nil, printers: [row]))))
         var offline = row

@@ -135,11 +135,8 @@ final class GlanceModel: ObservableObject {
         let prefs = PrintNotifyPrefs.load(defaults)
         self.settings = settings
         self.notifyPrefs = prefs
-        self.notify = PrintNotify(
-            serial: settings.focusId ?? settings.printers.first?.serial ?? "",
-            prefs: prefs,
-            stamps: PrintNotifyStamp.loadAll(defaults)
-        )
+        self.notify = PrintNotify(prefs: prefs)
+        PrintNotify.forgetStamps(defaults)
         self.jobLogURL = jobLogURL
         let log = JobLog.load(from: jobLogURL)
         self.jobLog = log
@@ -692,12 +689,7 @@ final class GlanceModel: ObservableObject {
 
     private func apply(_ next: GlanceContent) {
         if content != next {
-            let stampsBefore = notify.stamps
-            let outcome = notify.observe(next)
-            if notify.stamps != stampsBefore {
-                notify.persistStamp(defaults)
-            }
-            deliver(outcome)
+            deliver(notify.observe(next))
             content = next
         }
         if case .doc = next.result {

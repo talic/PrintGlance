@@ -233,6 +233,20 @@ final class MQTTWireTests: XCTestCase {
         XCTAssertTrue(events.disconnects.isEmpty, "the old socket closing must not fail the new attempt")
     }
 
+    /// The old socket's drop is already on its way to the main queue when the next connect starts (after
+    /// wake, say). Delivered late, it would mark the new attempt failed and redial over it.
+    func testADropDeliveredAfterTheNextConnectIsIgnored() throws {
+        let first = try connected()
+        let second = try FakeBroker()
+        first.close()
+        Thread.sleep(forTimeInterval: 0.3) // the client's queue fails the socket; main hasn't run the callback
+        dial(second)
+        Thread.sleep(forTimeInterval: 0.1) // the client's queue starts the new connect
+        XCTAssertTrue(events.wait { self.events.connects == 2 })
+        events.settle()
+        XCTAssertTrue(events.disconnects.isEmpty, "the drop was the old socket's")
+    }
+
     // MARK: - Packet builders
 
     func testStringsAreLengthPrefixedInBytesNotCharacters() {

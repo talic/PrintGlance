@@ -29,8 +29,22 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
     private let keepAlive: UInt16 = 30
     private var packetID: UInt16 = 1
     /// Bumped on each `connect` / `disconnect` so a cancelled socket cannot
-    /// fail the attempt that replaced it.
-    private var generation: UInt64 = 0
+    /// fail the attempt that replaced it. Written on `queue`, read there and on the main queue, where every
+    /// callback checks it again: a connect or disconnect since means the caller has moved on.
+    private var generation: UInt64 {
+        get {
+            generationLock.lock()
+            defer { generationLock.unlock() }
+            return generationValue
+        }
+        set {
+            generationLock.lock()
+            defer { generationLock.unlock() }
+            generationValue = newValue
+        }
+    }
+    private var generationValue: UInt64 = 0
+    private let generationLock = NSLock()
     /// PINGREQ sent and nothing received since. Still set at the next tick means the link is dead.
     private var awaitingPong = false
     /// The serial the certificate named when it wasn't the one dialed. Touched on `queue`.
@@ -192,13 +206,16 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
     private func fail(_ reason: String?, generation: UInt64) {
         guard generation == self.generation else { return }
         self.generation &+= 1
+        let ended = self.generation
         pingTimer?.cancel()
         pingTimer = nil
         connection?.cancel()
         connection = nil
         buffer.removeAll()
         DispatchQueue.main.async { [weak self] in
-            self?.onDisconnect?(reason)
+            // A drop that lands after the next connect would fail that attempt instead.
+            guard let self, ended == self.generation else { return }
+            self.onDisconnect?(reason)
         }
     }
 
