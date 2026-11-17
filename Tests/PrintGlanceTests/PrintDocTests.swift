@@ -378,6 +378,17 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(BambuPrint.humanGcodeStem("models/stomp-t-rex.gcode"), "stomp-t-rex")
     }
 
+    /// Cloud prints send the plate inside the project as the file. The task name says what is printing.
+    func testJobLabelPrefersTheTaskNameOverAPlateFile() {
+        let cloud: [String: Any] = ["gcode_file": "/data/Metadata/plate_3.gcode", "subtask_name": "Keyrings_Red"]
+        XCTAssertEqual(BambuPrint.jobLabel(cloud), "Keyrings_Red")
+        XCTAssertEqual(BambuPrint.jobLabel(["gcode_file": "/data/Metadata/PLATE_12.gcode"]), "PLATE_12", "better than nothing")
+        XCTAssertEqual(BambuPrint.jobLabel(["gcode_file": "plate_holder.3mf", "subtask_name": "Holder"]), "plate_holder")
+        XCTAssertEqual(BambuPrint.jobLabel(["gcode_file": "/sdcard/Benchy.gcode.3mf", "subtask_name": "Project"]), "Benchy")
+        XCTAssertFalse(BambuPrint.isPlateFile("plate_"))
+        XCTAssertFalse(BambuPrint.isPlateFile("plate_٣"), "ASCII digits only, like the feed")
+    }
+
     func testJobLabelKeepsSizesAndDropsEveryExtension() {
         XCTAssertEqual(BambuPrint.humanGcodeStem("/sdcard/Benchy.gcode.3mf"), "Benchy")
         XCTAssertEqual(BambuPrint.humanGcodeStem("Benchy.3MF"), "Benchy")

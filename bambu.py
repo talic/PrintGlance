@@ -111,16 +111,25 @@ def strip_process_suffix(name: str) -> str:
     return re.sub(r"\s+0?\.\d+\s*mm\b.*", "", name, flags=re.I).strip()
 
 
+def is_plate_file(stem: str) -> bool:
+    """"plate_3": the sliced plate inside a project (Metadata/plate_3.gcode), like BambuPrint.isPlateFile.
+    It names the plate, not the print; subtask_name does that."""
+    return re.fullmatch(r"plate_[0-9]+", stem, flags=re.I) is not None
+
+
 def job_label(print_obj: dict[str, Any]) -> str | None:
+    """The file's name, else the task name, else a plate's file name: BambuPrint.jobLabel."""
     stem = human_gcode_stem(print_obj.get("gcode_file"))
-    if stem:
+    raw = print_obj.get("subtask_name")
+    if stem and not is_plate_file(stem):
         label = stem
-    else:
-        raw = print_obj.get("subtask_name")
-        if not isinstance(raw, str) or not raw.strip():
-            return None
+    elif isinstance(raw, str) and raw.strip():
         stripped = strip_process_suffix(raw)
         label = stripped or raw.strip()
+    elif stem:
+        label = stem
+    else:
+        return None
     if len(label) > 40:
         label = label[:37] + "..."
     return label or None
