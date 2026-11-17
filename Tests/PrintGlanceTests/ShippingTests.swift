@@ -157,6 +157,72 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(alert?.body, "Filament ran out in AMS A, slot 2.")
     }
 
+    func testMenuBarRankingReadsAsTheREADMEListsIt() throws {
+        try readme(contains: "3. A printer that lost its connection during a print\n4. A failed printer\n5. A finished or canceled printer")
+        try readme(contains: "7. A printer that is probably switched off: it wasn't printing when PrintGlance last heard from it, or it hasn't answered since PrintGlance started")
+        func p(_ id: String, _ state: String) -> Printer { Printer(id: id, name: id, state: state) }
+        var lost = p("lost", "OFFLINE")
+        lost.lastState = "PAUSE"
+        var canceled = p("canceled", "FAILED")
+        canceled.printError = GlanceContent.cancelCode
+        var wasIdle = p("wasIdle", "OFFLINE")
+        wasIdle.lastState = "IDLE"
+        let never = p("never", "OFFLINE")
+        let shuffled = [never, wasIdle, p("idle", "IDLE"), canceled, p("failed", "FAILED"), lost, p("printing", "RUNNING"), p("paused", "PAUSE")]
+        XCTAssertEqual(
+            PrintDoc(v: 1, focusId: nil, printers: shuffled).ranked().map(\.id),
+            ["paused", "printing", "lost", "failed", "canceled", "idle", "never", "wasIdle"]
+        )
+    }
+
+    func testCanceledPrintIsCalm() throws {
+        try readme(contains: "| Canceled | A stop icon | **Canceled**, in gray, and the AMS trays. The printer reports a canceled print as failed, but PrintGlance tells them apart and sends no **Print Failed** notice |")
+        var notify = PrintNotify(serial: "x2d", prefs: .default, stamps: [:])
+        var row = Printer(id: "x2d", name: "X2D", state: "RUNNING", percent: 52, job: "Benchy", jobId: "t1")
+        _ = notify.observe(GlanceContent(result: .doc(PrintDoc(v: 1, focusId: nil, printers: [row]))))
+        row.state = "FAILED"
+        row.printError = "0300-400C"
+        XCTAssertNil(notify.observe(GlanceContent(result: .doc(PrintDoc(v: 1, focusId: nil, printers: [row])))).alert)
+        XCTAssertEqual(GlanceContent.stateWord(row), "Canceled")
+        XCTAssertEqual(GlanceContent.strip(row: row).systemImage, "stop.circle")
+    }
+
+    func testOfflineMenuBarAndWords() throws {
+        try readme(contains: "A Wi-Fi icon with a slash if the printer was printing or paused, or rejected its access code. Otherwise a moon: the printer is probably switched off")
+        try readme(contains: "With the moon, the card says **It may be switched off.**")
+        var row = Printer(id: "x2d", name: "X2D", state: "OFFLINE")
+        row.lastState = "IDLE"
+        XCTAssertEqual(GlanceContent.strip(row: row).systemImage, "powersleep", "the moon")
+        XCTAssertTrue(GlanceCopy.offlineDetail(row, reason: "connect timed out").hasPrefix("It may be switched off."))
+        row.lastState = "PAUSE"
+        XCTAssertEqual(GlanceContent.strip(row: row).systemImage, "wifi.slash")
+        row.lastState = "IDLE"
+        row.codeRejected = true
+        XCTAssertEqual(GlanceContent.strip(row: row).systemImage, "wifi.slash")
+    }
+
+    func testMenuBarBeforeAReport() throws {
+        try readme(contains: "Until you add a printer, **Set Up** shows next to it.")
+        XCTAssertEqual(GlanceContent.strip(.needsSetup).title, "Set Up")
+        try readme(contains: "While PrintGlance connects, **…** shows next to the printer icon.")
+        XCTAssertEqual(GlanceContent.strip(.connecting).title, "…")
+    }
+
+    func testHistoryOutcomeWords() throws {
+        try readme(contains: "**Finished**, **Failed**, **Canceled**, or **Printing**. **Failed** is red, with the reason below it when the printer gave one, such as **The nozzle may be clogged.**")
+        var row = JobLogRow(serial: "x2d", name: "X2D", jobId: "t1", startAt: Date(), outcome: nil)
+        var words = [GlanceContent.historyOutcome(row)]
+        row.outcome = JobLog.outcomeOK
+        words.append(GlanceContent.historyOutcome(row))
+        row.outcome = JobLog.outcomeFail
+        row.failCode = "0300-4006"
+        words.append(GlanceContent.historyOutcome(row))
+        XCTAssertEqual(GlanceContent.historyNotes(row), ["The nozzle may be clogged."])
+        row.failCode = GlanceContent.cancelCode
+        words.append(GlanceContent.historyOutcome(row))
+        XCTAssertEqual(words, ["Printing", "Finished", "Failed", "Canceled"])
+    }
+
     func testSlotNames() throws {
         try readme(contains: "(**A1**…**D4**, **HT-A**, **External**)")
         XCTAssertEqual(BambuPrint.unitLabel(3), "D")

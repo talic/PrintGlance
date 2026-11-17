@@ -56,7 +56,7 @@ The Mac and the printer must be on the same Wi-Fi network. Guest Wi-Fi that isol
 5. Open **System Settings > Privacy & Security**. In **Security**, click **Open Anyway**, then click **Open**. Enter your password if macOS asks.
 6. The **Add Printer** window opens. Continue with [Connect to your printer](#connect-to-your-printer).
 
-PrintGlance has no Dock icon. It lives in the menu bar as a printer icon. If you do not see the icon, turn PrintGlance on in **System Settings > Menu Bar**.
+PrintGlance has no Dock icon. It lives in the menu bar as a printer icon. Until you add a printer, **Set Up** shows next to it. If you do not see the icon, turn PrintGlance on in **System Settings > Menu Bar**.
 
 ## Connect to your printer
 
@@ -90,8 +90,11 @@ Click the printer icon to open the print card.
 | Paused | A pause icon and percent | Time left (not a finish time, because it moves while paused), percent, layer, and the AMS trays. For common problems, a short reason, such as **Filament ran out in AMS A, slot 2.** Then the error code, such as **Error 0700-2100-0002-0001**, with **Look up** to open Bambu's page for it in your browser, or **No error reported.** |
 | Finished | A checkmark and how long ago it finished, such as **40m ago**. After 2 hours, only the checkmark | How long ago it finished, the printer name, and the AMS trays. If PrintGlance was not running when the print finished, no elapsed time |
 | Failed | An X | **Failed**, a short reason for common problems, the error code with **Look up**, and the AMS trays. The **Print Failed** notice starts with the reason and ends with the error code |
+| Canceled | A stop icon | **Canceled**, in gray, and the AMS trays. The printer reports a canceled print as failed, but PrintGlance tells them apart and sends no **Print Failed** notice |
 | Idle | A printer icon | The printer name and each loaded slot, named like the printer screen (**A1**…**D4**, **HT-A**, **External**): color, filament, and remaining percent. Slots sit under a header such as **AMS A · Dry** or **AMS B · 23%** when there is more than one AMS or the AMS reports humidity |
-| Offline | A Wi-Fi icon with a slash | When PrintGlance last heard from the printer, such as **Last update 14:02**, and what it was doing: **Was printing · 52% · Layer 18 / 29** with **Expected to finish 16:25**, or **Was paused at 52%**. Then why PrintGlance cannot reach the printer, when it knows |
+| Offline | A Wi-Fi icon with a slash if the printer was printing or paused, or rejected its access code. Otherwise a moon: the printer is probably switched off | When PrintGlance last heard from the printer, such as **Last update 14:02**, and what it was doing: **Was printing · 52% · Layer 18 / 29** with **Expected to finish 16:25**, or **Was paused at 52%**. Then why PrintGlance cannot reach the printer, when it knows. With the moon, the card says **It may be switched off.** |
+
+While PrintGlance connects, **…** shows next to the printer icon.
 
 Times follow your Mac's 12- or 24-hour setting. If the job finishes after today, the finish time includes the day, such as **4:25 PM tomorrow**.
 
@@ -105,9 +108,11 @@ The menu bar shows the printer that needs you most:
 
 1. A paused printer
 2. A printing or starting printer. If several are printing, the one you last clicked, otherwise the one finishing soonest
-3. A failed printer
-4. A finished printer
-5. The printer you last clicked, otherwise the first one
+3. A printer that lost its connection during a print
+4. A failed printer
+5. A finished or canceled printer
+6. The printer you last clicked, otherwise the first one
+7. A printer that is probably switched off: it wasn't printing when PrintGlance last heard from it, or it hasn't answered since PrintGlance started
 
 The print card opens on the same printer. Below it, each printer has a row, in the order you added them. A printing row shows the percent and finish time, such as **52% · 4:25 PM**. Other rows show the state, such as **Paused** or **Idle**. A paused printer's icon is orange, and a failed printer's icon is red.
 
@@ -117,7 +122,7 @@ To change or remove a printer, Control-click its row and choose **Edit…** or *
 
 ## See recent prints
 
-To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac, newest first. Each row shows the job name, when it started (such as **14:02 yesterday**), how long it took when PrintGlance saw it start and finish, and **Finished**, **Failed**, or **Printing**. Failed prints are red, with the reason when the printer gave one, such as **The print was canceled.** A print that paused says how often and why, such as **Paused: The build plate is missing or out of place.** With more than one printer, each row also names the printer.
+To see recent prints, click **…** and choose **History**. PrintGlance keeps the last 50 jobs on this Mac, newest first. Each row shows the job name, when it started (such as **14:02 yesterday**), how long it took when PrintGlance saw it start and finish, and **Finished**, **Failed**, **Canceled**, or **Printing**. **Failed** is red, with the reason below it when the printer gave one, such as **The nozzle may be clogged.** A print that paused says how often and why, such as **Paused: The build plate is missing or out of place.** With more than one printer, each row also names the printer, unless the printer's name is already the row's title.
 
 To save the list, click **Export CSV**. To clear it, click **Clear History…** below the list, then click **Clear**. A print in progress stays. To return to the print card, click the back arrow next to **History**, or press Esc.
 

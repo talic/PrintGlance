@@ -48,7 +48,7 @@ struct GlanceView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 8) {
-            CardHeader(headline: headline, subtitle: subtitle, state: cardRow?.state)
+            CardHeader(headline: headline, subtitle: subtitle, state: cardRow?.state, canceled: cardRow.map(GlanceContent.isCanceled) ?? false)
             overflowMenu
         }
     }
@@ -232,7 +232,7 @@ struct GlanceView: View {
     private var emptyDetail: String {
         switch model.content.result {
         case .feedDown:
-            return GlanceCopy.feedDownDetail(reason: model.disconnectReason(for: model.settings.focusId))
+            return GlanceCopy.offlineDetail(nil, reason: model.disconnectReason(for: model.settings.focusId))
         case .needsSetup:
             return ""
         case .connecting:
@@ -247,6 +247,8 @@ struct CardHeader: View {
     var headline: String
     var subtitle: String?
     var state: String?
+    /// A canceled print still says FAILED; it reads calm, not red.
+    var canceled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -258,7 +260,7 @@ struct CardHeader: View {
             if let subtitle {
                 Text(subtitle)
                     .font(.subheadline)
-                    .foregroundStyle(stateColor(state, otherwise: .secondary))
+                    .foregroundStyle(canceled ? .secondary : stateColor(state, otherwise: .secondary))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -282,7 +284,7 @@ struct PrinterList: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: GlanceContent.strip(row: p).systemImage)
-                            .foregroundStyle(stateColor(p.state, otherwise: .secondary))
+                            .foregroundStyle(stateColor(p, otherwise: .secondary))
                             .frame(width: 16)
                         Text(p.name)
                             .lineLimit(1)
@@ -315,7 +317,7 @@ struct PrinterList: View {
     }
 
     private func a11y(_ row: Printer) -> String {
-        var parts = [row.name, GlanceContent.humanState(row.state)]
+        var parts = [row.name, GlanceContent.stateWord(row)]
         if let pct = row.percent, GlanceContent.isTimed(row.state) {
             parts.append("\(pct) percent")
         }
@@ -414,7 +416,7 @@ struct PrinterDetail: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             }
-            Text(GlanceCopy.feedDownDetail(reason: disconnectReason))
+            Text(GlanceCopy.offlineDetail(row, reason: disconnectReason))
                 .font(lines.isEmpty ? .subheadline : .caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -541,6 +543,11 @@ private func stateColor(_ state: String?, otherwise: Color) -> Color {
     }
 }
 
+/// `stateColor` for a row, which can tell a cancel (grey) from a failure (red).
+private func stateColor(_ row: Printer, otherwise: Color) -> Color {
+    GlanceContent.isCanceled(row) ? .secondary : stateColor(row.state, otherwise: otherwise)
+}
+
 private extension Color {
     init?(filamentHex: String) {
         guard filamentHex.count == 8, let v = UInt32(filamentHex, radix: 16) else { return nil }
@@ -620,14 +627,17 @@ struct HistoryView: View {
 
     private func historyRow(_ row: JobLogRow) -> some View {
         let manyPrinters = Set(rows.map(\.serial)).count > 1
+        let caption = GlanceContent.historyCaptionParts(row, showPrinter: manyPrinters, now: now)
+        let outcome = Text(caption.outcome)
         return VStack(alignment: .leading, spacing: 1) {
-            Text(historyTitle(row))
+            Text(GlanceContent.historyTitle(row))
                 .font(.subheadline)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(GlanceContent.historyCaption(row, showPrinter: manyPrinters, now: now))
+            // Only the outcome word is tinted.
+            Text("\(Text(caption.lead))\(GlanceContent.historyFailed(row) ? outcome.foregroundStyle(.red) : outcome)")
                 .font(.caption)
-                .foregroundStyle(row.outcome == JobLog.outcomeFail ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -641,11 +651,6 @@ struct HistoryView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-    }
-
-    private func historyTitle(_ row: JobLogRow) -> String {
-        if let job = row.job, !job.isEmpty { return job }
-        return row.name
     }
 }
 
