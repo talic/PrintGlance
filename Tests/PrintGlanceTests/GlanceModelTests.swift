@@ -571,6 +571,8 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(row.outcome, JobLog.outcomeOK)
         XCTAssertNotNil(row.endedAt)
         XCTAssertNotNil(h.model.occupancyEndedAt, "the menu bar can say how long ago")
+        let finished = try XCTUnwrap(h.row(x2d.serial))
+        XCTAssertEqual(h.model.occupancyStartedAt(for: finished), row.startAt, "the card can say how long it took")
         XCTAssertEqual(h.model.strip.title, "0m ago")
         h.relaunch()
         XCTAssertEqual(h.model.historyRows.map(\.job), ["Benchy"])

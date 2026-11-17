@@ -21,6 +21,8 @@ final class JobLogTests: XCTestCase {
             log.occupancyEndedAt(serial: "x2d", state: "FINISH", jobId: "t1"),
             t1
         )
+        XCTAssertEqual(log.occupancyStartedAt(serial: "x2d", state: "FINISH", jobId: "t1"), t0, "for \"Took 1h 00m\"")
+        XCTAssertNil(log.occupancyStartedAt(serial: "x2d", state: "IDLE", jobId: "t1"))
     }
 
     func testPrepareThenRunningSameJob() {
@@ -68,6 +70,7 @@ final class JobLogTests: XCTestCase {
         XCTAssertEqual(log.rows[0].outcome, JobLog.outcomeOK)
         XCTAssertNil(log.rows[0].endedAt)
         XCTAssertNil(log.occupancyEndedAt(serial: "x2d", state: "FINISH", jobId: "t1"))
+        XCTAssertNil(log.occupancyStartedAt(serial: "x2d", state: "FINISH", jobId: "t1"), "no duration without the end")
     }
 
     func testRelaunchAlreadyIdleWithOpenRowClosesNilEndedAt() {

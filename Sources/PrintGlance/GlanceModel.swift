@@ -185,6 +185,11 @@ final class GlanceModel: ObservableObject {
         jobLog.occupancyEndedAt(serial: row.id, state: row.state, jobId: row.jobId)
     }
 
+    /// When the finished print the card shows started, for "Took 4h 43m".
+    func occupancyStartedAt(for row: Printer) -> Date? {
+        jobLog.occupancyStartedAt(serial: row.id, state: row.state, jobId: row.jobId)
+    }
+
     func exportHistory(to url: URL) {
         try? jobLog.csv().write(to: url, atomically: true, encoding: .utf8)
     }
@@ -274,6 +279,12 @@ final class GlanceModel: ObservableObject {
     /// A notice's Look Up button, like the card's Look up. The next panel open shows that printer, as a click would.
     func lookUpError(code: String, serial: String) {
         if !serial.isEmpty { pendingSelection.serial = serial }
+        Self.openLookup(code: code, serial: serial)
+    }
+
+    /// Bambu's page for a code in the browser, as the card's **Look up** and the notice's **Look Up** do.
+    /// A `print_error` code's page is a table, so the code also goes on the clipboard.
+    static func openLookup(code: String, serial: String) {
         let lookup = GlanceContent.errorLookup(code: code, serial: serial)
         if lookup.copiesCode {
             NSPasteboard.general.clearContents()

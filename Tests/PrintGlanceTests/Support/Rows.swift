@@ -89,16 +89,24 @@ enum Rows {
         return p
     }
 
-    /// The card as the panel lays it out: header, then the printer's details.
+    /// The card as the panel lays it out: header, then the printer's details. `namingPrinter` is the
+    /// panel with two or more printers.
     static func card(
         _ row: Printer,
         endedAt: Date? = nil,
+        startedAt: Date? = nil,
         reason: String? = nil,
+        namingPrinter: Bool = false,
         onUpdateCode: (() -> Void)? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            CardHeader(headline: GlanceContent.headline(row), subtitle: GlanceContent.subtitle(row), state: row.state, canceled: GlanceContent.isCanceled(row))
-            PrinterDetail(row: row, endedAt: endedAt, now: now, disconnectReason: reason, onUpdateCode: onUpdateCode)
+            CardHeader(
+                headline: GlanceContent.headline(row),
+                subtitle: GlanceContent.subtitle(row, namingPrinter: namingPrinter),
+                state: row.state,
+                canceled: GlanceContent.isCanceled(row)
+            )
+            PrinterDetail(row: row, endedAt: endedAt, startedAt: startedAt, now: now, disconnectReason: reason, onUpdateCode: onUpdateCode)
         }
         .padding(14)
         .frame(width: 248, alignment: .leading)

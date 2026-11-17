@@ -7,8 +7,16 @@ struct StripPresentation: Equatable, Hashable, Sendable {
 }
 
 struct AMSGroup: Equatable {
-    var header: String?
+    /// "AMS A". Nil for external spools, and for a lone AMS with no humidity to show.
+    var title: String?
     var trays: [AMSTray]
+    /// "Dry", "Humid", or "23%".
+    var humidity: String? = nil
+    /// The AMS is humid, so the card draws `humidity` orange.
+    var humid = false
+
+    /// "AMS A · Dry".
+    var header: String? { title.map { [$0, humidity].compactMap { $0 }.joined(separator: " · ") } }
 }
 
 struct GlanceContent: Equatable, Sendable {
@@ -270,14 +278,6 @@ struct GlanceContent: Equatable, Sendable {
         return lines
     }
 
-    /// The printer name under a finished or failed job's hero.
-    static func caption(_ row: Printer) -> String? {
-        guard ["FINISH", "FAILED"].contains(row.state.uppercased()), headline(row) != row.name else {
-            return nil
-        }
-        return row.name
-    }
-
     /// Paused and failed only: `print_error` can stay set after the problem is gone.
     static func errorCodes(_ row: Printer) -> [String] {
         guard ["PAUSE", "FAILED"].contains(row.state.uppercased()) else { return [] }
@@ -302,6 +302,31 @@ struct GlanceContent: Equatable, Sendable {
     /// A code's plain reason, else "Error <code>".
     static func errorLine(code: String) -> String {
         errorReason(code: code) ?? "Error \(code)"
+    }
+
+    /// One code in the card's error block, under its reason.
+    struct CodeLine: Equatable, Sendable {
+        /// Nil when the code has no reason, or the same one as the line above.
+        var reason: String?
+        var code: String
+    }
+
+    /// The card's error block: each code under its plain reason, codes with a reason first, so the card
+    /// leads with the reason the notification gave. A reason the line above already gave isn't repeated,
+    /// and a code without one stands alone as "Error <code>".
+    static func codeLines(_ row: Printer) -> [CodeLine] {
+        // The subtitle already says Canceled; its code has nothing to look up.
+        let canceled = isCanceled(row)
+        let codes = errorCodes(row).filter { !(canceled && $0 == cancelCode) }
+        let explained = codes.filter { errorReason(code: $0) != nil }
+        var lines: [CodeLine] = []
+        var above: String?
+        for code in explained + codes.filter({ !explained.contains($0) }) {
+            let reason = errorReason(code: code)
+            lines.append(CodeLine(reason: reason == above ? nil : reason, code: code))
+            above = reason
+        }
+        return lines
     }
 
     /// A short reason in our words for a common code. Nil for every other code, which keeps "Error <code>".
@@ -408,6 +433,13 @@ struct GlanceContent: Equatable, Sendable {
         }
     }
 
+    /// Humid enough to warn: index 1 or 2, or 60% and up, where Bambu Studio's mapping gives 2 or 1.
+    /// A unit that reports a percent is judged by it, since that is what the card shows.
+    static func isHumid(_ unit: AMSUnit) -> Bool {
+        if let p = unit.humidityPercent { return p >= 60 }
+        return [1, 2].contains(unit.humidityLevel)
+    }
+
     /// Trays under "AMS A · Dry" headers when there is more than one unit or a humidity to show.
     /// External spools come last, without a header.
     static func amsGroups(_ row: Printer) -> [AMSGroup] {
@@ -419,18 +451,39 @@ struct GlanceContent: Equatable, Sendable {
         }
         let headed = ids.count > 1 || units.contains { humidityText($0) != nil }
         var groups = ids.map { id in
-            let humidity = units.first { $0.id == id }.flatMap(humidityText)
+            let unit = units.first { $0.id == id }
             return AMSGroup(
-                header: headed ? ["AMS \(id)", humidity].compactMap { $0 }.joined(separator: " · ") : nil,
-                trays: trays.filter { $0.unit == id }
+                title: headed ? "AMS \(id)" : nil,
+                trays: slots(trays.filter { $0.unit == id }, unit: id),
+                humidity: headed ? unit.flatMap(humidityText) : nil,
+                humid: unit.map(isHumid) ?? false
             )
         }
         let loose = trays.filter { $0.unit == nil }
         if !loose.isEmpty {
-            groups.append(AMSGroup(header: nil, trays: loose))
+            groups.append(AMSGroup(title: nil, trays: loose))
         }
         return groups
     }
+
+    /// A unit's trays in slot order, with an empty tray (`isEmptySlot`) for each slot the printer left
+    /// out. Only AMS, AMS lite, and AMS 2 Pro, which have four slots and one-letter names
+    /// (`BambuPrint.unitLabel`); an AMS HT has one slot, so it never has a gap.
+    private static func slots(_ trays: [AMSTray], unit id: String) -> [AMSTray] {
+        guard id.count == 1, id.first?.isLetter == true else { return trays }
+        let labels = (1...4).map { "\(id)\($0)" }
+        let filled = labels.map { label in
+            trays.first { $0.label == label } ?? AMSTray(id: label, name: nil, remain: nil, color: nil, label: label, unit: id)
+        }
+        return filled + trays.filter { !labels.contains($0.label ?? "") }
+    }
+
+    /// A slot `amsGroups` filled in because the printer reported nothing in it. `BambuPrint.trays`
+    /// never makes a tray without a filament, percent, or color.
+    static func isEmptySlot(_ tray: AMSTray) -> Bool {
+        tray.name == nil && tray.remain == nil && tray.color == nil
+    }
+
 
     /// A History row's title: the job, else the printer's name.
     static func historyTitle(_ row: JobLogRow) -> String {
@@ -513,8 +566,19 @@ struct GlanceContent: Equatable, Sendable {
 
     static func trayLine(_ tray: AMSTray) -> String {
         let label = tray.label ?? tray.id
+        if isEmptySlot(tray) { return "\(label) · Empty" }
         let name = tray.name.map { "\(label) · \($0)" } ?? label
         return tray.remain.map { "\(name)  \($0)%" } ?? name
+    }
+
+    /// The reasons and codes block: always while paused or failed, saying "No error reported." when there's
+    /// no code, but for a canceled print only when another code came with the cancel.
+    static func showsErrors(_ row: Printer) -> Bool {
+        switch row.state.uppercased() {
+        case "PAUSE": return true
+        case "FAILED": return !isCanceled(row) || !codeLines(row).isEmpty
+        default: return false
+        }
     }
 
     /// Trays matter when you are at the printer: before a print, after one, or on a paused runout.
@@ -526,7 +590,15 @@ struct GlanceContent: Equatable, Sendable {
         if row.state.uppercased() == "PREPARE", let stage = row.stage, !stage.isEmpty {
             return stage
         }
-        return humanState(row.state)
+        return stateWord(row)
+    }
+
+    /// The card's subtitle. With several printers and the job as the headline, it names the printer
+    /// first ("X2D · Printing"), so the card says which printer it shows. One printer needs no name.
+    static func subtitle(_ row: Printer, namingPrinter: Bool) -> String {
+        let state = subtitle(row)
+        guard namingPrinter, headline(row) != row.name else { return state }
+        return "\(row.name) · \(state)"
     }
 
     /// Release tags look like `v1.2.0`; the menu shows `Download PrintGlance 1.2.0`.
@@ -596,8 +668,16 @@ struct GlanceContent: Equatable, Sendable {
         return "\(formatRemain(s)) ago"
     }
 
-    /// The big line. Nil when it would only repeat the subtitle.
-    static func hero(_ row: Printer, occupancyEndedAt: Date? = nil, now: Date = Date()) -> String? {
+    /// The big line. Nil when it would only repeat the subtitle. A finished print says "40m ago" for as
+    /// long as the menu bar does, then the time it finished ("14:02 yesterday"), which stays useful.
+    /// The iPhone's paused card leads with this; the Mac's leads with the reason (`cardHero`).
+    static func hero(
+        _ row: Printer,
+        occupancyEndedAt: Date? = nil,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String? {
         switch row.state.uppercased() {
         case "RUNNING", "PREPARE":
             if let eta = row.eta, !eta.isEmpty { return eta }
@@ -606,20 +686,60 @@ struct GlanceContent: Equatable, Sendable {
             // The finish time slides later while paused; time left holds still.
             return row.remainingS.flatMap { $0 > 0 ? "\(formatRemain($0)) left" : nil }
         case "FINISH":
-            return occupancyEndedAt.map { agoTitle(from: $0, now: now) }
+            guard let ended = occupancyEndedAt else { return nil }
+            return now.timeIntervalSince(ended) < finishTitleFor
+                ? agoTitle(from: ended, now: now)
+                : dayTime(ended, now: now, calendar: calendar, locale: locale)
         default:
             return nil
         }
     }
 
-    /// "1h 24m left" under a finish-time hero.
+    /// The Mac card's big line: `hero`, except while paused. Time left doesn't change then, and the
+    /// reason is why you opened the card, so the reason leads and time left sits under the bar.
+    static func cardHero(
+        _ row: Printer,
+        occupancyEndedAt: Date? = nil,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String? {
+        guard row.state.uppercased() != "PAUSE" else { return nil }
+        return hero(row, occupancyEndedAt: occupancyEndedAt, now: now, calendar: calendar, locale: locale)
+    }
+
+    /// "1h 24m left": under a finish-time hero while Starting or Printing, and under the bar while Paused.
     static func remainingLine(_ row: Printer) -> String? {
-        guard ["RUNNING", "PREPARE"].contains(row.state.uppercased()),
-              let s = row.remainingS, s > 0, let eta = row.eta, !eta.isEmpty
-        else {
+        guard let s = row.remainingS, s > 0 else { return nil }
+        switch row.state.uppercased() {
+        case "RUNNING", "PREPARE":
+            guard let eta = row.eta, !eta.isEmpty else { return nil }
+            return "\(formatRemain(s)) left"
+        case "PAUSE":
+            return "\(formatRemain(s)) left"
+        default:
             return nil
         }
-        return "\(formatRemain(s)) left"
+    }
+
+    /// "Took 4h 43m" under a finished print's hero, when PrintGlance saw the print start and end.
+    /// The start is History's: when PrintGlance first saw the job.
+    static func tookLine(_ row: Printer, startedAt: Date?, endedAt: Date?) -> String? {
+        guard row.state.uppercased() == "FINISH", let startedAt, let endedAt else { return nil }
+        let seconds = Int(endedAt.timeIntervalSince(startedAt))
+        return seconds >= 60 ? "Took \(formatRemain(seconds))" : nil
+    }
+
+    /// "Stopped at 52% · Layer 18 / 29" on a failed or canceled print that got going.
+    static func stoppedLine(_ row: Printer) -> String? {
+        guard row.state.uppercased() == "FAILED", let percent = row.percent, percent > 0 else { return nil }
+        let layer = (row.layer ?? 0) > 0 ? layerLine(row) : nil
+        return ["Stopped at \(percent)%", layer].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// The bar and the layer line: Printing and Paused. Starting has neither yet, only 0% and layer 0.
+    static func showsProgress(_ row: Printer) -> Bool {
+        ["RUNNING", "PAUSE"].contains(row.state.uppercased())
     }
 
     /// "Nozzle 186 / 220° · Bed 48 / 60°" while starting. A heater without a target shows only its
@@ -676,6 +796,25 @@ struct GlanceContent: Equatable, Sendable {
             line += " AMS may switch to \(backup)."
         }
         return line
+    }
+
+    /// How strongly to outline a filament color dot (`RRGGBBAA`), as an opacity of the text color.
+    /// Firm where the dot is close to the panel behind it (black in dark mode, white or pale in light
+    /// mode, see-through in either), so it doesn't disappear; faint elsewhere, so colors don't look heavy.
+    static func dotOutline(hex: String, dark: Bool) -> Double {
+        guard hex.count == 8, let v = UInt32(hex, radix: 16) else { return 0 }
+        func linear(_ byte: UInt32) -> Double {
+            let c = Double(byte & 0xFF) / 255
+            return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        // Relative luminance (WCAG) of the panel, and of the dot over it.
+        let panel = dark ? 0.02 : 0.85
+        let alpha = Double(v & 0xFF) / 255
+        let color = 0.2126 * linear(v >> 24) + 0.7152 * linear(v >> 16) + 0.0722 * linear(v >> 8)
+        let dot = color * alpha + panel * (1 - alpha)
+        let contrast = (max(dot, panel) + 0.05) / (min(dot, panel) + 0.05)
+        guard contrast < 2 else { return 0.15 }
+        return dark ? 0.55 : 0.25
     }
 
     private static func a11y(_ row: Printer, ago: String? = nil) -> String {
