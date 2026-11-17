@@ -312,7 +312,16 @@ final class RenderStatesTests: XCTestCase {
                 $0.manual = true
                 $0.draft = PrinterSettings(ip: "192.168.1.20", serial: "01P00A411800456", accessCode: "AB12cd34", name: "")
             }),
-            ("edit", flow(.edit(serial: "00M09A350100123")) { $0.found = setupHits }),
+            ("not-listed", flow {
+                $0.found = setupHits
+                $0.manual = true
+                $0.draft = PrinterSettings(ip: "192.168.1.30", serial: "", accessCode: "", name: "")
+            }),
+            ("edit", flow(.edit(serial: "00M09A350100123")) { _ in }),
+            ("edit-short-code", flow(.edit(serial: "00M09A350100123")) { $0.draft.accessCode = "1234" }),
+            ("edit-failed", flow(.edit(serial: "00M09A350100123")) {
+                $0.phase = .failed(SetupFlow.failureMessage("MQTT CONNACK 5", ip: "192.168.1.21"))
+            }),
             ("connecting", flow {
                 $0.found = setupHits
                 $0.pick(setupHits[0])

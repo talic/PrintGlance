@@ -1,6 +1,6 @@
 # Testing PrintGlance
 
-The suite has two parts: **414 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **72 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
+The suite has two parts: **426 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **72 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Running
 
@@ -41,7 +41,7 @@ PG_RENDER_DIR=/tmp/pg-renders make test
 | **Wire** (real `MQTT311Client`, real TLS on loopback) | `MQTTWireTests` | The exact bytes of CONNECT, SUBSCRIBE, PUBLISH; CONNACK codes; refused ports; frame reassembly across reads and in one read; 150 KB reports; QoS 1; hostile frames (garbage lengths, packets over 4 MB, topics longer than their packet, truncated packets, non-UTF-8 topics, unknown packet types); a disconnect or replaced socket staying silent. | ~1.5 s |
 | **UI** (SwiftUI read through accessibility) | `UI/CardScreenTests`, `UI/PanelScreenTests`, `UI/SetupScreenTests`, `UI/LayoutTests`, `PhoneGlanceTests.testCardReadsInOrder` | What a person sees and can do in each state: exact text in reading order, which buttons exist and are enabled, VoiceOver names for every control, no `Optional(…)` leaking into text, pressing buttons and typing into fields, the full setup flow driven through the window, size limits for small displays and long names. | ~4 s |
 | **Security and privacy** | `SecurityTests`, `UpdateCheckTests`, parts of `MQTTWireTests` | The access code only ever travels as the MQTT password (never in the log, client ID, notifications, or publishes); the app only ever publishes `pushall`; outbound URLs carry no serial; updates download only from `https://github.com`; seeded fuzzing of reports, error codes, and discovery packets never crashes or prints an optional. | ~0.5 s |
-| **Shipping** | `ShippingTests` | `Info.plist` keys the app relies on; README promises (four printers, 50 jobs, 20%, 5%, Quiet Hours 10 PM–7 AM, lead times, 2-minute network settle, stage words, the paused example, the lost-connection wording, "only fetches GitHub") checked against the constants and functions that keep them. | ms |
+| **Shipping** | `ShippingTests` | `Info.plist` keys the app relies on; README promises (four printers, 50 jobs, 20%, 5%, the Quiet Hours and Finishing Soon choices, Look Up on notices, 2-minute network settle, stage words, the paused example, the lost-connection wording, "only fetches GitHub") checked against the constants and functions that keep them. | ms |
 | **Renders** | `RenderStatesTests` | PNGs of every state, skipped unless `PG_RENDER_DIR` is set. | — |
 | **Python feed** | `Tests/Feed/test_feed.py` | Merging, rows, AMS across units, job names, hostile numbers and nesting, the snapshot cache under threads, the read-only MQTT callbacks, the HTTP endpoints and token, the localhost default and LAN warning, idle timeouts, `/print.json` never carrying the serial, IP, or code, `bambu.self_test()`. | ~0.8 s |
 
@@ -119,10 +119,10 @@ Run these by hand before a release, or when touching the area. Ask the owner bef
 |---|---|
 | The menu bar item appears, sits right of the front app's menus, and opens the panel on click | `MenuBarExtra` needs a real status bar; `performClick` doesn't open a window-style extra on macOS 27, and computer-use tools can't target a menu-bar-only app. |
 | The panel hugs the card: no clear band, shrinks when the card shrinks (e.g. close History), keeps its top-right corner | Only real clicks show the timing (a debug hook that opens the panel without making it key hid this bug once). |
-| **More** menu: every item, Notifications submenu toggles persist, Lead Time disabled when Finishing Soon is off, version row, Quit | Opening the menu is modal. |
+| **More** menu: every item, Notifications submenu toggles persist, the Print Finishing Soon and Quiet Hours pickers check the saved choice and show it in their titles, version row, Quit | Opening the menu is modal. |
 | Overflow **Edit…/Remove…** context menu on list rows, the Remove confirmation | Context menus and `NSAlert` are modal. |
 | First launch: Add Printer window opens; Local Network prompt; notification prompt after Done; Open at Login (and Login Items approval) | System prompts and `SMAppService` need a signed app bundle. |
-| A real print: progress, Starting stages with heaters, pause with a real HMS code and **Look up**, finish notification, Quiet Hours delay | Needs a printer; the fakes are modeled on captured reports. |
+| A real print: progress, Starting stages with heaters, pause with a real HMS code and **Look up**, the paused notice's **Look Up** button, finish notification, Quiet Hours delay | Needs a printer; the fakes are modeled on captured reports. Notification Center traps without an app bundle, so the button's handler only runs in the app. |
 | Sleep and wake mid-print, Wi-Fi off/on (no Lost Connection notice from the Mac's own drop), printer moved to a new IP | Needs real power and network events. |
 | The 20 s keep-alive ping and "ping timeout" | Too slow for the suite; the code path is small (`MQTT311Client.startPing`). |
 | `PrinterDiscovery.scan` on a real Wi-Fi, including while Bambu Studio holds UDP 2021 | Real multicast sockets. |

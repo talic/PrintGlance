@@ -84,6 +84,10 @@ final class NotificationLog: @unchecked Sendable {
         var subtitle: String
         var body: String
         var serial: String?
+        /// Everything in `userInfo`, as text.
+        var userInfo: [String: String]
+        /// Its buttons: `PrintNotifyAlert.lookUpCategory` has Look Up. Empty for none.
+        var category: String
         /// The Notification Center stack it joins.
         var thread: String
         /// Seconds until it fires; nil for now.
@@ -111,6 +115,8 @@ final class NotificationLog: @unchecked Sendable {
                     subtitle: request.content.subtitle,
                     body: request.content.body,
                     serial: request.content.userInfo[PendingSelection.serialKey] as? String,
+                    userInfo: Dictionary(uniqueKeysWithValues: request.content.userInfo.map { ("\($0.key)", "\($0.value)") }),
+                    category: request.content.categoryIdentifier,
                     thread: request.content.threadIdentifier,
                     fireIn: fireIn,
                     calendar: calendar
@@ -119,7 +125,8 @@ final class NotificationLog: @unchecked Sendable {
             removePending: { [self] ids in cancelled.append(contentsOf: ids) },
             removeDelivered: { [self] ids in removed.append(contentsOf: ids) },
             requestAuthorization: { [self] in permissionRequests += 1 },
-            isDenied: { [self] in denied }
+            isDenied: { [self] in denied },
+            setCategories: { _ in }
         )
     }
 
