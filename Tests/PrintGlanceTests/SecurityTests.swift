@@ -29,6 +29,7 @@ final class SecurityTests: XCTestCase {
         XCTAssertFalse(h.logText.contains(secret), "log:\n\(h.logText)")
         for n in h.notifications.posted {
             XCTAssertFalse(n.title.contains(secret) || n.body.contains(secret), n.body)
+            XCTAssertFalse(n.userInfo.values.contains { $0.contains(secret) }, "\(n.userInfo)")
             XCTAssertFalse(n.body.contains("192.0.2."), "notices name the printer, not its address: \(n.body)")
         }
         XCTAssertFalse(link.publishes.contains { $0.payload.contains(secret) })

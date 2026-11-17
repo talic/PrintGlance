@@ -198,14 +198,35 @@ final class SetupWorkflowTests: XCTestCase {
 
     // MARK: - Editing
 
-    func testEditStartsFromTheSavedPrinterWithFieldsOpen() {
+    func testEditStartsFromTheSavedPrinter() {
         let h = ModelHarness(self)
         h.add(x2d, p1s)
         let f = flow(h, .edit(serial: p1s.serial))
         XCTAssertEqual(f.draft, p1s)
-        XCTAssertTrue(f.manual)
         XCTAssertEqual(f.title, "Edit P1S")
+        XCTAssertEqual(f.intro, "Update the access code or IP address. On the printer, open Settings, then LAN or Network.")
         XCTAssertEqual(flow(h).title, "Add Printer")
+        XCTAssertEqual(flow(h).intro, "Pick your printer, then enter its access code. On the printer, open Settings, then LAN or Network.")
+    }
+
+    /// Edit knows its printer. A list there would let a pick swap it for another printer and keep the old code.
+    func testOpeningEditNeverSearches() async throws {
+        let h = ModelHarness(self)
+        h.add(x2d)
+        h.network.hits = [garage]
+        let edit = flow(h, .edit(serial: x2d.serial))
+        edit.opened()
+        XCTAssertFalse(edit.scanning)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(h.network.scans, 0)
+        XCTAssertTrue(edit.found.isEmpty)
+
+        let add = flow(h)
+        add.opened()
+        let searched = await eventually { !add.scanning }
+        XCTAssertTrue(searched)
+        XCTAssertEqual(h.network.scans, 1)
+        XCTAssertEqual(add.found, [garage])
     }
 
     func testEditingTheIPReplacesThatRow() throws {
@@ -219,6 +240,20 @@ final class SetupWorkflowTests: XCTestCase {
         XCTAssertEqual(h.model.settings.focusId, p1s.serial)
         try XCTUnwrap(h.printers.latest(p1s.serial)).answer()
         XCTAssertEqual(f.phase, .connected)
+    }
+
+    func testEditingTheAccessCodeRedialsTheSamePrinter() throws {
+        let h = ModelHarness(self)
+        h.add(x2d, p1s)
+        let f = flow(h, .edit(serial: x2d.serial))
+        f.draft.accessCode = "newcode1"
+        f.connect()
+        XCTAssertEqual(h.model.settings.printers.map(\.serial), [x2d.serial, p1s.serial])
+        let link = try XCTUnwrap(h.printers.latest(x2d.serial))
+        XCTAssertEqual(link.dials.last?.password, "newcode1")
+        link.accept()
+        link.report(Report.state("IDLE"))
+        XCTAssertEqual(f.phase, .connected, "connected once the printer reports")
     }
 
     func testEditingPausesRediscoveryUntilTheWindowCloses() async throws {

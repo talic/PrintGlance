@@ -635,6 +635,43 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertNotNil(h.defaults.data(forKey: RunoutTracker.defaultsKey), "survives a relaunch mid-print")
     }
 
+    /// A paused or failed notice with a code carries it next to the serial and gets the Look Up button.
+    func testNoticesWithAnErrorCodeOfferLookUp() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running())
+        link.report(["gcode_state": "PAUSE", "hms": [["attr": 0x0700_2000, "code": 0x0002_0001]]])
+        let pause = try XCTUnwrap(h.notifications.posted.first { $0.title == "X2D paused" })
+        XCTAssertEqual(pause.category, PrintNotifyAlert.lookUpCategory)
+        XCTAssertEqual(pause.userInfo, ["serial": x2d.serial, "code": "0700-2000-0002-0001"])
+
+        link.report(Report.running(percent: 53).merging(["hms": [[String: Any]]()]))
+        link.report(["gcode_state": "FAILED", "print_error": 0x0300_806E])
+        let fail = try XCTUnwrap(h.notifications.posted.first { $0.title == "X2D failed" })
+        XCTAssertEqual(fail.category, PrintNotifyAlert.lookUpCategory)
+        XCTAssertEqual(fail.userInfo, ["serial": x2d.serial, "code": "0300-806E"])
+
+        XCTAssertEqual(GlanceModel.lookUpCategory().identifier, PrintNotifyAlert.lookUpCategory)
+        XCTAssertEqual(GlanceModel.lookUpCategory().actions.map(\.identifier), [PrintNotifyAlert.lookUpAction])
+    }
+
+    func testNoticesWithoutAnErrorCodeHaveNoButtons() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running())
+        link.report(Report.state("PAUSE"))
+        link.report(Report.running(percent: 53))
+        link.report(Report.state("FINISH"))
+        let posted = h.notifications.posted.filter { ["X2D paused", "X2D finished", "X2D finishing soon"].contains($0.title) }
+        XCTAssertEqual(Set(posted.map(\.title)), ["X2D paused", "X2D finished", "X2D finishing soon"])
+        for n in posted {
+            XCTAssertEqual(n.category, "", n.title)
+            XCTAssertEqual(n.userInfo, ["serial": x2d.serial], n.title)
+        }
+    }
+
     func testClickedNotificationPicksTheCardOnce() {
         let h = ModelHarness(self)
         h.model.notificationClicked(serial: p1s.serial)

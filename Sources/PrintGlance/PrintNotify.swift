@@ -14,6 +14,14 @@ struct PrintNotifyAlert: Equatable {
     var subtitle: String = ""
     var body: String
     var serial: String
+    /// The error code a paused or failed notice explains, for its Look Up button. Never the access code.
+    var code: String? = nil
+
+    /// Notices with a `code` join this category, which has the Look Up button.
+    static let lookUpCategory = "pg.errorCode"
+    static let lookUpAction = "pg.lookUp"
+    /// The code rides next to the serial in `userInfo`.
+    static let codeKey = "code"
 
     var identifier: String { Self.identifier(kind, serial: serial) }
 
@@ -44,8 +52,32 @@ struct PrintNotifyPrefs: Equatable {
     var lowFilament: Bool = true
     /// Minutes before the end that "Print finishing soon" arrives. One of `comingOffLeads`.
     var comingOffLead: Int = 10
+    /// The hour Quiet Hours starts. One of `QuietHours.starts`.
+    var quietHoursStart: Int = QuietHours.default.startHour
 
     static let comingOffLeads = [5, 10, 15, 30]
+    /// The Print Finishing Soon menu: off, then each lead time.
+    static let finishingSoonChoices: [Int?] = [nil] + comingOffLeads.map(Optional.some)
+    /// The Quiet Hours menu: off, then each window.
+    static let quietHoursChoices: [QuietHours?] = [nil] + QuietHours.starts.map { QuietHours(startHour: $0) }
+
+    /// Print Finishing Soon as one choice: minutes before the end, or nil when off.
+    var finishingSoonLead: Int? {
+        get { comingOff ? comingOffLead : nil }
+        set {
+            comingOff = newValue != nil
+            if let newValue { comingOffLead = newValue }
+        }
+    }
+
+    /// Quiet Hours as one choice: the window, or nil when off.
+    var quietWindow: QuietHours? {
+        get { quietHours ? QuietHours(startHour: quietHoursStart) : nil }
+        set {
+            quietHours = newValue != nil
+            if let newValue { quietHoursStart = newValue.startHour }
+        }
+    }
 
     static let `default` = PrintNotifyPrefs(
         finish: true,
@@ -70,6 +102,8 @@ struct PrintNotifyPrefs: Equatable {
             return d.bool(forKey: key)
         }
         let lead = d.integer(forKey: "pg.notify.comingOffLead")
+        // Not `integer(forKey:)`: 0 is midnight, not a missing key.
+        let start = (d.object(forKey: "pg.notify.quietHoursStart") as? Int).flatMap { QuietHours.starts.contains($0) ? $0 : nil }
         return PrintNotifyPrefs(
             finish: flag("pg.notify.finish", fallback: true),
             fail: flag("pg.notify.fail", fallback: true),
@@ -78,7 +112,8 @@ struct PrintNotifyPrefs: Equatable {
             comingOff: flag("pg.notify.comingOff", fallback: true),
             quietHours: flag("pg.notify.quietHours", fallback: false),
             lowFilament: flag("pg.notify.lowFilament", fallback: true),
-            comingOffLead: comingOffLeads.contains(lead) ? lead : 10
+            comingOffLead: comingOffLeads.contains(lead) ? lead : 10,
+            quietHoursStart: start ?? QuietHours.default.startHour
         )
     }
 
@@ -91,6 +126,7 @@ struct PrintNotifyPrefs: Equatable {
         d.set(quietHours, forKey: "pg.notify.quietHours")
         d.set(lowFilament, forKey: "pg.notify.lowFilament")
         d.set(comingOffLead, forKey: "pg.notify.comingOffLead")
+        d.set(quietHoursStart, forKey: "pg.notify.quietHoursStart")
     }
 }
 
@@ -229,6 +265,7 @@ struct PrintNotify {
             subtitle = ""
             body = (row.percent.map { "\(job ?? name) was at \($0)%. " } ?? "") + "PrintGlance keeps trying."
         }
-        return PrintNotifyAlert(kind: kind, title: title, subtitle: subtitle, body: body, serial: row.id)
+        let code = kind == .fail || kind == .pause ? GlanceContent.leadErrorCode(row) : nil
+        return PrintNotifyAlert(kind: kind, title: title, subtitle: subtitle, body: body, serial: row.id, code: code)
     }
 }
