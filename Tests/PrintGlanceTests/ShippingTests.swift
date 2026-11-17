@@ -162,6 +162,8 @@ final class ShippingTests: XCTestCase {
     func testDailyUpdateCheck() throws {
         try readme(contains: "Once a day PrintGlance checks GitHub.")
         XCTAssertEqual(AppUpdate.day, 24 * 60 * 60)
+        try readme(contains: "choose **PrintGlance** followed by its version number. The card shows **Update available**, or **PrintGlance is up to date**.")
+        XCTAssertEqual(GlanceContent.updateCheckLine(.upToDate, available: nil), "PrintGlance is up to date")
     }
 
     func testMenuBarStageWords() throws {
@@ -280,7 +282,7 @@ final class ShippingTests: XCTestCase {
 
     func testReadOnlyAndLocalPromise() throws {
         try readme(contains: "It never pauses, stops, or starts a print.")
-        try readme(contains: "The only thing it fetches from the internet is a daily check on GitHub for a newer version.")
+        try readme(contains: "The only thing it fetches from the internet is a check on GitHub for a newer version, once a day or when you ask.")
         // The only URLs the app requests itself; Bambu's pages open in the browser only when clicked.
         let sources = try FileManager.default.contentsOfDirectory(
             at: Self.root.appendingPathComponent("Sources/PrintGlance"), includingPropertiesForKeys: nil

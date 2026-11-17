@@ -115,7 +115,13 @@ final class AppUpdateChecker {
         await fetch()
     }
 
-    private func fetch() async {
+    /// Asks GitHub now, even if today's check already ran. False when GitHub didn't answer.
+    func checkNow() async -> Bool {
+        await fetch()
+    }
+
+    @discardableResult
+    private func fetch() async -> Bool {
         var request = URLRequest(url: AppUpdate.latestAPIURL)
         request.httpMethod = "GET"
         guard let (data, response) = try? await session.data(for: request),
@@ -124,12 +130,13 @@ final class AppUpdateChecker {
               let tag = AppUpdate.tag(fromAPIJSON: data)
         else {
             publishCached()
-            return
+            return false
         }
         defaults.set(Date(), forKey: Self.lastCheckKey)
         defaults.set(tag, forKey: Self.remoteTagKey)
         defaults.set(AppUpdate.zipURL(fromAPIJSON: data)?.absoluteString, forKey: Self.remoteZipKey)
         publish(tag)
+        return true
     }
 
     /// The newest release's zip, saved with its tag, else the release page.

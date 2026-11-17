@@ -13,9 +13,7 @@ final class UpdateCheckTests: XCTestCase {
     }
 
     private func checker(_ d: UserDefaults, version: String = "1.3.0") -> (AppUpdateChecker, () -> [String?]) {
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [StubGitHub.self]
-        let checker = AppUpdateChecker(defaults: d, localVersion: version, session: URLSession(configuration: config))
+        let checker = AppUpdateChecker(defaults: d, localVersion: version, session: StubGitHub.session())
         var published: [String?] = []
         checker.onAvailable = { published.append($0) }
         return (checker, { published })
@@ -65,57 +63,39 @@ final class UpdateCheckTests: XCTestCase {
         XCTAssertEqual(StubGitHub.requests.count, 4)
     }
 
+    func testCheckNowAsksAgainTheSameDay() async {
+        let d = scratchDefaults()
+        StubGitHub.reply(200, #"{"tag_name":"v1.3.0"}"#)
+        let (checker, published) = checker(d)
+        await checker.checkIfDue()
+        StubGitHub.reply(200, release)
+        let answered = await checker.checkNow()
+        XCTAssertTrue(answered)
+        XCTAssertEqual(StubGitHub.requests.count, 2, "a click doesn't wait for tomorrow")
+        XCTAssertEqual(published(), [nil, "v9.9.9"])
+        XCTAssertEqual(checker.downloadURL.absoluteString, "https://github.com/talic/PrintGlance/releases/download/v9.9.9/PrintGlance.zip")
+    }
+
+    func testCheckNowSaysWhenGitHubDidNotAnswer() async {
+        let d = scratchDefaults()
+        d.set("v2.0.0", forKey: AppUpdateChecker.remoteTagKey)
+        for (status, body) in [(500, "oops"), (403, release)] {
+            StubGitHub.reply(status, body)
+            let (checker, published) = checker(d)
+            let answered = await checker.checkNow()
+            XCTAssertFalse(answered, "\(status)")
+            XCTAssertEqual(published(), ["v2.0.0"], "it still offers what it knew")
+        }
+        StubGitHub.reset()
+        let answered = await checker(d).0.checkNow()
+        XCTAssertFalse(answered, "offline")
+        XCTAssertNil(d.object(forKey: AppUpdateChecker.lastCheckKey))
+    }
+
     func testOfflineMacOffersWhatItKnew() async {
         let d = scratchDefaults()
         let (checker, published) = checker(d)
         await checker.checkIfDue()
         XCTAssertEqual(published(), [nil])
     }
-}
-
-/// Answers every request with the canned reply, or fails as if offline.
-final class StubGitHub: URLProtocol, @unchecked Sendable {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var canned: (status: Int, body: String)?
-    nonisolated(unsafe) private static var seen: [URLRequest] = []
-
-    static var requests: [URLRequest] {
-        lock.lock()
-        defer { lock.unlock() }
-        return seen
-    }
-
-    static func reply(_ status: Int, _ body: String) {
-        lock.lock()
-        canned = (status, body)
-        lock.unlock()
-    }
-
-    static func reset() {
-        lock.lock()
-        canned = nil
-        seen = []
-        lock.unlock()
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        Self.lock.lock()
-        Self.seen.append(request)
-        let reply = Self.canned
-        Self.lock.unlock()
-        guard let reply, let url = request.url,
-              let response = HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: nil)
-        else {
-            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
-            return
-        }
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(reply.body.utf8))
-        client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {}
 }
