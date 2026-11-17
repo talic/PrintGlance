@@ -135,6 +135,31 @@ final class JobLogTests: XCTestCase {
         XCTAssertFalse(log.rows.contains { $0.jobId == "t0" })
     }
 
+    func testAPrintFirstSeenPartWayHasNoDuration() {
+        var log = JobLog()
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        log.observe(printers: [row("RUNNING", jobId: "t1", percent: 60)], now: t0)
+        XCTAssertEqual(log.rows[0].sawStart, false, "the Mac woke or PrintGlance opened mid-print")
+        let t1 = t0.addingTimeInterval(3600)
+        log.observe(printers: [row("FINISH", jobId: "t1", percent: 100)], now: t1)
+        XCTAssertEqual(log.rows[0].endedAt, t1, "the end was seen, so 40m ago still works")
+        XCTAssertNil(log.rows[0].duration, "1h would be short of a print that ran before PrintGlance saw it")
+        XCTAssertNil(log.occupancyStartedAt(serial: "x2d", state: "FINISH", jobId: "t1"), "no Took line on the card")
+        XCTAssertFalse(GlanceContent.historyCaption(log.rows[0], showPrinter: false, now: t1).contains("1h"))
+        XCTAssertTrue(log.csv().contains(",,X2D,"), "an empty duration_min")
+
+        var starting = JobLog()
+        starting.observe(printers: [row("PREPARE", jobId: "t2", percent: 0)], now: t0)
+        XCTAssertEqual(starting.rows[0].sawStart, true)
+    }
+
+    func testOlderRowsKeepTheirDuration() throws {
+        let json = #"{"serial":"x2d","name":"X2D","jobId":"t1","startAt":0,"endedAt":3600,"outcome":"ok"}"#
+        let old = try JSONDecoder().decode(JobLogRow.self, from: Data(json.utf8))
+        XCTAssertNil(old.sawStart)
+        XCTAssertEqual(old.duration, 3600)
+    }
+
     func testCsvHasDurationMinutes() {
         var log = JobLog()
         let t0 = Date(timeIntervalSince1970: 1_700_000_000)
@@ -343,7 +368,8 @@ final class JobLogTests: XCTestCase {
         XCTAssertTrue(GlanceContent.clearHistoryMessage(cleared: 3, running: 2).hasSuffix(" The prints in progress stay."))
     }
 
-    private func row(_ state: String, jobId: String?, job: String? = "Print in Parts") -> Printer {
-        Printer(id: "x2d", name: "X2D", state: state, percent: 16, job: job, jobId: jobId)
+    /// At 1% by default, so a row opened from it saw the print begin.
+    private func row(_ state: String, jobId: String?, job: String? = "Print in Parts", percent: Int = 1) -> Printer {
+        Printer(id: "x2d", name: "X2D", state: state, percent: percent, job: job, jobId: jobId)
     }
 }

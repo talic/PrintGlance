@@ -84,6 +84,15 @@ final class PrintDocTests: XCTestCase {
         XCTAssertEqual(GlanceContent.strip(row: pause).accessibilityLabel, "X2D, canceled, 9 percent")
     }
 
+    /// Before any report, one printer switched off mustn't show the moon over another that refuses its code.
+    func testFeedDownReasonPutsARejectedCodeFirst() {
+        XCTAssertEqual(GlanceCopy.feedDownReason(focused: "connect timed out", all: ["connect timed out", "MQTT CONNACK 5"]), "MQTT CONNACK 5")
+        XCTAssertEqual(GlanceCopy.feedDownReason(focused: "ECONNREFUSED", all: ["connect timed out", "ECONNREFUSED"]), "ECONNREFUSED")
+        XCTAssertEqual(GlanceCopy.feedDownReason(focused: nil, all: ["connect timed out"]), "connect timed out")
+        XCTAssertNil(GlanceCopy.feedDownReason(focused: nil, all: []))
+        XCTAssertEqual(GlanceContent.strip(.feedDown, feedDownReason: "MQTT CONNACK 5").systemImage, GlanceContent.offlineImage)
+    }
+
     func testCanceledIsAFailureWithTheCancelCode() {
         var row = Printer(id: "x2d", name: "X2D", state: "FAILED", percent: 37, job: "Benchy", jobId: "t1")
         XCTAssertFalse(GlanceContent.isCanceled(row))

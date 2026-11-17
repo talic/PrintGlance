@@ -528,7 +528,7 @@ struct GlanceContent: Equatable, Sendable {
         let lead = [
             showPrinter && historyTitle(row) != row.name ? row.name : nil,
             dayTime(row.startAt, now: now, calendar: calendar, locale: locale),
-            row.endedAt.map { formatRemain(max(0, Int($0.timeIntervalSince(row.startAt)))) },
+            row.duration.map { formatRemain(Int($0)) },
         ].compactMap { $0 }.joined(separator: " · ")
         return (lead + " · ", historyOutcome(row))
     }
@@ -867,5 +867,12 @@ enum GlanceCopy {
     /// The printer answered and refused the access code.
     static func codeRejected(_ reason: String?) -> Bool {
         reason?.hasPrefix("MQTT CONNACK") == true
+    }
+
+    /// Before any printer reports, the menu bar and the panel speak for every printer at once. A rejected
+    /// access code wins, since it needs the user and the panel offers Update Access Code… for it; one
+    /// printer switched off must not show the moon over another that refuses its code.
+    static func feedDownReason(focused: String?, all: [String]) -> String? {
+        all.first(where: codeRejected) ?? focused ?? all.first
     }
 }

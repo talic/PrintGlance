@@ -173,8 +173,17 @@ final class GlanceModel: ObservableObject {
             content.result,
             occupancyEndedAt: occupancyEndedAt,
             now: occupancyNow,
-            feedDownReason: disconnectReason(for: settings.focusId)
+            feedDownReason: feedDownReason
         )
+    }
+
+    /// Why no printer has reported yet, for the menu bar and the panel: see `GlanceCopy.feedDownReason`.
+    var feedDownReason: String? {
+        let reasons = settings.printers.compactMap { p -> String? in
+            if case let .failed(reason) = linkStatus[p.serial] { return reason }
+            return nil
+        }
+        return GlanceCopy.feedDownReason(focused: disconnectReason(for: settings.focusId), all: reasons)
     }
 
     var occupancyEndedAt: Date? {
@@ -777,14 +786,7 @@ final class GlanceModel: ObservableObject {
     }
 
     private func finishTrigger(_ alert: PrintNotifyAlert) -> UNNotificationTrigger? {
-        guard alert.kind == .finish, let quiet = notifyPrefs.quietWindow else { return nil }
-        let now = Date()
-        guard quiet.contains(now) else { return nil }
-        let fire = quiet.nextMorning(from: now)
-        let comps = Calendar.current.dateComponents(
-            [.year, .month, .day, .hour, .minute, .second],
-            from: fire
-        )
+        guard alert.kind == .finish, let comps = notifyPrefs.quietWindow?.finishShowsAt(Date()) else { return nil }
         return UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
     }
 

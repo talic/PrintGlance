@@ -32,6 +32,12 @@ struct QuietHours: Hashable, Sendable {
         }
         return calendar.date(byAdding: .day, value: 1, to: morning) ?? morning
     }
+
+    /// When a Finished notice due at `now` shows: nil for now, or the window's end while inside it.
+    func finishShowsAt(_ now: Date, calendar: Calendar = .current) -> DateComponents? {
+        guard contains(now, calendar: calendar) else { return nil }
+        return calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: nextMorning(from: now, calendar: calendar))
+    }
 }
 
 enum ComingOffPhase: String, Equatable {

@@ -234,7 +234,7 @@ struct GlanceView: View {
     private var emptyDetail: String {
         switch model.content.result {
         case .feedDown:
-            return GlanceCopy.offlineDetail(nil, reason: model.disconnectReason(for: model.settings.focusId))
+            return GlanceCopy.offlineDetail(nil, reason: model.feedDownReason)
         case .needsSetup:
             return ""
         case .connecting:

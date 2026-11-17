@@ -333,6 +333,20 @@ final class ComingOffTests: XCTestCase {
         XCTAssertEqual(cal.component(.day, from: fromNine), 24)
     }
 
+    /// The Finished notice's trigger: held to the chosen window's end, or shown now outside it.
+    func testFinishedWaitsForTheChosenWindowsEnd() {
+        let cal = utc()
+        let late = QuietHours(startHour: 23)
+        let held = late.finishShowsAt(date(hour: 23, calendar: cal), calendar: cal)
+        XCTAssertEqual([held?.day, held?.hour, held?.minute], [24, 8, 0], "an 11 PM–8 AM window waits for 8 the next morning")
+        let dawn = late.finishShowsAt(date(hour: 7, calendar: cal), calendar: cal)
+        XCTAssertEqual([dawn?.day, dawn?.hour], [23, 8], "inside the window after midnight: that morning")
+        XCTAssertNil(late.finishShowsAt(date(hour: 22, calendar: cal), calendar: cal), "before the window: now")
+        XCTAssertNil(QuietHours.default.finishShowsAt(date(hour: 7, calendar: cal), calendar: cal), "the default window has ended at 7")
+        let midnight = QuietHours(startHour: 0).finishShowsAt(date(hour: 0, calendar: cal), calendar: cal)
+        XCTAssertEqual([midnight?.day, midnight?.hour], [23, 9])
+    }
+
     func testQuietHoursSkipsComingOffInTheChosenWindow() {
         let cal = utc()
         var prefs = PrintNotifyPrefs.default
