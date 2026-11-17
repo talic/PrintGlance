@@ -109,7 +109,7 @@ All in `Tests/PrintGlanceTests/Support`.
 | Job names (extensions, slicer suffixes) | `PrintDocTests.testJobLabel…`, Python `JobLabelTests` |
 | Feed parser matches the app (job label, second AMS tray, 30-day remaining cap) | `ParserParityTests`, Python `ParserParityTests` in `test_parser_parity.py`, fixture `Tests/PrintGlanceTests/Fixtures/parser-parity.json` |
 | Feed exposure: bind address, token, idle timeout, `Server` header, no secrets in responses | Python `BindTests`, `HttpTests` |
-| iPhone app and widget: one look (pushall only, own client ID, timeout, rejected code), the search (subnet, serial-shaped names, certificate read over real TLS with nothing sent, picking a printer drops another's code), the Connect alert, asking every printer at once, App Group statuses for several printers, ranking cards like the menu bar, widget words, timeline, card | `PhoneGlanceTests`; CI builds `iOS/` for the simulator |
+| iPhone app and widget: one look (pushall only, own client ID, timeout, rejected code), the search (subnet, serial-shaped names, certificate read over real TLS with nothing sent, picking a printer drops another's code, saved printers marked Added, one new printer filling the form), the access code hint matching the Mac's, the Connect, Save, Remove, and four-printer alerts, Paused orange and Failed red, asking every printer at once, App Group statuses for several printers, ranking cards like the menu bar, widget words, timeline, card | `PhoneGlanceTests`; CI builds `iOS/` for the simulator |
 
 ## What isn't automated
 

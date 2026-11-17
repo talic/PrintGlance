@@ -69,6 +69,13 @@ struct PrinterSettings: Equatable {
             name: name.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
+
+    /// The soft hint under an access code field, on the Mac and the iPhone. Nil while the field is empty or
+    /// the trimmed code has 8 characters.
+    static func codeHint(_ code: String) -> String? {
+        let code = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        return code.isEmpty || code.count == 8 ? nil : "Access codes are usually 8 characters."
+    }
 }
 
 struct SavedPrinters: Equatable {
