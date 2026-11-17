@@ -11,6 +11,21 @@
       "job": "Spacer 20mm x4"
     },
     {
+      "id": "cloud-plate-reads-the-task-name",
+      "print": {"gcode_file": "/data/Metadata/plate_3.gcode", "subtask_name": "Keyrings_Red"},
+      "job": "Keyrings_Red"
+    },
+    {
+      "id": "plate-without-a-task-name",
+      "print": {"gcode_file": "/data/Metadata/plate_1.gcode"},
+      "job": "plate_1"
+    },
+    {
+      "id": "plate-in-a-file-name-is-kept",
+      "print": {"gcode_file": "/sdcard/plate_holder.gcode.3mf", "subtask_name": "Holder"},
+      "job": "plate_holder"
+    },
+    {
       "id": "second-ams-tray",
       "print": {
         "gcode_state": "RUNNING",

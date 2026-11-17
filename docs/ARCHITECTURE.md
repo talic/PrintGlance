@@ -385,7 +385,7 @@ All under the report's `print` object.
 | `mc_percent`, `mc_remaining_time` | Progress %, minutes left | Bar, hero, ETA, runout x-axis |
 | `layer_num`, `total_layer_num` | Layer progress | Layer line, Starting detection |
 | `task_id`, `subtask_id` | Job identity | Job changes, history, dedupe |
-| `subtask_name`, `gcode_file` | Job name, file path | Job label (cache paths and hex names ignored, every `.gcode`/`.3mf`/`.gco` extension dropped, a layer-height suffix like " 0.2mm layer, 2 walls" cut but sizes like "20mm" kept, 40 chars) |
+| `subtask_name`, `gcode_file` | Job name, file path | Job label (the file's name, but a cloud print's `Metadata/plate_3.gcode` gives way to `subtask_name`; cache paths and hex names ignored, every `.gcode`/`.3mf`/`.gco` extension dropped, a layer-height suffix like " 0.2mm layer, 2 walls" cut but sizes like "20mm" kept, 40 chars) |
 | `ams.tray_now` / `tray_tar` | Active slot (255 none, 254 external) | Active filament |
 | `ams.ams[].id`, `.humidity`, `.humidity_raw`, `.info`, `.tray[]` | AMS units (HT from id 128) and slots | Trays, humidity, runout |
 | `tray[].tray_type`, `tray_sub_brands`, `tray_info_idx`, `remain`, `tray_color`, `cols`, `tray_weight` | Slot contents | Filament name, %, color dot, grams for the runout |

@@ -112,15 +112,30 @@ enum BambuPrint {
         return sub.isEmpty ? nil : sub
     }
 
+    /// "plate_3": the sliced plate inside a project (`Metadata/plate_3.gcode`, what cloud prints send). It names
+    /// the plate, not the print; the slicer's task name (`subtask_name`) does that.
+    static func isPlateFile(_ stem: String) -> Bool {
+        let low = stem.lowercased()
+        guard low.hasPrefix("plate_") else { return false }
+        let number = low.dropFirst("plate_".count)
+        return !number.isEmpty && number.allSatisfy { $0.isASCII && $0.isNumber }
+    }
+
+    /// The file's name, else the task name, else a plate's file name.
     static func jobLabel(_ printObj: [String: Any]) -> String? {
         var label: String
-        if let stem = humanGcodeStem(printObj["gcode_file"]) {
+        let stem = humanGcodeStem(printObj["gcode_file"])
+        if let stem, !isPlateFile(stem) {
             label = stem
-        } else {
-            guard let raw = BambuJSON.stringValue(printObj["subtask_name"])?
-                .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+        } else if let raw = BambuJSON.stringValue(printObj["subtask_name"])?
+            .trimmingCharacters(in: .whitespaces), !raw.isEmpty
+        {
             let stripped = stripProcessSuffix(raw)
             label = stripped.isEmpty ? raw : stripped
+        } else if let stem {
+            label = stem
+        } else {
+            return nil
         }
         if label.count > 40 {
             label = String(label.prefix(37)) + "..."
