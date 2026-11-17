@@ -254,7 +254,8 @@ struct PrintNotify {
         var alert: PrintNotifyAlert?
         if next == "FINISH", Self.isPrepareOrRunning(prev), prefs.finish {
             alert = Self.alert(.finish, row, serial: id)
-        } else if next == "FAILED", Self.isPrepareOrRunning(prev), prefs.fail {
+        } else if next == "FAILED", Self.isPrepareOrRunning(prev), prefs.fail, row.map(GlanceContent.isCanceled) != true {
+            // Bambu reports a cancel as FAILED. Whoever canceled the print needs no alert about it.
             alert = Self.alert(.fail, row, serial: id)
         } else if next == "PAUSE", Self.isPrepareOrRunning(prev), prefs.pause {
             alert = Self.alert(.pause, row, serial: id)

@@ -10,8 +10,9 @@ struct PrintDoc: Codable, Equatable, Sendable {
         lhs.v == rhs.v && lhs.focusId == rhs.focusId && lhs.printers == rhs.printers
     }
 
-    /// The printer that needs you: Paused, then Printing or Starting (finishing soonest),
-    /// then Failed, then Finished, then the rest. Focus breaks ties, then saved order.
+    /// The printer that needs you: Paused, then Printing or Starting (finishing soonest), then lost mid-print,
+    /// then Failed, then Finished or Canceled, then the rest, then offline and probably switched off.
+    /// Focus breaks ties, then saved order.
     func displayRow() -> Printer? {
         ranked().first
     }
@@ -23,9 +24,15 @@ struct PrintDoc: Codable, Equatable, Sendable {
             switch p.state.uppercased() {
             case "PAUSE": tier = 0
             case "RUNNING", "PREPARE": tier = 1
-            case "FAILED": tier = 2
-            case "FINISH": tier = 3
-            default: tier = 4
+            case "FAILED": tier = GlanceContent.isCanceled(p) ? 4 : 3
+            case "FINISH": tier = 4
+            case "OFFLINE":
+                switch GlanceContent.offlineKind(p) {
+                case .lost: tier = 2
+                case .switchedOff: tier = 6
+                default: tier = 5
+                }
+            default: tier = 5
             }
             let soonest = tier == 1 ? p.remainingS ?? .max : 0
             return (tier, p.id == focusId ? 0 : 1, soonest, i)
@@ -100,6 +107,9 @@ struct Printer: Codable, Equatable, Sendable {
     var chamberTemp: Temp? = nil
     /// Printing or paused: where a spool should run out before the end.
     var runout: Runout? = nil
+    /// Offline only: the printer answered and refused the access code. `GlanceModel` sets it from the link,
+    /// so the card, list, and menu bar can tell it from a printer that is switched off.
+    var codeRejected: Bool? = nil
 }
 
 enum FeedResult: Equatable, Sendable {

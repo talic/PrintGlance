@@ -168,7 +168,8 @@ final class GlanceModel: ObservableObject {
         GlanceContent.strip(
             content.result,
             occupancyEndedAt: occupancyEndedAt,
-            now: occupancyNow
+            now: occupancyNow,
+            feedDownReason: disconnectReason(for: settings.focusId)
         )
     }
 
@@ -537,6 +538,12 @@ final class GlanceModel: ObservableObject {
                 snapshots: snaps,
                 focusId: settings.focusId
             )
+            // Only the link knows a rejected code, which tells a real problem from a printer switched off.
+            for i in doc.printers.indices where doc.printers[i].state == "OFFLINE" {
+                if case let .failed(reason) = linkStatus[doc.printers[i].id], GlanceCopy.codeRejected(reason) {
+                    doc.printers[i].codeRejected = true
+                }
+            }
             // First, so everything after it sees when the printer should really report Finished.
             let lateBefore = overrun.late
             for i in doc.printers.indices {

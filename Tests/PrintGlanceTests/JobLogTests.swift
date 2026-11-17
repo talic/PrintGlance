@@ -143,6 +143,22 @@ final class JobLogTests: XCTestCase {
         XCTAssertTrue(csv.contains("ok"))
     }
 
+    func testCsvSaysCanceledForACanceledPrint() {
+        var log = JobLog()
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        var failed = row("FAILED", jobId: "t1")
+        failed.printError = "0300-806E"
+        var canceled = row("FAILED", jobId: "t2")
+        canceled.printError = "0300-400C"
+        log.observe(printers: [row("RUNNING", jobId: "t1")], now: t0)
+        log.observe(printers: [failed], now: t0 + 60)
+        log.observe(printers: [row("RUNNING", jobId: "t2")], now: t0 + 120)
+        log.observe(printers: [canceled], now: t0 + 180)
+        XCTAssertEqual(log.rows.map(\.outcome), [JobLog.outcomeFail, JobLog.outcomeFail], "jobs.json keeps fail")
+        let outcomes = log.csv().split(separator: "\n").dropFirst().map { $0.split(separator: ",").last.map(String.init) }
+        XCTAssertEqual(outcomes, ["canceled", "fail"])
+    }
+
     func testOccupancyClockAdvancesWithoutStateChange() {
         let ended = Date(timeIntervalSince1970: 1_700_000_000)
         var printer = Printer(id: "x2d", name: "X2D", state: "FINISH")
@@ -177,8 +193,28 @@ final class JobLogTests: XCTestCase {
         }
         XCTAssertEqual(caption(), "14:02 yesterday · 4h 43m · Finished")
         XCTAssertEqual(caption(true), "X2D · 14:02 yesterday · 4h 43m · Finished")
+        let parts = GlanceContent.historyCaptionParts(row, showPrinter: true, now: now, calendar: cal, locale: gb)
+        XCTAssertEqual(parts.lead, "X2D · 14:02 yesterday · 4h 43m · ")
+        XCTAssertEqual(parts.outcome, "Finished")
+        XCTAssertEqual(GlanceContent.historyTitle(row), "Benchy")
+
+        row.job = nil
+        XCTAssertEqual(GlanceContent.historyTitle(row), "X2D")
+        XCTAssertEqual(caption(true), "14:02 yesterday · 4h 43m · Finished", "the title already names the printer")
+        row.job = ""
+        XCTAssertEqual(caption(true), "14:02 yesterday · 4h 43m · Finished")
+        row.job = "Benchy"
+
         row.outcome = JobLog.outcomeFail
         XCTAssertEqual(caption(), "14:02 yesterday · 4h 43m · Failed")
+        XCTAssertTrue(GlanceContent.historyFailed(row))
+        row.failCode = "0300-400C"
+        XCTAssertEqual(caption(), "14:02 yesterday · 4h 43m · Canceled")
+        XCTAssertFalse(GlanceContent.historyFailed(row), "only a real failure is red")
+        XCTAssertTrue(GlanceContent.isCanceled(row))
+        row.failCode = "0300-806E"
+        XCTAssertEqual(GlanceContent.historyOutcome(row), "Failed")
+        row.failCode = nil
         row.endedAt = nil
         XCTAssertEqual(caption(), "14:02 yesterday · Failed", "no duration when the end wasn't seen")
         row.outcome = nil
@@ -250,6 +286,13 @@ final class JobLogTests: XCTestCase {
         log.observe(printers: [canceled], now: t0 + 360)
         XCTAssertEqual(log.rows[0].failCode, "0300-400C")
         XCTAssertEqual(log.rows.count, 1)
+
+        log.observe(printers: [row("RUNNING", jobId: "t2")], now: t0 + 400)
+        var door = row("FAILED", jobId: "t2")
+        door.hmsCode = "0300-9600-0001-0001"
+        door.printError = "0300-400C"
+        log.observe(printers: [door], now: t0 + 460)
+        XCTAssertEqual(log.rows[0].failCode, "0300-400C", "a cancel stays a cancel beside an HMS code we can explain")
     }
 
     func testOlderHistoryFilesStillLoad() throws {
@@ -280,8 +323,10 @@ final class JobLogTests: XCTestCase {
         XCTAssertEqual(GlanceContent.historyNotes(row), ["Paused 3 times."], "the last pause gave no code")
 
         row.outcome = JobLog.outcomeFail
+        row.failCode = "0300-806E"
+        XCTAssertEqual(GlanceContent.historyNotes(row), ["The nozzle overheated. Turn the printer off and have it checked.", "Paused 3 times."])
         row.failCode = "0300-400C"
-        XCTAssertEqual(GlanceContent.historyNotes(row), ["The print was canceled.", "Paused 3 times."])
+        XCTAssertEqual(GlanceContent.historyNotes(row), ["Paused 3 times."], "the caption already says Canceled")
         row.pauses = nil
         row.failCode = nil
         XCTAssertEqual(GlanceContent.historyNotes(row), [], "the caption already says Failed")

@@ -211,6 +211,33 @@ final class PrintNotifyTests: XCTestCase {
         XCTAssertEqual(out.alert?.body, "The build plate is missing or out of place.")
     }
 
+    func testACanceledPrintSendsNoFailedNotice() {
+        var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
+        func doc(_ p: Printer) -> GlanceContent { fleet(focus: "x2d", [p]) }
+        _ = n.observe(row("RUNNING", jobId: "t1"))
+        var canceled = Printer(id: "x2d", name: "X2D", state: "FAILED", percent: 16, job: "Print in Parts", jobId: "t1")
+        canceled.printError = "0300-400C"
+        let out = n.observe(doc(canceled))
+        XCTAssertNil(out.alert)
+        XCTAssertEqual(out.clears, ["pg.offline.x2d"], "clearing is unchanged")
+        XCTAssertNil(n.stamp)
+
+        _ = n.observe(row("RUNNING", jobId: "t2"))
+        var failed = canceled
+        failed.jobId = "t2"
+        failed.printError = "0300-806E"
+        XCTAssertEqual(n.observe(doc(failed)).alert?.title, "X2D failed", "a real failure still tells you")
+
+        _ = n.observe(row("RUNNING", jobId: "t3"))
+        var paused = canceled
+        paused.state = "PAUSE"
+        paused.jobId = "t3"
+        paused.printError = "0300-8001"
+        let pause = n.observe(doc(paused)).alert
+        XCTAssertEqual(pause?.title, "X2D paused", "a pause made on the printer still tells you")
+        XCTAssertEqual(pause?.body, "The print was paused on the printer or in an app.")
+    }
+
     func testAlertsThatAreNoLongerTrueAreCleared() {
         var n = PrintNotify(serial: "x2d", prefs: .default, stamp: nil)
         XCTAssertEqual(
