@@ -61,6 +61,12 @@ final class ComingOffTests: XCTestCase {
             c.consider(printer: printer("RUNNING", remainingS: 3560, jobId: "t1"), prefs: prefs, now: now + 40)?.interval,
             3260
         )
+
+        for a in PrintNotifyPrefs.comingOffLeads {
+            for b in PrintNotifyPrefs.comingOffLeads where a != b {
+                XCTAssertGreaterThan(abs(a - b) * 60, ComingOff.jumpS, "\(a) to \(b) moves the notice past a jump")
+            }
+        }
     }
 
     func testInsideLeadTimeSaysWhatIsLeft() {
@@ -114,6 +120,65 @@ final class ComingOffTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(again?.interval, 1200)
+    }
+
+    /// The printer counts down in whole minutes as the clock runs, so the delay to the notice
+    /// shrinks but its time doesn't move. Reports twice a minute from 60 minutes left to Finished.
+    func testASteadyPrintIsScheduledOnce() {
+        var c = ComingOff()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var actions: [ComingOffAction] = []
+        for minute in 0..<60 {
+            for second in [0, 30] {
+                let report = printer("RUNNING", remainingS: (60 - minute) * 60, jobId: "t1")
+                let now = start.addingTimeInterval(TimeInterval(minute * 60 + second))
+                if let action = c.consider(printer: report, prefs: .default, now: now) {
+                    actions.append(action)
+                }
+            }
+        }
+        if let done = c.consider(printer: printer("FINISH", remainingS: 0, jobId: "t1"), prefs: .default, now: start + 3600) {
+            actions.append(done)
+        }
+        XCTAssertEqual(actions.map(\.interval), [3000], "one schedule, and nothing again when it fires")
+        XCTAssertEqual(actions.first?.body, "About 10 minutes left.")
+        XCTAssertEqual(c.phase["x2d|t1"], .done)
+    }
+
+    /// Time left grows by 5 minutes halfway: the notice moves once. A 2-minute wobble doesn't move it.
+    func testTimeLeftJumpingReschedulesOnce() {
+        var c = ComingOff()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        func report(minute: Int, minutesLeft: Int) -> ComingOffAction? {
+            c.consider(
+                printer: printer("RUNNING", remainingS: minutesLeft * 60, jobId: "t1"),
+                prefs: .default,
+                now: start.addingTimeInterval(TimeInterval(minute * 60))
+            )
+        }
+        XCTAssertEqual(report(minute: 0, minutesLeft: 60)?.interval, 3000)
+        for minute in 1...20 {
+            XCTAssertNil(report(minute: minute, minutesLeft: 60 - minute), "minute \(minute)")
+        }
+        let moved = report(minute: 21, minutesLeft: 44)
+        XCTAssertEqual(moved?.interval, 34 * 60, "39 minutes left plus 5")
+        XCTAssertEqual(moved?.cancelIds, ["pg.comingoff.x2d.t1"], "replaces the pending notice")
+        for minute in 22...30 {
+            XCTAssertNil(report(minute: minute, minutesLeft: 65 - minute), "minute \(minute)")
+        }
+        XCTAssertNil(report(minute: 31, minutesLeft: 36), "2 minutes longer is not a jump")
+        XCTAssertNil(report(minute: 32, minutesLeft: 33), "nor 2 minutes shorter")
+    }
+
+    /// Time left drops into the lead time well before the notice was due: it comes at once.
+    func testTimeLeftDroppingIntoTheLeadTimeFiresNow() {
+        var c = ComingOff()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        _ = c.consider(printer: printer("RUNNING", remainingS: 3600, jobId: "t1"), prefs: .default, now: start)
+        let now = c.consider(printer: printer("RUNNING", remainingS: 420, jobId: "t1"), prefs: .default, now: start + 600)
+        XCTAssertEqual(now?.immediate, true)
+        XCTAssertEqual(now?.cancelIds, ["pg.comingoff.x2d.t1"])
+        XCTAssertEqual(now?.body, "About 7 minutes left.")
     }
 
     func testAlreadyUnder10mFiresOnce() {
@@ -333,14 +398,41 @@ final class ComingOffTests: XCTestCase {
         let name = "PrintGlance.comingoff.\(UUID().uuidString)"
         let d = UserDefaults(suiteName: name)!
         defer { d.removePersistentDomain(forName: name) }
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
         var c = ComingOff()
         _ = c.consider(
             printer: printer("RUNNING", remainingS: 3600, jobId: "t1"),
-            prefs: .default
+            prefs: .default,
+            now: start
         )
         c.save(d)
-        let loaded = ComingOff.load(d)
+        var loaded = ComingOff.load(d)
+        XCTAssertEqual(loaded, c)
         XCTAssertEqual(loaded.phase["x2d|t1"], .scheduled)
+        XCTAssertEqual(d.dictionary(forKey: "pg.comingoff.fireAt") as? [String: Int], ["x2d|t1": 1_700_003_000])
+        XCTAssertNil(
+            loaded.consider(printer: printer("RUNNING", remainingS: 3000, jobId: "t1"), prefs: .default, now: start + 600),
+            "relaunched 10 minutes on, the notice already pending stays"
+        )
+    }
+
+    /// Before this, `pg.comingoff.remain` held the delay from when the notice was scheduled. That
+    /// says nothing about when it fires, so it reschedules once and the old key goes.
+    func testAnOldSavedDelayReschedulesOnce() throws {
+        let d = scratchDefaults()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        d.set(["x2d|t1": "scheduled"], forKey: "pg.comingoff.phase")
+        d.set(["x2d|t1": 3000], forKey: "pg.comingoff.remain")
+        var c = ComingOff.load(d)
+        XCTAssertEqual(c.phase["x2d|t1"], .scheduled)
+        XCTAssertEqual(c.scheduledFireInS, [:])
+        let again = c.consider(printer: printer("RUNNING", remainingS: 3000, jobId: "t1"), prefs: .default, now: start)
+        XCTAssertEqual(again?.interval, 2400)
+        XCTAssertEqual(again?.cancelIds, ["pg.comingoff.x2d.t1"])
+        XCTAssertNil(c.consider(printer: printer("RUNNING", remainingS: 2940, jobId: "t1"), prefs: .default, now: start + 60))
+        c.save(d)
+        XCTAssertNil(d.object(forKey: "pg.comingoff.remain"))
+        XCTAssertEqual(ComingOff.load(d), c)
     }
 
     private func printer(_ state: String, remainingS: Int, jobId: String) -> Printer {
