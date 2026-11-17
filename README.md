@@ -174,7 +174,7 @@ To check now, click **…** and choose **PrintGlance** followed by its version n
 
 Click **Update available**. PrintGlance downloads the new version and checks that its developer signed it. Then it replaces itself and opens again. Your printers, settings, and history stay. If the card says **Can't install the update**, try again later.
 
-Versions before 1.6 can't install updates. Neither can a copy your Mac account can't change, such as one an administrator put in **Applications**. Update those by hand:
+Versions before 1.6 can't install updates. Neither can a copy opened straight from **Downloads**, or one your Mac account can't change, such as one an administrator put in **Applications**. Update those by hand:
 
 1. Click **Update available**, or click **…** and choose **Download PrintGlance** followed by the new version number. Your browser downloads **PrintGlance.zip**. If it opens the release page instead, download **PrintGlance.zip** there.
 2. Double-click **PrintGlance.zip** to extract it.
