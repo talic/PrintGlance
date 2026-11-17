@@ -28,6 +28,8 @@ struct PrintNotifyOutcome: Equatable {
     var alerts: [PrintNotifyAlert]
     /// Delivered alerts that are no longer true, to take out of Notification Center.
     var clears: [String] = []
+    /// Alerts still waiting to be delivered that are no longer true: a finish Quiet Hours holds for the morning.
+    var unsent: [String] = []
 
     var alert: PrintNotifyAlert? { alerts.first }
 
@@ -37,10 +39,11 @@ struct PrintNotifyOutcome: Equatable {
         self.clears = clears
     }
 
-    init(requestPermission: Bool, alerts: [PrintNotifyAlert], clears: [String] = []) {
+    init(requestPermission: Bool, alerts: [PrintNotifyAlert], clears: [String] = [], unsent: [String] = []) {
         self.requestPermission = requestPermission
         self.alerts = alerts
         self.clears = clears
+        self.unsent = unsent
     }
 }
 
@@ -210,13 +213,15 @@ struct PrintNotify {
             var requestPermission = false
             var alerts: [PrintNotifyAlert] = []
             var clears: [String] = []
+            var unsent: [String] = []
             for printer in doc.printers {
                 let one = observePrinter(printer)
                 requestPermission = requestPermission || one.requestPermission
                 alerts.append(contentsOf: one.alerts)
                 clears.append(contentsOf: one.clears)
+                unsent.append(contentsOf: one.unsent)
             }
-            return PrintNotifyOutcome(requestPermission: requestPermission, alerts: alerts, clears: clears)
+            return PrintNotifyOutcome(requestPermission: requestPermission, alerts: alerts, clears: clears, unsent: unsent)
         case .feedDown:
             var alerts: [PrintNotifyAlert] = []
             let ids = Set(lastBySerial.keys).union(timedBySerial.keys)
@@ -272,6 +277,9 @@ struct PrintNotify {
         }
 
         let clears = prev == next ? [] : Self.clears(id, next: next)
+        // A new print makes a finish held for the morning old news, like the delivered one.
+        let finished = PrintNotifyAlert.identifier(.finish, serial: id)
+        let unsent = clears.contains(finished) ? [finished] : []
         lastBySerial[id] = next
         switch next {
         case "RUNNING", "PREPARE", "PAUSE":
@@ -282,7 +290,12 @@ struct PrintNotify {
             timedBySerial[id] = false
         }
 
-        return PrintNotifyOutcome(requestPermission: requestPermission, alert: alert, clears: clears)
+        return PrintNotifyOutcome(
+            requestPermission: requestPermission,
+            alerts: alert.map { [$0] } ?? [],
+            clears: clears,
+            unsent: unsent
+        )
     }
 
     /// What a new state makes untrue. A new or resumed print ends the last finish, pause, or failure,

@@ -42,6 +42,7 @@ final class GlanceModel: ObservableObject {
         didSet {
             notify.prefs = notifyPrefs
             notifyPrefs.save(defaults)
+            withdrawTurnedOff(was: oldValue)
         }
     }
     /// The user turned PrintGlance's notifications off in System Settings.
@@ -245,6 +246,20 @@ final class GlanceModel: ObservableObject {
         guard let pathSignature, pathSignature != signature else { return }
         networkChangedAt = Date()
         log("mac network changed: \(signature)")
+    }
+
+    /// A notice turned off doesn't come later either: finishing soon is already scheduled, and Quiet Hours
+    /// may be holding a finish for the morning.
+    private func withdrawTurnedOff(was old: PrintNotifyPrefs) {
+        var ids: [String] = []
+        if old.comingOff, !notifyPrefs.comingOff {
+            ids += comingOff.cancelScheduled()
+            comingOff.save(defaults)
+        }
+        if old.finish, !notifyPrefs.finish {
+            ids += settings.printers.map { PrintNotifyAlert.identifier(.finish, serial: $0.serial) }
+        }
+        if !ids.isEmpty { notifier.removePending(ids) }
     }
 
     func refreshNotificationStatus() {
@@ -744,6 +759,9 @@ final class GlanceModel: ObservableObject {
         }
         if !outcome.clears.isEmpty {
             notifier.removeDelivered(outcome.clears)
+        }
+        if !outcome.unsent.isEmpty {
+            notifier.removePending(outcome.unsent)
         }
         for alert in outcome.alerts {
             if alert.kind == .offline, !PrintNotify.offlineAlertAllowed(

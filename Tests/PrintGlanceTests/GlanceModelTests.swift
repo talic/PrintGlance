@@ -457,6 +457,40 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(h.notifications.posted.filter { $0.id == id }.count, 1)
     }
 
+    func testTurningOffFinishingSoonCancelsTheScheduledNotice() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running(minutesLeft: 84))
+        let id = "pg.comingoff.\(x2d.serial).t1"
+        h.model.notifyPrefs.comingOff = false
+        XCTAssertEqual(h.notifications.cancelled.last, id)
+        link.report(Report.running(minutesLeft: 83))
+        XCTAssertEqual(h.notifications.posted.filter { $0.id == id }.count, 1, "off stays off")
+        h.model.notifyPrefs.comingOff = true
+        link.report(Report.running(minutesLeft: 82))
+        XCTAssertEqual(h.notifications.posted.filter { $0.id == id }.last?.fireIn, 72 * 60, "on again, it is scheduled anew")
+    }
+
+    func testTurningOffPrintFinishedDropsAFinishHeldForTheMorning() throws {
+        let h = ModelHarness(self)
+        h.add(x2d)
+        h.model.notifyPrefs.finish = false
+        XCTAssertEqual(h.notifications.cancelled, ["pg.finish.\(x2d.serial)"])
+    }
+
+    func testANewPrintDropsAFinishHeldForTheMorning() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.accept()
+        link.report(Report.running())
+        link.report(Report.state("FINISH"))
+        let before = h.notifications.cancelled.count
+        link.report(Report.running(task: "t2"))
+        XCTAssertTrue(h.notifications.cancelled.dropFirst(before).contains("pg.finish.\(x2d.serial)"))
+        XCTAssertTrue(h.notifications.removed.contains("pg.finish.\(x2d.serial)"), "and the delivered one")
+    }
+
     /// The printer names the next job while it still says Finished. That must not use up the
     /// job's notice.
     func testFinishingSoonComesForAPrintStartedWhileWatching() throws {

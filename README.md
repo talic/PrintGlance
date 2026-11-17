@@ -139,7 +139,7 @@ Each notice names the printer first, then the job and how far it got, then why. 
 
 A notice leaves Notification Center once it's no longer true. When a printer starts or resumes printing, its finished, paused, and failed notices go. When PrintGlance hears from a printer again, its lost connection notice goes. **History** keeps what happened to each print.
 
-**Print Finishing Soon** tells you shortly before the print ends, so you can be at the printer. To choose how early, open **Lead Time** under it and choose **5 Minutes**, **10 Minutes**, **15 Minutes**, or **30 Minutes**. It starts at 10 minutes. If less time is left when PrintGlance first sees the print, the notice comes right away and says how much is left. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, that notice is canceled.
+**Print Finishing Soon** tells you shortly before the print ends, so you can be at the printer. To choose how early, open **Lead Time** under it and choose **5 Minutes**, **10 Minutes**, **15 Minutes**, or **30 Minutes**. It starts at 10 minutes. If less time is left when PrintGlance first sees the print, the notice comes right away and says how much is left. Pause or a lost connection cancels that notice until printing resumes. If the print ends first, or you turn **Print Finishing Soon** off, that notice is canceled.
 
 **Lost Connection** tells you when PrintGlance stops hearing from a printer during a print, such as **Lost connection to X2D** with **Benchy was at 52%. PrintGlance keeps trying.** It is not sent while this Mac has no network, or for 2 minutes after this Mac's network changes, because then the Mac lost the connection, not the printer.
 
@@ -147,7 +147,7 @@ A notice leaves Notification Center once it's no longer true. When a printer sta
 
 PrintGlance estimates the runout from the trend in the spool's remaining percent as the print progresses. It needs a Bambu spool with an RFID tag and **Update Remaining Capacity** turned on for the AMS. That percent is a rough gauge: it can swing by ten points while a spool feeds. So PrintGlance waits until the spool has fallen by twice those swings, no faster than a nozzle can melt filament, and has used about a third of what it had when the print started. The notice comes later that way, and is rarely wrong. If a spool runs out without one, the printer pauses and you get **Print Paused**. The time is worked out from how fast the print has really moved so far. It ignores readings below 5%, where the AMS estimate swings by a couple of points and can read 0% with filament left, so a spool that starts the print nearly empty gets only the 20% warning. If another AMS slot holds the same filament and color, the line adds that the AMS may switch to it, which depends on the AMS backup setting on your printer.
 
-**Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM. **Print Finishing Soon** is skipped in that window. **Print Failed**, **Print Paused**, **Lost Connection**, and **Low Filament** still appear.
+**Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM. If the next print starts before then, or you turn **Print Finished** off, the held notice is dropped. **Print Finishing Soon** is skipped in that window. **Print Failed**, **Print Paused**, **Lost Connection**, and **Low Filament** still appear.
 
 To see the printer a notice is about, click the notice, then click the printer icon in the menu bar. The print card opens on that printer.
 

@@ -90,6 +90,19 @@ struct ComingOff: Equatable {
         d.set(scheduledFireInS, forKey: Self.fireInKey)
     }
 
+    /// Finishing soon was turned off: the notices on their way, to cancel. Turned on again, a print still
+    /// running gets its notice scheduled anew.
+    mutating func cancelScheduled() -> [String] {
+        var ids: [String] = []
+        for (key, p) in phase where p == .scheduled {
+            guard let bar = key.firstIndex(of: "|") else { continue }
+            ids.append(Self.notificationId(serial: String(key[..<bar]), jobId: String(key[key.index(after: bar)...])))
+            phase[key] = nil
+            scheduledFireInS[key] = nil
+        }
+        return ids.sorted()
+    }
+
     /// A removed printer: its scheduled notices, to cancel.
     mutating func forget(serial: String) -> [String] {
         var ids: [String] = []
