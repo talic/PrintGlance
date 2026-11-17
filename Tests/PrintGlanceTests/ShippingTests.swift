@@ -74,11 +74,19 @@ final class ShippingTests: XCTestCase {
     }
 
     func testQuietHours() throws {
-        try readme(contains: "**Quiet Hours** (10 PM to 7 AM on this Mac) delays **Print Finished** until 7 AM.")
-        XCTAssertEqual(QuietHours.startHour, 22)
-        XCTAssertEqual(QuietHours.endHour, 7)
-        try readme(contains: "Quiet Hours (10 PM–7 AM)")
-        XCTAssertEqual(GlanceContent.quietHoursTitle(locale: Locale(identifier: "en_US")), "Quiet Hours (10 PM–7 AM)")
+        try readme(contains: "choose **9 PM–6 AM**, **10 PM–7 AM**, **11 PM–8 AM**, or **Midnight–9 AM**")
+        try readme(contains: "**Print Finished** waits until the hours end")
+        let us = Locale(identifier: "en_US")
+        XCTAssertEqual(
+            PrintNotifyPrefs.quietHoursChoices.map { GlanceContent.quietHoursChoice($0, locale: us) },
+            ["Off", "9 PM–6 AM", "10 PM–7 AM", "11 PM–8 AM", "Midnight–9 AM"]
+        )
+        XCTAssertEqual(QuietHours.starts.map { QuietHours(startHour: $0).endHour }, [6, 7, 8, 9])
+        try readme(contains: "On a 24-hour clock they read **22:00–07:00**.")
+        XCTAssertEqual(GlanceContent.quietHoursChoice(.default, locale: Locale(identifier: "en_GB")), "22:00–07:00")
+        try readme(contains: "such as **Quiet Hours (10 PM–7 AM)** or **Quiet Hours (Off)**")
+        XCTAssertEqual(GlanceContent.quietHoursTitle(.default, locale: us), "Quiet Hours (10 PM–7 AM)")
+        XCTAssertEqual(GlanceContent.quietHoursTitle(nil, locale: us), "Quiet Hours (Off)")
     }
 
     func testNotificationDefaults() throws {
@@ -87,12 +95,25 @@ final class ShippingTests: XCTestCase {
         let prefs = PrintNotifyPrefs.load(d)
         XCTAssertEqual([prefs.pause, prefs.fail, prefs.finish, prefs.comingOff, prefs.offline, prefs.lowFilament], Array(repeating: true, count: 6))
         XCTAssertFalse(prefs.quietHours)
+        XCTAssertNil(prefs.quietWindow)
+        XCTAssertEqual(prefs.quietHoursStart, 22, "Quiet Hours turned on before the choice keeps 10 PM–7 AM")
     }
 
     func testFinishingSoonLeadTimes() throws {
-        try readme(contains: "choose **5 Minutes**, **10 Minutes**, **15 Minutes**, or **30 Minutes**. It starts at 10 minutes.")
-        XCTAssertEqual(PrintNotifyPrefs.comingOffLeads, [5, 10, 15, 30])
-        XCTAssertEqual(PrintNotifyPrefs.load(scratchDefaults()).comingOffLead, 10)
+        try readme(contains: "choose **5 Minutes Before**, **10 Minutes Before**, **15 Minutes Before**, or **30 Minutes Before**. To stop it, choose **Off**. It starts at 10 minutes.")
+        XCTAssertEqual(
+            PrintNotifyPrefs.finishingSoonChoices.map(GlanceContent.finishingSoonChoice(lead:)),
+            ["Off", "5 Minutes Before", "10 Minutes Before", "15 Minutes Before", "30 Minutes Before"]
+        )
+        XCTAssertEqual(PrintNotifyPrefs.load(scratchDefaults()).finishingSoonLead, 10)
+        try readme(contains: "such as **Print Finishing Soon (10 Min Before)**")
+        XCTAssertEqual(GlanceContent.finishingSoonTitle(lead: 10), "Print Finishing Soon (10 Min Before)")
+    }
+
+    @MainActor
+    func testLookUpOnNotices() throws {
+        try readme(contains: "A paused or failed notice with an error code also has **Look Up**.")
+        XCTAssertEqual(GlanceModel.lookUpCategory().actions.map(\.title), ["Look Up"])
     }
 
     func testLostConnectionSettle() throws {
