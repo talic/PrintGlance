@@ -21,7 +21,11 @@ final class FakeMQTT: MQTTSession {
     private(set) var publishes: [(topic: String, payload: String)] = []
     private(set) var disconnects = 0
 
-    func connect(host: String, port: UInt16, clientID: String, username: String, password: String) {
+    /// The serial each dial expected the certificate to name.
+    private(set) var serials: [String?] = []
+
+    func connect(host: String, port: UInt16, clientID: String, username: String, password: String, serial: String?) {
+        serials.append(serial)
         dials.append(Dial(host: host, port: port, clientID: clientID, username: username, password: password))
     }
 
@@ -35,6 +39,12 @@ final class FakeMQTT: MQTTSession {
 
     /// The printer took the access code (CONNACK 0).
     func accept() { onConnect?() }
+
+    /// The printer took the access code and sent its first report, which makes the link connected.
+    func answer(_ print: [String: Any] = ["gcode_state": "IDLE"]) {
+        accept()
+        report(print)
+    }
 
     /// One `device/<serial>/report` message, as `{"print": …}`.
     func report(_ print: [String: Any]) {

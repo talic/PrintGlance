@@ -37,11 +37,14 @@ final class GlanceModelTests: XCTestCase {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)
         link.accept()
-        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connected)
+        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connecting, "a CONNACK only says the access code is right")
         XCTAssertEqual(link.subscriptions, ["device/20P9AJ5B0700123/report"])
         XCTAssertEqual(link.publishes.map(\.topic), ["device/20P9AJ5B0700123/request"])
         XCTAssertEqual(link.publishes.map(\.payload), [pushall])
+        XCTAssertEqual(link.serials, [x2d.serial], "a certificate naming another printer is refused")
         XCTAssertEqual(h.model.content.result, .connecting, "connected but no report yet")
+        link.report(Report.state("IDLE"))
+        XCTAssertEqual(h.model.linkStatus[x2d.serial], .connected, "the printer talks, so the serial is right")
     }
 
     func testIncompletePrinterIsNotDialed() {
@@ -158,6 +161,18 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(h.model.linkStatus[x2d.serial], .failed(reason: "MQTT CONNACK 5"), "stays failed through retries")
     }
 
+    func testAnotherPrintersCertificateSaysWhichSerialAnswered() async throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(x2d).first)
+        link.drop("serial mismatch 01P00A000000001")
+        XCTAssertEqual(h.model.content.result, .feedDown)
+        let detail = GlanceCopy.feedDownDetail(reason: h.model.disconnectReason(for: x2d.serial))
+        XCTAssertEqual(detail, "The printer at this IP address has serial 01P00A000000001. Check the serial number and the IP address on the printer's LAN or Network page.")
+        XCTAssertEqual(SetupFlow.failureMessage("serial mismatch 01P00A000000001", ip: x2d.ip), detail)
+        let searched = await eventually { h.network.scans == 1 }
+        XCTAssertTrue(searched, "the printer may have moved, so this one's IP is searched for")
+    }
+
     func testDroppedPrinterKeepsItsProgressThroughTheGrace() throws {
         let h = ModelHarness(self)
         let link = try XCTUnwrap(h.add(x2d).first)
@@ -174,6 +189,7 @@ final class GlanceModelTests: XCTestCase {
         let link = try XCTUnwrap(h.add(x2d).first)
         link.drop("closed")
         link.accept()
+        link.report(Report.state("IDLE"))
         XCTAssertEqual(h.model.linkStatus[x2d.serial], .connected)
         XCTAssertNil(h.model.disconnectReason(for: x2d.serial))
     }
@@ -183,6 +199,7 @@ final class GlanceModelTests: XCTestCase {
         let link = try XCTUnwrap(h.add(x2d).first)
         link.drop("closed")
         link.accept()
+        link.report(Report.state("IDLE"))
         let searched = await eventually { h.network.scans == 1 }
         XCTAssertTrue(searched)
         try await Task.sleep(for: .milliseconds(1500))

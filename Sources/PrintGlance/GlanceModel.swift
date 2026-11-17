@@ -295,7 +295,7 @@ final class GlanceModel: ObservableObject {
     }
 
     func setRediscoverPausedSerial(_ serial: String?) {
-        rediscoverPausedSerial = serial
+        rediscoverPausedSerial = serial.map(PrinterSettings.normalizedSerial)
     }
 
     func saveSettings(_ next: SavedPrinters) {
@@ -412,7 +412,8 @@ final class GlanceModel: ObservableObject {
             port: 8883,
             clientID: "pg-app-\(id.suffix(6))-\(Self.instanceTag)",
             username: "bblp",
-            password: printer.accessCode
+            password: printer.accessCode,
+            serial: id
         )
         link.timeout = Task { @MainActor [weak self, connectTimeout] in
             try? await Task.sleep(for: connectTimeout)
@@ -477,7 +478,7 @@ final class GlanceModel: ObservableObject {
             guard let link = links[serial], link.failed, !link.authRejected, link.candidateIP == nil else {
                 continue
             }
-            if formBlocksRediscover(serial) { continue }
+            if serial == rediscoverPausedSerial { continue }
             link.candidateIP = ip
             var printer = link.printer
             printer.ip = ip
@@ -493,22 +494,8 @@ final class GlanceModel: ObservableObject {
         }
     }
 
-    private func formBlocksRediscover(_ serial: String) -> Bool {
-        guard let paused = rediscoverPausedSerial?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !paused.isEmpty
-        else { return false }
-        return paused.caseInsensitiveCompare(
-            serial.trimmingCharacters(in: .whitespacesAndNewlines)
-        ) == .orderedSame
-    }
-
     private func savedPrinter(serial: String) -> PrinterSettings? {
-        let key = serial.trimmingCharacters(in: .whitespacesAndNewlines)
-        return settings.printers.first {
-            $0.serial.trimmingCharacters(in: .whitespacesAndNewlines)
-                .caseInsensitiveCompare(key) == .orderedSame
-        }
+        settings.printers.first { $0.serial == serial }
     }
 
     private func revertCandidate(_ id: String) {
@@ -538,7 +525,6 @@ final class GlanceModel: ObservableObject {
         link.connectedAt = Date()
         link.authRejected = false
         commitCandidate(id)
-        setLink(id, .connected)
         log("connected \(id)")
         link.mqtt.subscribe("device/\(id)/report")
         let body = Data(#"{"pushing":{"command":"pushall","sequence_id":"0"}}"#.utf8)
@@ -575,6 +561,9 @@ final class GlanceModel: ObservableObject {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
+        // Connected once the printer talks, not at CONNACK: the access code alone gets a CONNACK, and a
+        // serial that isn't the printer's subscribes to a topic it never sends on.
+        setLink(id, .connected)
         link.snapshot.ingest(obj)
         publishSnapshot()
     }

@@ -180,6 +180,7 @@ Your printer IP, serial, and access code stay on this Mac.
 - Access code matches the printer's LAN or Network page. If the print card shows **Update Access Code…**, click it to enter the code again
 - PrintGlance is turned on for the local network in **System Settings > Privacy & Security > Local Network**
 - If you entered the IP address, it matches the printer's LAN or Network page
+- If PrintGlance says the printer at this IP address has another serial, check the serial number you entered, or whether another printer now has that IP address
 
 You do not need **LAN Only Mode** or **Developer Mode**. PrintGlance only reads status, which Bambu allows while the printer is connected to Bambu's cloud. LAN Only Mode turns off Bambu Handy and printing from outside your network.
 

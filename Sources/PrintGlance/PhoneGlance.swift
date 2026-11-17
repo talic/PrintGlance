@@ -107,7 +107,8 @@ enum PrinterFetch {
                 port: 8883,
                 clientID: "pg-phone-\(p.serial.suffix(6))-\(String(UInt16.random(in: .min ... .max), radix: 16))",
                 username: "bblp",
-                password: p.accessCode
+                password: p.accessCode,
+                serial: p.serial
             )
         }
         client.onConnect = nil
@@ -199,7 +200,7 @@ enum PrinterSearch {
             sec_protocol_options_set_verify_block(
                 tls.securityProtocolOptions,
                 { _, trust, complete in
-                    probe.name = leafCommonName(sec_trust_copy_ref(trust).takeRetainedValue())
+                    probe.name = MQTT311Client.leafCommonName(sec_trust_copy_ref(trust).takeRetainedValue())
                     complete(true)
                 },
                 probe.queue
@@ -218,13 +219,6 @@ enum PrinterSearch {
             conn.start(queue: probe.queue)
             probe.queue.asyncAfter(deadline: .now() + timeout) { probe.finish(conn) }
         }
-    }
-
-    private static func leafCommonName(_ trust: SecTrust) -> String? {
-        guard let leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first else { return nil }
-        var name: CFString?
-        SecCertificateCopyCommonName(leaf, &name)
-        return name as String?
     }
 
     /// The iPhone's Wi-Fi address and mask (`en0`).
@@ -452,7 +446,7 @@ extension GlanceCopy {
 
     /// The iPhone also needs Local Network access, which iOS asks for once and Settings can turn off.
     static func phoneFetchFailed(reason: String?) -> String {
-        guard !codeRejected(reason), reason?.contains("ECONNREFUSED") != true else {
+        guard !codeRejected(reason), reason?.contains("ECONNREFUSED") != true, wrongSerial(reason) == nil else {
             return feedDownDetail(reason: reason)
         }
         return "Can't reach the printer. Check that this iPhone is on the printer's Wi-Fi, and check the IP address. PrintGlance also needs Local Network access in Settings."

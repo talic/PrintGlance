@@ -63,7 +63,7 @@ final class SetupWorkflowTests: XCTestCase {
         f.connect()
         XCTAssertEqual(f.phase, .connecting)
         XCTAssertEqual(h.model.settings.printers, [x2d], "saved before the wait, so the link can dial")
-        try XCTUnwrap(h.printers.latest(x2d.serial)).accept()
+        try XCTUnwrap(h.printers.latest(x2d.serial)).answer()
         XCTAssertEqual(f.phase, .welcome)
     }
 
@@ -75,7 +75,7 @@ final class SetupWorkflowTests: XCTestCase {
         f.dismiss = { closed.count += 1 }
         f.draft = p1s
         f.connect()
-        try XCTUnwrap(h.printers.latest(p1s.serial)).accept()
+        try XCTUnwrap(h.printers.latest(p1s.serial)).answer()
         XCTAssertEqual(f.phase, .connected)
         let gone = await eventually { closed.count == 1 }
         XCTAssertTrue(gone, "closes a second after Connected")
@@ -97,7 +97,7 @@ final class SetupWorkflowTests: XCTestCase {
         XCTAssertEqual(h.model.settings.printers, [x2d], "the retry replaces the first attempt, never adds a second row")
         let link = try XCTUnwrap(h.printers.latest(x2d.serial))
         XCTAssertEqual(link.dials.last?.password, "a1b2c3d4")
-        link.accept()
+        link.answer()
         XCTAssertEqual(f.phase, .welcome)
     }
 
@@ -129,7 +129,7 @@ final class SetupWorkflowTests: XCTestCase {
         link.drop("closed")
         guard case .failed = f.phase else { return XCTFail("\(f.phase)") }
         // Rediscovery found it at a new IP, or the retry got through.
-        link.accept()
+        link.answer()
         XCTAssertEqual(f.phase, .welcome)
     }
 
@@ -165,7 +165,7 @@ final class SetupWorkflowTests: XCTestCase {
         let f = flow(h)
         f.draft = p1s
         f.connect()
-        try XCTUnwrap(h.printers.latest(p1s.serial)).accept()
+        try XCTUnwrap(h.printers.latest(p1s.serial)).answer()
         f.cancel()
         XCTAssertEqual(h.model.settings.printers.count, 2)
     }
@@ -217,7 +217,7 @@ final class SetupWorkflowTests: XCTestCase {
         f.connect()
         XCTAssertEqual(h.model.settings.printers.map(\.ip), ["192.0.2.10", "192.0.2.50"])
         XCTAssertEqual(h.model.settings.focusId, p1s.serial)
-        try XCTUnwrap(h.printers.latest(p1s.serial)).accept()
+        try XCTUnwrap(h.printers.latest(p1s.serial)).answer()
         XCTAssertEqual(f.phase, .connected)
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 
 /// What `GlanceModel` needs from a printer connection. `MQTT311Client` is the real one; tests drive a fake.
 /// Callbacks arrive on the main queue.
@@ -7,7 +8,9 @@ protocol MQTTSession: AnyObject {
     var onConnect: (() -> Void)? { get set }
     var onDisconnect: ((String?) -> Void)? { get set }
     var onMessage: ((String, Data) -> Void)? { get set }
-    func connect(host: String, port: UInt16, clientID: String, username: String, password: String)
+    /// `serial` is the printer's: a certificate that names another printer is refused before the access code
+    /// is sent. Nil accepts any certificate.
+    func connect(host: String, port: UInt16, clientID: String, username: String, password: String, serial: String?)
     func subscribe(_ topic: String)
     func publish(topic: String, payload: Data)
     func disconnect()
@@ -30,6 +33,11 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
     private var generation: UInt64 = 0
     /// PINGREQ sent and nothing received since. Still set at the next tick means the link is dead.
     private var awaitingPong = false
+    /// The serial the certificate named when it wasn't the one dialed. Touched on `queue`.
+    private var wrongSerial: String?
+
+    /// The reason a dial ends with when the certificate names another printer, followed by that serial.
+    static let wrongSerialReason = "serial mismatch"
 
     /// The largest packet accepted. A full report is tens of KB; the length field allows 256 MB, which a
     /// device impersonating the printer could use to make the app buffer that much.
@@ -70,14 +78,14 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
         }
     }
 
-    func connect(host: String, port: UInt16, clientID: String, username: String, password: String) {
+    func connect(host: String, port: UInt16, clientID: String, username: String, password: String, serial: String?) {
         queue.async { [weak self] in
             guard let self else { return }
             self.generation &+= 1
             let gen = self.generation
             self.connectOnQueue(
                 host: host, port: port, clientID: clientID, username: username, password: password,
-                generation: gen
+                serial: serial, generation: gen
             )
         }
     }
@@ -88,6 +96,7 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
         clientID: String,
         username: String,
         password: String,
+        serial: String?,
         generation: UInt64
     ) {
         pingTimer?.cancel()
@@ -96,14 +105,24 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
         connection = nil
         buffer.removeAll()
         awaitingPong = false
+        wrongSerial = nil
         let tls = NWProtocolTLS.Options()
-        // ponytail: accepts any server certificate (the printer's is signed by Bambu's own CA), so a device
-        // on the LAN can impersonate the printer and read the access code. Upgrade: pin the Bambu CA.
-        sec_protocol_options_set_peer_authentication_required(tls.securityProtocolOptions, false)
+        // ponytail: trusts any certificate that doesn't name another printer (the printer's is signed by Bambu's
+        // own CA), so a device on the LAN can impersonate the printer and read the access code. Upgrade: pin the
+        // Bambu CA. The verify block decides; turning peer authentication off would skip it.
+        // A printer's certificate names its serial. One that names another printer is a typo in the serial, or
+        // another printer now has this IP: refused before CONNECT carries the access code. A name that isn't
+        // a serial is let through.
+        let expected = serial.map(PrinterSettings.normalizedSerial)
         sec_protocol_options_set_verify_block(
             tls.securityProtocolOptions,
-            { _, _, complete in complete(true) },
-            DispatchQueue.global()
+            { [weak self] _, trust, complete in
+                let named = PrinterSearch.serial(fromCommonName: Self.leafCommonName(sec_trust_copy_ref(trust).takeRetainedValue()))
+                guard let expected, let named, named != expected else { return complete(true) }
+                if let self, generation == self.generation { self.wrongSerial = named }
+                complete(false)
+            },
+            queue
         )
         let params = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
         let conn = NWConnection(
@@ -123,13 +142,25 @@ final class MQTT311Client: MQTTSession, @unchecked Sendable {
                     ),
                     generation: generation
                 )
-            default:
-                if let reason = Self.failReason(for: state) {
+            case .failed, .waiting:
+                if let wrong = self.wrongSerial {
+                    self.fail("\(Self.wrongSerialReason) \(wrong)", generation: generation)
+                } else if let reason = Self.failReason(for: state) {
                     self.fail(reason, generation: generation)
                 }
+            default:
+                break
             }
         }
         conn.start(queue: queue)
+    }
+
+    /// The common name of the server's own certificate.
+    static func leafCommonName(_ trust: SecTrust) -> String? {
+        guard let leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first else { return nil }
+        var name: CFString?
+        SecCertificateCopyCommonName(leaf, &name)
+        return name as String?
     }
 
     func subscribe(_ topic: String) {

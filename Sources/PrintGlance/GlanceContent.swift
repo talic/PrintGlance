@@ -619,7 +619,17 @@ enum GlanceCopy {
         if codeRejected(reason) {
             return "The access code was rejected. Check the access code on the printer's LAN or Network page."
         }
+        if let other = wrongSerial(reason) {
+            return "The printer at this IP address has serial \(other). Check the serial number and the IP address on the printer's LAN or Network page."
+        }
         return "Can't reach the printer. Check Wi-Fi and the IP address."
+    }
+
+    /// The serial the printer at that address named, when it isn't the one saved.
+    static func wrongSerial(_ reason: String?) -> String? {
+        let prefix = MQTT311Client.wrongSerialReason + " "
+        guard let reason, reason.hasPrefix(prefix) else { return nil }
+        return String(reason.dropFirst(prefix.count))
     }
 
     /// The printer answered and refused the access code.
