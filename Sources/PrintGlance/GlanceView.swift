@@ -24,14 +24,18 @@ struct GlanceView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     header
                     bodyContent
-                    if model.availableUpdate != nil {
+                    if let line = GlanceContent.updateInstallLine(model.updateInstall) {
+                        Text(line)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else if model.availableUpdate != nil {
                         Button("Update available") {
-                            model.openUpdatePage()
+                            model.installUpdate()
                         }
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Download PrintGlance update")
+                        .accessibilityLabel(model.canInstallUpdate ? "Install PrintGlance update" : "Download PrintGlance update")
                     } else if let line = GlanceContent.updateCheckLine(model.updateCheck, available: model.availableUpdate) {
                         Text(line)
                             .font(.subheadline)

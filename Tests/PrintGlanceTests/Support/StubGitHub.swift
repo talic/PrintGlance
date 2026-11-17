@@ -5,6 +5,7 @@ final class StubGitHub: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var canned: (status: Int, body: String)?
     nonisolated(unsafe) private static var seen: [URLRequest] = []
+    nonisolated(unsafe) private static var files: [URL: (status: Int, body: Data)] = [:]
 
     static var requests: [URLRequest] {
         lock.lock()
@@ -25,10 +26,18 @@ final class StubGitHub: URLProtocol, @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Answers requests for `url` with `body`, ahead of the canned reply: a release's downloads.
+    static func serve(_ url: URL, status: Int = 200, _ body: Data) {
+        lock.lock()
+        files[url] = (status, body)
+        lock.unlock()
+    }
+
     static func reset() {
         lock.lock()
         canned = nil
         seen = []
+        files = [:]
         lock.unlock()
     }
 
@@ -38,7 +47,7 @@ final class StubGitHub: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         Self.lock.lock()
         Self.seen.append(request)
-        let reply = Self.canned
+        let reply = request.url.flatMap { Self.files[$0] } ?? Self.canned.map { (status: $0.status, body: Data($0.body.utf8)) }
         Self.lock.unlock()
         guard let reply, let url = request.url,
               let response = HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: nil)
@@ -47,7 +56,7 @@ final class StubGitHub: URLProtocol, @unchecked Sendable {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(reply.body.utf8))
+        client?.urlProtocol(self, didLoad: reply.body)
         client?.urlProtocolDidFinishLoading(self)
     }
 

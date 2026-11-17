@@ -159,6 +159,13 @@ final class ShippingTests: XCTestCase {
         XCTAssertFalse(GlanceContent.isHumid(AMSUnit(id: "A", humidityPercent: 59)))
     }
 
+    func testUpdateAvailableInstallsASignedUpdate() throws {
+        try readme(contains: "Click **Update available**. PrintGlance downloads the new version and checks that its developer signed it. Then it replaces itself and opens again.")
+        try readme(contains: "If the card says **Can't install the update**, try again later.")
+        XCTAssertEqual(GlanceContent.updateInstallLine(.failed), "Can't install the update")
+        XCTAssertNotNil(Data(base64Encoded: AppUpdate.signingKey), "the key the README's signature check uses")
+    }
+
     func testDailyUpdateCheck() throws {
         try readme(contains: "Once a day PrintGlance checks GitHub.")
         XCTAssertEqual(AppUpdate.day, 24 * 60 * 60)
@@ -282,7 +289,7 @@ final class ShippingTests: XCTestCase {
 
     func testReadOnlyAndLocalPromise() throws {
         try readme(contains: "It never pauses, stops, or starts a print.")
-        try readme(contains: "The only thing it fetches from the internet is a check on GitHub for a newer version, once a day or when you ask.")
+        try readme(contains: "The only things it fetches from the internet are a check on GitHub for a newer version, once a day or when you ask, and the new version when you click **Update available**.")
         // The only URLs the app requests itself; Bambu's pages open in the browser only when clicked.
         let sources = try FileManager.default.contentsOfDirectory(
             at: Self.root.appendingPathComponent("Sources/PrintGlance"), includingPropertiesForKeys: nil

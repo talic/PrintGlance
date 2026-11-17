@@ -75,12 +75,18 @@ jobs:
           xcrun stapler validate "$RUNNER_TEMP/check/PrintGlance.app"
           spctl -a -vv "$RUNNER_TEMP/check/PrintGlance.app" 2>&1 | tee "$RUNNER_TEMP/spctl.txt"
           grep -q "source=Notarized Developer ID" "$RUNNER_TEMP/spctl.txt"
-      - name: Attach to release
+      # A draft until the owner signs the zip on their Mac (`make sign-release`), so the app never
+      # sees a latest release it can't install.
+      - name: Attach to a draft release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/PrintGlance.zip
+          draft: true
           generate_release_notes: false
+      - name: Say what's next
+        if: github.event_name == 'push'
+        run: echo "::notice::Draft $GITHUB_REF_NAME is ready. Run make sign-release TAG=$GITHUB_REF_NAME to sign and publish it."
       - name: Keep the test build
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4

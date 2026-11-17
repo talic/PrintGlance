@@ -17,7 +17,7 @@ A macOS 14+ menu bar app (Swift 6, SwiftUI, no dependencies) that shows Bambu La
 ## Rules
 
 - **Read-only.** The only MQTT publish is `pushall` to `device/<serial>/request`. Never send a printer command.
-- **LAN only.** The app's only internet request is the daily GitHub release check.
+- **LAN only.** The app's only internet requests are the GitHub release check (daily, or when the version is clicked) and, after **Update available** is clicked, the release's signed zip.
 - **Secrets.** Never log, print, or commit an access code. Never print `.env`. Mask serials and IPs in logs you share.
 - No new dependencies. Keep `Printer`, `PrintDoc`, `AMSTray` (and friends) `Codable`; add only optional fields with `= nil`.
 - Don't edit `bambu.py`, `print_loop.*`, or `.env.example` unless the owner asks, and never `.env` or launchd: the feed runs as a LaunchAgent on the owner's Mac.

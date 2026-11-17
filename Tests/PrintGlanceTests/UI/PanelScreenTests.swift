@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import PrintGlance
 
@@ -40,6 +41,89 @@ final class PanelScreenTests: XCTestCase {
         XCTAssertEqual(s.texts, ["Add your printer"])
         XCTAssertNotNil(s.find("Download PrintGlance update"), "Update available, as if the daily check found it")
         XCTAssertEqual(h.model.availableUpdate, "v9.9.9")
+    }
+
+    /// The check finds the harness's release and the panel opens again, showing **Update available**.
+    private func offerUpdate(_ h: ModelHarness) async {
+        h.model.checkForUpdate()
+        let done = await eventually { h.model.updateCheck == .upToDate }
+        XCTAssertTrue(done)
+        h.model.forgetUpdateCheck()
+        XCTAssertEqual(h.model.availableUpdate, "v9.9.9")
+    }
+
+    func testUpdateAvailableInstallsTheSignedReleaseAndReopens() async throws {
+        let h = ModelHarness(self)
+        try h.installApp()
+        try h.publish("v9.9.9")
+        await offerUpdate(h)
+        XCTAssertTrue(h.model.canInstallUpdate)
+        let s = try panel(h)
+        XCTAssertEqual(s.texts, ["Add your printer"])
+        XCTAssertNotNil(s.find("Install PrintGlance update"))
+
+        h.model.installUpdate()
+        XCTAssertEqual(h.model.updateInstall, .downloading)
+        h.model.installUpdate()
+        let reopened = await eventually { h.reopened == [h.appURL] }
+        XCTAssertTrue(reopened)
+        XCTAssertEqual(FakeRelease.version(at: h.appURL), "9.9.9")
+        XCTAssertEqual(StubGitHub.requests.filter { $0.url == FakeRelease.zipURL("v9.9.9") }.count, 1, "a second click downloads nothing more")
+        XCTAssertTrue(h.logText.contains("update v9.9.9: installed, reopening"))
+        XCTAssertEqual(try panel(h).texts, ["Add your printer", "Installing update…"], "until this copy quits")
+    }
+
+    func testAReleaseSignedWithAnotherKeyIsNotInstalled() async throws {
+        let h = ModelHarness(self)
+        try h.installApp()
+        try h.publish("v9.9.9", signedBy: Curve25519.Signing.PrivateKey())
+        await offerUpdate(h)
+        h.model.installUpdate()
+        let failed = await eventually { h.model.updateInstall == .failed }
+        XCTAssertTrue(failed)
+        XCTAssertEqual(try panel(h).texts, ["Add your printer", "Can't install the update"])
+        XCTAssertEqual(FakeRelease.version(at: h.appURL), ModelHarness.version)
+        XCTAssertEqual(h.reopened, [])
+        XCTAssertTrue(h.logText.contains("update v9.9.9: badSignature"))
+        h.model.forgetUpdateCheck()
+        XCTAssertNil(h.model.updateInstall)
+        XCTAssertNotNil(try panel(h).find("Install PrintGlance update"), "the next open offers it again")
+    }
+
+    func testADownloadThatFailsSaysItCantInstall() async throws {
+        let h = ModelHarness(self)
+        try h.installApp()
+        try h.publish("v9.9.9")
+        StubGitHub.serve(FakeRelease.zipURL("v9.9.9"), status: 404, Data("Not Found".utf8))
+        await offerUpdate(h)
+        h.model.installUpdate()
+        let failed = await eventually { h.model.updateInstall == .failed }
+        XCTAssertTrue(failed)
+        XCTAssertTrue(h.logText.contains("update v9.9.9: download failed"))
+        XCTAssertEqual(FakeRelease.version(at: h.appURL), ModelHarness.version)
+    }
+
+    func testInstalledButNotReopenedAsksToQuitAndReopen() async throws {
+        let h = ModelHarness(self)
+        h.reopens = false
+        try h.installApp()
+        try h.publish("v9.9.9")
+        await offerUpdate(h)
+        h.model.installUpdate()
+        let installed = await eventually { h.model.updateInstall == .installed }
+        XCTAssertTrue(installed)
+        XCTAssertEqual(try panel(h).texts, ["Add your printer", "Quit and reopen to finish updating"])
+        h.model.forgetUpdateCheck()
+        XCTAssertEqual(h.model.updateInstall, .installed, "opening the panel again doesn't offer it twice")
+    }
+
+    func testAReleaseWithoutASignatureOffersTheDownload() async throws {
+        let h = ModelHarness(self)
+        try h.installApp()
+        try h.publish("v9.9.9", signature: false)
+        await offerUpdate(h)
+        XCTAssertFalse(h.model.canInstallUpdate)
+        XCTAssertNotNil(try panel(h).find("Download PrintGlance update"))
     }
 
     func testClickingTheVersionOfflineSaysItCantCheck() async throws {

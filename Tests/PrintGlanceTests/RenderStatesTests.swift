@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import SwiftUI
 import XCTest
 @testable import PrintGlance
@@ -163,6 +164,33 @@ final class RenderStatesTests: XCTestCase {
             link.report(Report.running(minutesLeft: 30))
             h.model.checkForUpdate()
             let done = await eventually { h.model.updateCheck != .checking }
+            XCTAssertTrue(done)
+            try write("panel-update-\(name)", GlanceView(model: h.model), to: dir)
+        }
+    }
+
+    /// The line under the card after **Update available** is clicked and the install fails or can't reopen.
+    func testRenderPanelUpdateInstall() async throws {
+        let dir = try renderDir()
+        defer { StubGitHub.reset() }
+        for (name, reopens, wrongKey, state) in [
+            ("cant-install", true, true, UpdateInstall.failed),
+            ("reopen", false, false, UpdateInstall.installed),
+        ] {
+            StubGitHub.reset()
+            let h = ModelHarness(self)
+            h.reopens = reopens
+            try h.installApp()
+            try h.publish("v9.9.9", signedBy: wrongKey ? Curve25519.Signing.PrivateKey() : nil)
+            let link = try XCTUnwrap(h.add(.x2d()).first)
+            link.accept()
+            link.report(Report.running(minutesLeft: 30))
+            h.model.checkForUpdate()
+            let checked = await eventually { h.model.updateCheck == .upToDate }
+            XCTAssertTrue(checked)
+            h.model.forgetUpdateCheck()
+            h.model.installUpdate()
+            let done = await eventually { h.model.updateInstall == state }
             XCTAssertTrue(done)
             try write("panel-update-\(name)", GlanceView(model: h.model), to: dir)
         }

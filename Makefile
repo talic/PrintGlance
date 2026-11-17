@@ -5,6 +5,10 @@
 # `make app` signs ad-hoc. A release signs with a Developer ID and notarizes:
 #   make notarize SIGN_ID="Developer ID Application: …" NOTARY_PROFILE=<notarytool store-credentials profile>
 # CI passes NOTARY_KEY (a .p8 path), NOTARY_KEY_ID and NOTARY_ISSUER instead of NOTARY_PROFILE.
+#
+# release.yml leaves each release a draft. `make sign-release TAG=vX.Y.Z` signs its zip with the key in
+# this Mac's login Keychain, so the app will install it, and publishes it. `make update-key` makes that
+# key once; its public key goes in AppUpdate.signingKey.
 
 export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 
@@ -22,7 +26,10 @@ PYTHON   := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 SIGN_FLAGS  := $(if $(filter-out -,$(SIGN_ID)),--options runtime --timestamp)
 NOTARY_AUTH := $(if $(NOTARY_PROFILE),--keychain-profile "$(NOTARY_PROFILE)",--key "$(NOTARY_KEY)" --key-id "$(NOTARY_KEY_ID)" --issuer "$(NOTARY_ISSUER)")
 
-.PHONY: test release app zip notarize install clean icon
+# The public key the app trusts, read from the source so a release can't be signed with another key.
+UPDATE_KEY = $(shell sed -n 's/.*static let signingKey = "\(.*\)".*/\1/p' Sources/PrintGlance/AppUpdate.swift)
+
+.PHONY: test release app zip notarize install clean icon update-key sign-release
 
 test:
 	swift test
@@ -82,6 +89,22 @@ install: app
 	  [ -n "$$BAMBU_NAME" ] && defaults write local.PrintGlance printerName "$$BAMBU_NAME"; \
 	fi
 	open $(PREFIX)/$(APP_NAME).app
+
+update-key:
+	swift scripts/release-signature.swift new
+
+# Checks the draft's zip holds the tagged version, signs it, attaches PrintGlance.zip.sig, publishes.
+sign-release:
+	@test -n "$(TAG)" || { echo "Usage: make sign-release TAG=vX.Y.Z" >&2; exit 1; }
+	rm -rf dist/sign-release
+	mkdir -p dist/sign-release
+	gh release download $(TAG) --pattern PrintGlance.zip --dir dist/sign-release
+	ditto -x -k dist/sign-release/PrintGlance.zip dist/sign-release/unpacked
+	@version=$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' dist/sign-release/unpacked/PrintGlance.app/Contents/Info.plist); \
+	if [ "v$$version" != "$(TAG)" ]; then echo "The zip is v$$version, not $(TAG)" >&2; exit 1; fi
+	swift scripts/release-signature.swift sign dist/sign-release/PrintGlance.zip "$(UPDATE_KEY)" > dist/sign-release/PrintGlance.zip.sig
+	gh release upload $(TAG) dist/sign-release/PrintGlance.zip.sig --clobber
+	gh release edit $(TAG) --draft=false
 
 clean:
 	rm -rf .build dist

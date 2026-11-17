@@ -92,6 +92,48 @@ final class UpdateCheckTests: XCTestCase {
         XCTAssertNil(d.object(forKey: AppUpdateChecker.lastCheckKey))
     }
 
+    func testANewerReleaseWithASignatureCanBeInstalled() async throws {
+        let d = scratchDefaults()
+        StubGitHub.reply(200, FakeRelease.json("v9.9.9"))
+        let (checker, _) = checker(d)
+        await checker.checkIfDue()
+        XCTAssertEqual(checker.release, AppRelease(tag: "v9.9.9", zip: FakeRelease.zipURL("v9.9.9"), signature: FakeRelease.signatureURL("v9.9.9")))
+        StubGitHub.reply(200, FakeRelease.json("v9.9.9", signature: false))
+        _ = await checker.checkNow()
+        XCTAssertNil(checker.release, "releases before 1.6 have no signature: the browser downloads them")
+        StubGitHub.reply(200, FakeRelease.json("v1.3.0"))
+        _ = await checker.checkNow()
+        XCTAssertNil(checker.release, "not newer")
+    }
+
+    func testDownloadFetchesTheSignatureThenTheZip() async throws {
+        let d = scratchDefaults()
+        StubGitHub.reply(200, FakeRelease.json("v9.9.9"))
+        let (checker, _) = checker(d)
+        await checker.checkIfDue()
+        let release = try XCTUnwrap(checker.release)
+        StubGitHub.serve(release.zip, Data("zip".utf8))
+        StubGitHub.serve(release.signature, Data("sig\n".utf8))
+        let files = await checker.download(release)
+        XCTAssertEqual(files?.zip, Data("zip".utf8))
+        XCTAssertEqual(files?.signature, Data("sig\n".utf8))
+        XCTAssertEqual(StubGitHub.requests.dropFirst().map(\.url), [release.signature, release.zip])
+        XCTAssertEqual(StubGitHub.requests.last?.value(forHTTPHeaderField: "Accept"), "application/octet-stream")
+
+        for (url, status, body) in [
+            (release.zip, 404, Data("Not Found".utf8)),
+            (release.zip, 200, Data()),
+            (release.signature, 200, Data(count: 5000)),
+            (release.signature, 500, Data("sig".utf8)),
+        ] {
+            StubGitHub.serve(release.zip, Data("zip".utf8))
+            StubGitHub.serve(release.signature, Data("sig".utf8))
+            StubGitHub.serve(url, status: status, body)
+            let failed = await checker.download(release)
+            XCTAssertNil(failed, "\(url.lastPathComponent) \(status) \(body.count) bytes")
+        }
+    }
+
     func testOfflineMacOffersWhatItKnew() async {
         let d = scratchDefaults()
         let (checker, published) = checker(d)

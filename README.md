@@ -27,7 +27,7 @@ See your Bambu Lab print's progress and finish time in the Mac menu bar. You do 
 - **Get notified.** When a print is finishing soon, finishes, pauses, or fails, when PrintGlance loses the printer, and when filament runs low. **Quiet Hours** holds the finish notice until morning.
 - **Watch up to four printers.** The menu bar shows the one that needs you. The print card lists them all.
 - **See your filament.** Each AMS slot shows its color, filament, and how much is left, plus the AMS humidity when the AMS reports it.
-- **Private and read-only.** PrintGlance talks to your printers on your Wi-Fi. It never pauses, stops, or starts a print. Your access code stays on your Mac. Other apps on your Mac, such as a print-queue app, can read what your printers are doing from `~/Library/Application Support/PrintGlance/printers.json`; it holds no access code. The only thing it fetches from the internet is a check on GitHub for a newer version, once a day or when you ask.
+- **Private and read-only.** PrintGlance talks to your printers on your Wi-Fi. It never pauses, stops, or starts a print. Your access code stays on your Mac. Other apps on your Mac, such as a print-queue app, can read what your printers are doing from `~/Library/Application Support/PrintGlance/printers.json`; it holds no access code. The only things it fetches from the internet are a check on GitHub for a newer version, once a day or when you ask, and the new version when you click **Update available**.
 
 PrintGlance works with Bambu Lab printers that show an access code on their LAN or Network page, such as the A1, P1, P2S, X1, H2, and X2D.
 
@@ -171,6 +171,10 @@ To quit, click **…** and choose **Quit PrintGlance**.
 Once a day PrintGlance checks GitHub. When a newer version is on GitHub, the print card shows **Update available**.
 
 To check now, click **…** and choose **PrintGlance** followed by its version number. The card shows **Update available**, or **PrintGlance is up to date**.
+
+Click **Update available**. PrintGlance downloads the new version and checks that its developer signed it. Then it replaces itself and opens again. Your printers, settings, and history stay. If the card says **Can't install the update**, try again later.
+
+Versions before 1.6 can't install updates. Neither can a copy your Mac account can't change, such as one an administrator put in **Applications**. Update those by hand:
 
 1. Click **Update available**, or click **…** and choose **Download PrintGlance** followed by the new version number. Your browser downloads **PrintGlance.zip**. If it opens the release page instead, download **PrintGlance.zip** there.
 2. Double-click **PrintGlance.zip** to extract it.

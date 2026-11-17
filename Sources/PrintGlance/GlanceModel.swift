@@ -43,6 +43,8 @@ final class GlanceModel: ObservableObject {
     @Published private(set) var availableUpdate: String?
     /// The check started from the version in the menu, until the panel next opens.
     @Published private(set) var updateCheck: UpdateCheck?
+    /// Installing the update after **Update available** is clicked. A failure shows until the panel next opens.
+    @Published private(set) var updateInstall: UpdateInstall?
     @Published var settings: SavedPrinters
     @Published var notifyPrefs: PrintNotifyPrefs {
         didSet {
@@ -96,6 +98,9 @@ final class GlanceModel: ObservableObject {
     private static let adoptGap: TimeInterval = 60
     private static let instanceTag = String(UInt16.random(in: .min ... .max), radix: 16)
     private let updates: AppUpdateChecker
+    private let installer: AppInstaller
+    /// Starts the new copy once this one quits, then quits. False when it couldn't, so this copy stays.
+    private let quitAndReopen: @MainActor (URL) -> Bool
     private var filament: FilamentAlert
     private var runout: RunoutTracker
     private var overrun: Overrun
@@ -133,10 +138,14 @@ final class GlanceModel: ObservableObject {
         makeClient: @escaping () -> any MQTTSession = { MQTT311Client() },
         scan: @escaping @Sendable () async -> [PrinterDiscovery.Hit] = { await PrinterDiscovery.scan() },
         connectTimeout: Duration = .seconds(8),
-        updates: AppUpdateChecker? = nil
+        updates: AppUpdateChecker? = nil,
+        installer: AppInstaller = .running,
+        quitAndReopen: @escaping @MainActor (URL) -> Bool = GlanceModel.quitAndReopen
     ) {
         self.defaults = defaults
         self.updates = updates ?? AppUpdateChecker(defaults: defaults)
+        self.installer = installer
+        self.quitAndReopen = quitAndReopen
         self.logURL = logURL
         self.notifier = notifier
         self.makeClient = makeClient
@@ -335,6 +344,48 @@ final class GlanceModel: ObservableObject {
         NSWorkspace.shared.open(updates.downloadURL)
     }
 
+    /// True when **Update available** installs the update; otherwise it opens the download in the browser.
+    var canInstallUpdate: Bool {
+        updates.release != nil && installer.canInstall
+    }
+
+    /// **Update available**: download, check, swap, reopen. A release without a signature, or a copy
+    /// that can't replace itself, opens the download in the browser instead.
+    func installUpdate() {
+        guard updateInstall == nil || updateInstall == .failed else { return }
+        guard canInstallUpdate, let release = updates.release else {
+            openUpdatePage()
+            return
+        }
+        updateInstall = .downloading
+        Task { [weak self] in
+            guard let self else { return }
+            guard let files = await self.updates.download(release) else {
+                self.log("update \(release.tag): download failed")
+                self.updateInstall = .failed
+                return
+            }
+            self.updateInstall = .installing
+            do {
+                try await self.installer.install(zip: files.zip, signature: files.signature, tag: release.tag)
+            } catch {
+                self.log("update \(release.tag): \(error)")
+                self.updateInstall = .failed
+                return
+            }
+            self.log("update \(release.tag): installed, reopening")
+            if !self.quitAndReopen(self.installer.appURL) {
+                self.updateInstall = .installed
+            }
+        }
+    }
+
+    static func quitAndReopen(_ appURL: URL) -> Bool {
+        guard AppInstaller.reopenAfterQuit(appURL) else { return false }
+        NSApp.terminate(nil)
+        return true
+    }
+
     /// Clicking the version asks GitHub now. A newer version shows as **Update available**.
     func checkForUpdate() {
         guard updateCheck != .checking else { return }
@@ -349,6 +400,7 @@ final class GlanceModel: ObservableObject {
     /// A finished check's line goes when the panel opens again. One still running stays.
     func forgetUpdateCheck() {
         if updateCheck != .checking { updateCheck = nil }
+        if updateInstall == .failed { updateInstall = nil }
     }
 
     func removePrinter(serial: String) {

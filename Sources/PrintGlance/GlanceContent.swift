@@ -26,6 +26,15 @@ enum UpdateCheck: Equatable, Sendable {
     case failed
 }
 
+/// Installing an update after **Update available** is clicked.
+enum UpdateInstall: Equatable, Sendable {
+    case downloading
+    case installing
+    case failed
+    /// Installed, but this copy couldn't start the new one.
+    case installed
+}
+
 struct GlanceContent: Equatable, Sendable {
     var result: FeedResult
 
@@ -613,6 +622,17 @@ struct GlanceContent: Equatable, Sendable {
         case .checking: return "Checking for updates…"
         case .upToDate: return "PrintGlance is up to date"
         case .failed: return "Can't check for updates"
+        }
+    }
+
+    /// The line under the card while an update installs. Nil before **Update available** is clicked.
+    static func updateInstallLine(_ install: UpdateInstall?) -> String? {
+        switch install {
+        case nil: return nil
+        case .downloading: return "Downloading update…"
+        case .installing: return "Installing update…"
+        case .failed: return "Can't install the update"
+        case .installed: return "Quit and reopen to finish updating"
         }
     }
 
