@@ -313,9 +313,9 @@ struct GlanceContent: Equatable, Sendable {
         return codes.first { errorReason(code: $0) != nil } ?? codes.first
     }
 
-    /// A code's plain reason, else "Error <code>".
+    /// A code's plain reason, else a line saying Bambu doesn't describe it, else "Error <code>".
     static func errorLine(code: String) -> String {
-        errorReason(code: code) ?? "Error \(code)"
+        errorReason(code: code) ?? undescribed(code: code) ?? "Error \(code)"
     }
 
     /// One code in the card's error block, under its reason.
@@ -336,16 +336,17 @@ struct GlanceContent: Equatable, Sendable {
         var lines: [CodeLine] = []
         var above: String?
         for code in explained + codes.filter({ !explained.contains($0) }) {
-            let reason = errorReason(code: code)
+            let reason = errorReason(code: code) ?? undescribed(code: code)
             lines.append(CodeLine(reason: reason == above ? nil : reason, code: code))
             above = reason
         }
         return lines
     }
 
-    /// A short reason in our words for a common code. Nil for every other code, which keeps "Error <code>".
-    /// AMS codes carry the unit in the first group's low byte and, for feed and filament parts, the slot in
-    /// the second group's second digit (Bambu Studio's DevHMS.cpp); the table holds unit A, slot 1.
+    /// A short reason in our words for a common code, else Bambu's own description from `bambuWords`. Nil for
+    /// any other code, which keeps "Error <code>". AMS codes carry the unit in the first group's low byte and, for
+    /// feed and filament parts, the slot in the second group's second digit (Bambu Studio's DevHMS.cpp); the
+    /// table holds unit A, slot 1. Bambu's lists have a row for every unit and slot, so they get the code as sent.
     static func errorReason(code: String) -> String? {
         let parts = code.split(separator: "-")
         var groups = parts.compactMap { UInt16($0, radix: 16) }
@@ -363,11 +364,34 @@ struct GlanceContent: Equatable, Sendable {
             }
         }
         let key = groups.map { String(format: "%04X", $0) }.joined(separator: "-")
-        return reasons[key].map { $0.replacingOccurrences(of: "{where}", with: place ?? "the AMS") }
+        if let ours = reasons[key] { return ours.replacingOccurrences(of: "{where}", with: place ?? "the AMS") }
+        return bambuWords.text(for: code).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Bambu's own descriptions, for the codes the table below doesn't cover. Empty until the Mac app has read
+    /// the lists Bambu Studio keeps on the Mac (`BambuCodeList`); the iPhone and the tests leave it empty, so
+    /// there an unknown code stays "Error <code>".
+    static let bambuWords = BambuWords()
+
+    /// For a code Bambu lists without a description (about one in fifty): which part of the printer sent it,
+    /// and where to look. Nil for any other code.
+    static func undescribed(code: String) -> String? {
+        guard bambuWords.text(for: code) == "", errorReason(code: code) == nil else { return nil }
+        let part: String
+        switch code.uppercased().prefix(2) {
+        case "07", "12", "18", "2A": part = "The AMS"
+        case "0C": part = "The camera"
+        case "08", "1A": part = "The toolhead"
+        case "29": part = "The air filter"
+        default: return "The printer sent a message Bambu doesn't describe. Its screen may say more."
+        }
+        return "\(part) sent a message Bambu doesn't describe. The printer's screen may say more."
     }
 
     // ponytail: about 30 common pause and failure reasons, cross-checked with Bambu's per-model code
-    // dictionaries; add a row when a code shows up often. Each row is the HMS and print_error forms.
+    // dictionaries, in shorter words than Bambu's. Every other code gets Bambu's own description where Bambu
+    // Studio is installed (`bambuWords`); add a row when a common code needs plainer words, or for the iPhone.
+    // Each row is the HMS and print_error forms.
     private static let reasons: [String: String] = {
         let heater = { (part: String, last: Int) in (1...last).map { "0300-\(part)-0001-000\($0)" } }
         let rows: [([String], String)] = [
@@ -946,5 +970,27 @@ enum GlanceCopy {
     /// printer switched off must not show the moon over another that refuses its code.
     static func feedDownReason(focused: String?, all: [String]) -> String? {
         all.first(where: codeRejected) ?? focused ?? all.first
+    }
+}
+
+/// Bambu's descriptions of printer codes, keyed by the code's hex digits in capitals without dashes, as Bambu's
+/// lists have them. Set once, off the main thread, when the Mac app starts; read from anywhere.
+final class BambuWords: @unchecked Sendable {
+    private let lock = NSLock()
+    private var words: [String: String] = [:]
+
+    func set(_ words: [String: String]) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.words = words
+    }
+
+    /// Bambu's description of a code in either form (0700-8010, 0500-0400-0003-0008); "" when Bambu lists the
+    /// code without one; nil when it isn't listed, or the lists haven't been read.
+    func text(for code: String) -> String? {
+        let key = String(code.uppercased().filter(\.isHexDigit))
+        lock.lock()
+        defer { lock.unlock() }
+        return words[key]
     }
 }

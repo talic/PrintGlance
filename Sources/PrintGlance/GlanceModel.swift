@@ -233,6 +233,9 @@ final class GlanceModel: ObservableObject {
         if let size = try? logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 1_000_000 {
             try? FileManager.default.removeItem(at: logURL)
         }
+        // Bambu's descriptions for codes without a reason of ours. A tenth of a second or so, usually done before
+        // the first printer answers; until then a code without one of our reasons shows as "Error <code>".
+        Task.detached(priority: .utility) { GlanceContent.bambuWords.set(BambuCodeList.read(folders: BambuCodeList.folders)) }
         notifyPresenter.model = self
         UNUserNotificationCenter.current().delegate = notifyPresenter
         notifier.setCategories([Self.lookUpCategory()])
