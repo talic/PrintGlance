@@ -556,7 +556,16 @@ enum BambuPrint {
         if name == nil, remain == nil, color == nil { return nil }
         var t = AMSTray(id: "", name: name, remain: remain, color: color)
         t.weight = BambuJSON.intValue(tray["tray_weight"]).flatMap { $0 > 0 ? $0 : nil }
+        t.code = trayString(tray, "tray_id_name")
+        t.spool = spoolSerial(tray["tray_uuid"])
         return t
+    }
+
+    /// `tray_uuid` in capitals: hex digits, not all zeros. Nil for a spool without a tag.
+    static func spoolSerial(_ raw: Any?) -> String? {
+        guard let s = BambuJSON.stringValue(raw)?.trimmingCharacters(in: .whitespaces).uppercased(), s.count >= 8,
+              s.allSatisfy(\.isHexDigit), s.contains(where: { $0 != "0" }) else { return nil }
+        return s
     }
 
     /// Bambu Studio shows a percent only for AMS 2 Pro and AMS HT (`info` type 3 and 4, DevFilaSystem.h).
