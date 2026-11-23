@@ -98,6 +98,12 @@ struct AMSTray: Codable, Equatable, Sendable, Identifiable {
     var unit: String? = nil
     /// Grams on a full spool, from its tag. Nil when the printer sends none.
     var weight: Int? = nil
+    /// Bambu's product code from the spool's tag (`tray_id_name`): "A01-W3" is PLA Matte Bone White, as printed on
+    /// its box. Nil for a spool without a tag.
+    var code: String? = nil
+    /// The serial number from the spool's tag (`tray_uuid`), the same on both of its tags and different on every
+    /// spool. Nil for a spool without a tag, which the printer sends as zeros.
+    var spool: String? = nil
 }
 
 struct AMSUnit: Codable, Equatable, Sendable {

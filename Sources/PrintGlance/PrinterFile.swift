@@ -54,6 +54,10 @@ struct PrinterFile: Codable, Equatable, Sendable {
         var color: String?
         /// Percent left, when the spool reports it.
         var remain: Int?
+        /// Bambu's product code from the spool's tag: "A01-W3", as printed on its box. From 1.7.
+        var code: String?
+        /// The serial number from the spool's tag, different on every spool. From 1.7.
+        var spool: String?
     }
 
     /// The file beside `jobs.json`, so tests that give the model a scratch history get a scratch file too.
@@ -88,7 +92,8 @@ struct PrinterFile: Codable, Equatable, Sendable {
                 reason: GlanceContent.errorReason(row),
                 errorCodes: codes.isEmpty ? nil : codes,
                 lastSeen: row.lastSeen,
-                trays: row.trays.map { $0.map { Tray(slot: $0.label, filament: $0.name, color: $0.color, remain: $0.remain) } }
+                trays: row.trays.map { $0.map { Tray(slot: $0.label, filament: $0.name, color: $0.color, remain: $0.remain,
+                                                      code: $0.code, spool: $0.spool) } }
             )
         })
     }

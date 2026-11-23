@@ -45,6 +45,36 @@ final class PrinterFileTests: XCTestCase {
         XCTAssertNil(entry.errorCodes)
     }
 
+    func testTraysCarryEachSpoolsCodeAndSerial() throws {
+        // As an X2D reported a Bambu spool in its AMS and one in its AMS HT, and an empty slot, on 23 November 2026.
+        let printObj: [String: Any] = [
+            "ams": ["ams": [
+                ["id": "0", "tray": [
+                    ["id": "3", "tray_type": "PLA", "tray_sub_brands": "PLA Matte", "tray_info_idx": "GFA01", "remain": 19,
+                     "tray_color": "CBC6B8FF", "tray_id_name": "A01-W3", "tray_uuid": "c193000000000000000000000000dfef",
+                     "tag_uid": "1A5D000000000100"],
+                    ["id": "0", "tray_type": "PLA", "remain": 50, "tray_color": "FF0000FF",
+                     "tray_id_name": "", "tray_uuid": "00000000000000000000000000000000"],
+                ]],
+                ["id": "128", "tray": [
+                    ["id": "0", "tray_type": "PLA", "tray_sub_brands": "PLA Matte", "tray_info_idx": "GFA01", "remain": -1,
+                     "tray_color": "0078BFFF", "tray_id_name": "A01-B3", "tray_uuid": "826B000000000000000000000000173F"],
+                ]],
+            ]],
+        ]
+        let trays = BambuPrint.trays(printObj)
+        XCTAssertEqual(trays.map(\.code), ["A01-W3", nil, "A01-B3"])
+        XCTAssertEqual(trays.map(\.spool), ["C193000000000000000000000000DFEF", nil, "826B000000000000000000000000173F"],
+                       "zeros are a spool without a tag")
+        var printer = row("IDLE")
+        printer.trays = trays
+        let entry = try XCTUnwrap(PrinterFile.make(doc: PrintDoc(v: 1, printers: [printer]), reports: [:], history: [], now: now).printers.first)
+        XCTAssertEqual(entry.trays?.first, PrinterFile.Tray(slot: "A4", filament: "PLA Matte", color: "CBC6B8FF", remain: 19,
+                                                           code: "A01-W3", spool: "C193000000000000000000000000DFEF"))
+        XCTAssertEqual(entry.trays?.last?.slot, "HT-A")
+        XCTAssertEqual(entry.trays?.last?.spool, "826B000000000000000000000000173F")
+    }
+
     func testPausedEntrySaysWhy() throws {
         var paused = row("PAUSE")
         paused.printError = "0700-8010"
