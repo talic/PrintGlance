@@ -118,11 +118,13 @@ struct PrinterFile: Codable, Equatable, Sendable {
         Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded() * 60)
     }
 
-    func save(to url: URL) {
+    /// Makes the folder again if it went missing. Throws when the file wasn't written.
+    func save(to url: URL) throws {
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         enc.outputFormatting = [.sortedKeys]
-        guard let data = try? enc.encode(self) else { return }
-        try? data.write(to: url, options: .atomic)
+        let data = try enc.encode(self)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
     }
 }

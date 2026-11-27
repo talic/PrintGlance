@@ -65,11 +65,13 @@ struct JobLog {
         return JobLog(rows: env.rows)
     }
 
-    func save(to url: URL) {
+    /// Makes the folder again if it went missing. Throws when the file wasn't written.
+    func save(to url: URL) throws {
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
-        guard let data = try? enc.encode(Envelope(rows: rows)) else { return }
-        try? data.write(to: url, options: .atomic)
+        let data = try enc.encode(Envelope(rows: rows))
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
     }
 
     mutating func observe(printers: [Printer], now: Date = Date()) {

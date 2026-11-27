@@ -1,6 +1,6 @@
 # Testing PrintGlance
 
-The suite has two parts: **466 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **72 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
+The suite has two parts: **476 Swift tests** (XCTest, `Tests/PrintGlanceTests`) for the app, and **72 Python tests** (unittest, `Tests/Feed`) for the feed. Together they run in about 20 seconds and never touch the network (beyond loopback), Notification Center, this Mac's preferences, or a real printer. How the app works is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Running
 
@@ -103,6 +103,8 @@ All in `Tests/PrintGlanceTests/Support`.
 | Low filament and runout | `FilamentAlertTests`, `RunoutTrackerTests`, `GlanceModelTests.testLowFilament…`, `…testFallingSpool…`, `CardScreenTests.testRunoutLineUnderTheBar` |
 | Error codes, reasons, lookup URLs | `PrepareAmsHmsTests`, `BambuCodeListTests` (Bambu Studio's lists, made up in a scratch folder), `CardScreenTests.testPaused…`, `…testFailed`, `SecurityTests.testErrorLookupSendsOnlyTheModelPrefix`, `SecurityTests.testRandomErrorCodesNeverCrash` |
 | History, CSV, Clear History | `JobLogTests`, `GlanceModelTests.testFinishedPrintIsLogged…`, `…testClearingHistoryForgetsPastPrintsOnDisk`, `…testExportWritesCSV`, `PanelScreenTests` (History), `ShippingTests.testClearHistoryKeepsAPrintInProgress`, `LayoutTests.testHistoryScrollsInsteadOfGrowing` |
+| `printers.json` for other apps: entries, every printer Offline when none can be reached, failed writes logged once and retried, a missing folder made again | `PrinterFileTests`, `PrinterFileModelTests` |
+| The log's launch line | `ShippingTests.testLaunchLineNamesVersionBuildAndCopy` |
 | Update check | `AppUpdateTests`, `UpdateCheckTests`, `SecurityTests.testUpdate…` |
 | Installing an update | `AppInstallerTests`, `UpdateCheckTests.testDownload…`, `PanelScreenTests.testUpdateAvailable…`, `…testAReleaseSignedWithAnotherKey…`, `SecurityTests.testInstallTrustsOnlyTheShippedSigningKey` |
 | Panel sizing math | `MenuBarHugTests`, `LayoutTests` |

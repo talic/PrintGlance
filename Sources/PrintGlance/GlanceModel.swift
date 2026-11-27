@@ -115,6 +115,8 @@ final class GlanceModel: ObservableObject {
     private var parsedRows: [String: Printer] = [:]
     /// What `printers.json` last got, so it is written only when a printer or its history changes.
     private var printerFileInput: ([Printer], [JobLogRow])?
+    /// Files whose last write failed: logged once, and written again on the next pass.
+    private var failedWrites: Set<URL> = []
     private var occupancyTask: Task<Void, Never>?
     private var comingOff = ComingOff()
     private let pathMonitor = NWPathMonitor()
@@ -186,6 +188,31 @@ final class GlanceModel: ObservableObject {
         }
     }
 
+    /// The log's line for each launch, so after an update it shows which version and which copy started.
+    nonisolated static func launchLine(info: [String: Any]?, bundlePath: String) -> String {
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "launched \(version) (\(build)) \(bundlePath)"
+    }
+
+    /// Writes `jobs.json` or `printers.json`. The first failure in a row is logged by file name (neither file
+    /// holds an access code), and the caller writes again on its next pass.
+    @discardableResult
+    private func saveFile(_ url: URL, _ save: (URL) throws -> Void) -> Bool {
+        do {
+            try save(url)
+            failedWrites.remove(url)
+            return true
+        } catch {
+            if failedWrites.insert(url).inserted { log("\(url.lastPathComponent): \(error.localizedDescription)") }
+            return false
+        }
+    }
+
+    private func saveJobLog() {
+        saveFile(jobLogURL) { try jobLog.save(to: $0) }
+    }
+
     var strip: StripPresentation {
         GlanceContent.strip(
             content.result,
@@ -224,7 +251,7 @@ final class GlanceModel: ObservableObject {
     /// Forgets ended prints, on disk too. A print in progress stays and is logged when it ends.
     func clearHistory() {
         jobLog.clearEnded()
-        jobLog.save(to: jobLogURL)
+        saveJobLog()
         historyRows = jobLog.recent(JobLog.cap)
     }
 
@@ -233,6 +260,7 @@ final class GlanceModel: ObservableObject {
         if let size = try? logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 1_000_000 {
             try? FileManager.default.removeItem(at: logURL)
         }
+        log(Self.launchLine(info: Bundle.main.infoDictionary, bundlePath: Bundle.main.bundlePath))
         // Bambu's descriptions for codes without a reason of ours. A tenth of a second or so, usually done before
         // the first printer answers; until then a code without one of our reasons shows as "Error <code>".
         Task.detached(priority: .utility) { GlanceContent.bambuWords.set(BambuCodeList.read(folders: BambuCodeList.folders)) }
@@ -501,7 +529,7 @@ final class GlanceModel: ObservableObject {
         runout.save(defaults)
         overrun.save(defaults)
         filament.save(defaults)
-        jobLog.save(to: jobLogURL)
+        saveJobLog()
         historyRows = jobLog.recent(JobLog.cap)
     }
 
@@ -698,6 +726,8 @@ final class GlanceModel: ObservableObject {
     /// 5-second tick, which rebuilds every row so a silent printer goes Offline and finish times move on time.
     private func publishSnapshot(reported: String? = nil) {
         let now = Date()
+        // History that couldn't be saved goes again on every pass until it is.
+        if failedWrites.contains(jobLogURL) { saveJobLog() }
         let complete = settings.printers.filter(\.isComplete)
         guard !complete.isEmpty else {
             parsedRows = [:]
@@ -735,7 +765,7 @@ final class GlanceModel: ObservableObject {
             let rowsBefore = jobLog.rows
             jobLog.observe(printers: doc.printers, now: now)
             if jobLog.rows != rowsBefore {
-                jobLog.save(to: jobLogURL)
+                saveJobLog()
                 historyRows = jobLog.recent(JobLog.cap)
             }
             writePrinterFile(doc, snaps, now: now)
@@ -775,19 +805,26 @@ final class GlanceModel: ObservableObject {
         }
         parsedRows = [:]
         if links.values.contains(where: { !$0.failed }) {
+            // printers.json stays as it was: a printer that answers a second later would read Printing, Offline,
+            // Printing, and a reader may take that for a print ending.
             apply(GlanceContent(result: .connecting), now: now)
         } else {
+            // Every link failed and no printer has answered: each one is Offline, so a copy that can't reach them
+            // doesn't leave the last launch's rows (Printing, say) standing. Only the file: a printer not heard
+            // from is no print edge, so History, notices, and the trackers don't see it.
+            let doc = BambuSnapshot.fleetDoc(printers: complete, snapshots: snaps, focusId: settings.focusId, now: now)
+            writePrinterFile(doc, snaps, now: now)
             apply(GlanceContent(result: .feedDown), now: now)
         }
     }
 
     /// Hands the printers to other apps on this Mac. Rows stay equal between reports, so this writes about once a
-    /// minute while printing and not at all while idle.
+    /// minute while printing and not at all while idle. A write that failed goes again on the next pass.
     private func writePrinterFile(_ doc: PrintDoc, _ snaps: [String: BambuSnapshot], now: Date = Date()) {
         if let last = printerFileInput, last.0 == doc.printers, last.1 == jobLog.rows { return }
-        printerFileInput = (doc.printers, jobLog.rows)
-        PrinterFile.make(doc: doc, reports: snaps.mapValues(\.printObj), history: jobLog.rows, now: now)
-            .save(to: PrinterFile.url(besideHistory: jobLogURL))
+        let file = PrinterFile.make(doc: doc, reports: snaps.mapValues(\.printObj), history: jobLog.rows, now: now)
+        let written = saveFile(PrinterFile.url(besideHistory: jobLogURL)) { try file.save(to: $0) }
+        printerFileInput = written ? (doc.printers, jobLog.rows) : nil
     }
 
     private func post(

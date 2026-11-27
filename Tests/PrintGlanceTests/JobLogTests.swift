@@ -259,7 +259,7 @@ final class JobLogTests: XCTestCase {
         let t0 = Date(timeIntervalSince1970: 1_700_000_000)
         log.observe(printers: [row("RUNNING", jobId: "t1")], now: t0)
         log.observe(printers: [row("FINISH", jobId: "t1")], now: t0.addingTimeInterval(60))
-        log.save(to: url)
+        try log.save(to: url)
         let loaded = JobLog.load(from: url)
         XCTAssertEqual(loaded.rows.count, 1)
         XCTAssertEqual(loaded.rows[0].jobId, "t1")
