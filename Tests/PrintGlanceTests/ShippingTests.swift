@@ -35,6 +35,20 @@ final class ShippingTests: XCTestCase {
         XCTAssertNotNil(Int(try XCTUnwrap(plist["CFBundleVersion"] as? String)))
     }
 
+    /// After an update, the log shows whether the new copy started, and which version and copy it was.
+    func testLaunchLineNamesVersionBuildAndCopy() throws {
+        XCTAssertEqual(
+            GlanceModel.launchLine(info: ["CFBundleShortVersionString": "1.8.0", "CFBundleVersion": "27"],
+                                   bundlePath: "/Applications/PrintGlance.app"),
+            "launched 1.8.0 (27) /Applications/PrintGlance.app"
+        )
+        XCTAssertEqual(GlanceModel.launchLine(info: nil, bundlePath: "/tmp/PrintGlance"), "launched ? (?) /tmp/PrintGlance")
+        let data = try Data(contentsOf: Self.root.appendingPathComponent("Info.plist"))
+        let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        XCTAssertFalse(GlanceModel.launchLine(info: plist, bundlePath: "/Applications/PrintGlance.app").contains("?"),
+                       "Info.plist has both keys the line reads")
+    }
+
     func testAccessCodeKeychainServiceMatchesTheBundle() {
         XCTAssertEqual(AccessCodeStore.service, "local.PrintGlance.accessCode", "1.1.7 saved codes under this service")
     }

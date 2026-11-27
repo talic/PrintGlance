@@ -106,11 +106,22 @@ final class PrinterFileTests: XCTestCase {
     func testFileHasNoAccessCodeOrAddress() throws {
         let doc = PrintDoc(v: 1, printers: [row("RUNNING")])
         let url = scratchDirectory().appendingPathComponent(PrinterFile.fileName)
-        PrinterFile.make(doc: doc, reports: [:], history: [], now: now).save(to: url)
+        try PrinterFile.make(doc: doc, reports: [:], history: [], now: now).save(to: url)
         let text = try String(contentsOf: url, encoding: .utf8)
         XCTAssertTrue(text.contains("\"state\":\"Printing\""))
         XCTAssertFalse(text.lowercased().contains("access"))
         XCTAssertFalse(text.contains("192.0.2."))
+    }
+
+    /// The folder can go while the app runs. Each file makes it again rather than failing for good.
+    func testSavingMakesAMissingFolder() throws {
+        let gone = scratchDirectory().appendingPathComponent("PrintGlance", isDirectory: true)
+        try PrinterFile.make(doc: PrintDoc(v: 1, printers: [row("IDLE")]), reports: [:], history: [], now: now)
+            .save(to: gone.appendingPathComponent(PrinterFile.fileName))
+        try FileManager.default.removeItem(at: gone)
+        try JobLog(rows: [JobLogRow(serial: "s", name: "Voyager", jobId: "t1", startAt: now)])
+            .save(to: gone.appendingPathComponent("jobs.json"))
+        XCTAssertEqual(JobLog.load(from: gone.appendingPathComponent("jobs.json")).rows.map(\.jobId), ["t1"])
     }
 }
 
@@ -144,5 +155,161 @@ final class PrinterFileModelTests: XCTestCase {
         h.model.saveSettings(.empty)
         let file = try JSONDecoder().decode(PrinterFile.self, from: Data(contentsOf: PrinterFile.url(besideHistory: h.jobsURL)))
         XCTAssertTrue(file.printers.isEmpty)
+    }
+
+    // MARK: - A launch that reaches no printer
+
+    private let a1 = PrinterSettings(ip: "192.0.2.12", serial: "0309CA471800789", accessCode: "a1-code1", name: "A1 mini")
+
+    private func entries(_ h: ModelHarness) throws -> [[String: Any]] {
+        let data = try Data(contentsOf: PrinterFile.url(besideHistory: h.jobsURL))
+        let file = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try XCTUnwrap(file["printers"] as? [[String: Any]])
+    }
+
+    /// A write replaces the file, so a new file number means it was written.
+    private func fileNumber(_ url: URL) throws -> NSNumber? {
+        try FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber
+    }
+
+    /// As seen in the field: two printers printing, then a copy that reaches none of them (another Wi-Fi, Local
+    /// Network not allowed). The last launch's Printing rows stood for days, which read like a live app.
+    func testALaunchThatReachesNoPrinterSaysEachIsOffline() async throws {
+        let h = ModelHarness(self)
+        let links = h.add(.x2d(), .p1s(), a1)
+        links[0].accept()
+        links[1].accept()
+        links[0].report(Report.running(percent: 16, minutesLeft: 90))
+        links[1].report(Report.running(percent: 19, minutesLeft: 88, job: "Gears", task: "t9"))
+        let url = PrinterFile.url(besideHistory: h.jobsURL)
+        let printing = try Data(contentsOf: url)
+        XCTAssertEqual(try entries(h).map { $0["state"] as? String }, ["Printing", "Printing", "Offline"])
+        let history = try Data(contentsOf: h.jobsURL)
+        let posted = h.notifications.posted.count
+
+        // A new copy dials all three, as `start()` does.
+        h.relaunch(connectTimeout: .milliseconds(100))
+        h.model.saveSettings(h.model.settings)
+        XCTAssertEqual(h.model.content.result, .connecting)
+        XCTAssertEqual(try Data(contentsOf: url), printing, "left alone while the printers may still answer")
+
+        let down = await eventually { h.model.content.result == .feedDown }
+        XCTAssertTrue(down, h.logText)
+        let offline = try entries(h)
+        XCTAssertEqual(offline.map { $0["name"] as? String }, ["X2D", "P1S", "A1 mini"])
+        XCTAssertEqual(offline.map { $0["id"] as? String }, [PrinterSettings.x2d().serial, PrinterSettings.p1s().serial, a1.serial])
+        for entry in offline {
+            XCTAssertEqual(Set(entry.keys), ["id", "name", "state", "code", "trays"],
+                           "like a printer that never answered: no percent, time left, finish time, job, or start")
+            XCTAssertEqual(entry["state"] as? String, "Offline")
+            XCTAssertEqual(entry["code"] as? String, "OFFLINE")
+            XCTAssertEqual((entry["trays"] as? [Any])?.count, 0)
+        }
+        XCTAssertEqual(try Data(contentsOf: h.jobsURL), history, "History doesn't see a printer it hasn't heard from")
+        XCTAssertEqual(h.notifications.posted.count, posted, "no Lost connection either")
+
+        // Later passes with the same rows leave the file alone.
+        let written = try fileNumber(url)
+        for serial in [PrinterSettings.x2d().serial, PrinterSettings.p1s().serial, a1.serial] {
+            try XCTUnwrap(h.printers.latest(serial)).drop("closed")
+        }
+        XCTAssertEqual(h.model.content.result, .feedDown)
+        XCTAssertEqual(try fileNumber(url), written, "not written again")
+
+        // A printer that answers gets its row back.
+        let x2d = try XCTUnwrap(h.printers.latest(PrinterSettings.x2d().serial))
+        x2d.accept()
+        x2d.report(Report.running(percent: 17, minutesLeft: 89))
+        let back = try entries(h)
+        XCTAssertEqual(back.map { $0["state"] as? String }, ["Printing", "Offline", "Offline"])
+        XCTAssertEqual(back[0]["percent"] as? Int, 17)
+        XCTAssertNotNil(back[0]["finishAt"])
+        XCTAssertNotNil(back[0]["startedAt"], "History's print from before the relaunch")
+    }
+
+    /// One printer failing while another may still answer: the file waits, so the other doesn't read Printing,
+    /// Offline, Printing.
+    func testAFailureWhileAnotherPrinterConnectsLeavesTheFile() throws {
+        let h = ModelHarness(self)
+        let links = h.add(.x2d(), .p1s())
+        links.forEach { $0.accept() }
+        links[0].report(Report.running(percent: 16, minutesLeft: 90))
+        links[1].report(Report.state("IDLE"))
+        let url = PrinterFile.url(besideHistory: h.jobsURL)
+        let before = try Data(contentsOf: url)
+
+        h.relaunch()
+        h.model.saveSettings(h.model.settings)
+        let x2d = try XCTUnwrap(h.printers.latest(PrinterSettings.x2d().serial))
+        try XCTUnwrap(h.printers.latest(PrinterSettings.p1s().serial)).drop("ECONNREFUSED")
+        x2d.accept()
+        XCTAssertEqual(h.model.content.result, .connecting)
+        XCTAssertEqual(try Data(contentsOf: url), before)
+
+        x2d.report(Report.running(percent: 17, minutesLeft: 89))
+        XCTAssertEqual(try entries(h).map { $0["state"] as? String }, ["Printing", "Offline"])
+    }
+
+    // MARK: - Writes that fail
+
+    func testAFailedWriteIsLoggedOnceAndTriedAgain() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(.x2d()).first)
+        link.answer(Report.state("IDLE"))
+        let url = PrinterFile.url(besideHistory: h.jobsURL)
+        let idle = try Data(contentsOf: url)
+        let fm = FileManager.default
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: h.dir.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: h.dir.path) }
+
+        link.report(Report.ams(remain: 50))
+        link.report(Report.ams(remain: 50))
+        XCTAssertEqual(try Data(contentsOf: url), idle, "the folder can't be written")
+        XCTAssertEqual(h.logText.components(separatedBy: "printers.json: ").count - 1, 1, "once, not every pass")
+        XCTAssertFalse(h.logText.contains(PrinterSettings.x2d().accessCode))
+
+        // The same rows again: written now, though nothing changed since the failed write.
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: h.dir.path)
+        link.report(Report.ams(remain: 50))
+        let trays = try XCTUnwrap(try entries(h).first?["trays"] as? [[String: Any]])
+        XCTAssertEqual(trays.first?["remain"] as? Int, 50)
+
+        // A new failure is logged again.
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: h.dir.path)
+        link.report(Report.ams(remain: 40))
+        XCTAssertEqual(h.logText.components(separatedBy: "printers.json: ").count - 1, 2)
+    }
+
+    func testAHistoryWriteThatFailsIsLoggedOnceAndTriedAgain() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(.x2d()).first)
+        link.accept()
+        link.report(Report.running())
+        let fm = FileManager.default
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: h.dir.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: h.dir.path) }
+
+        link.report(Report.state("FINISH"))
+        link.report(Report.state("FINISH"))
+        XCTAssertEqual(JobLog.load(from: h.jobsURL).rows.map(\.outcome), [nil], "still open on disk")
+        XCTAssertEqual(h.logText.components(separatedBy: "jobs.json: ").count - 1, 1, "once, not every pass")
+
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: h.dir.path)
+        link.report(Report.state("FINISH"))
+        XCTAssertEqual(JobLog.load(from: h.jobsURL).rows.map(\.outcome), [JobLog.outcomeOK])
+    }
+
+    /// The Application Support folder deleted while the app runs. It used to be made only at launch.
+    func testAFolderThatWentMissingIsMadeAgain() throws {
+        let h = ModelHarness(self)
+        let link = try XCTUnwrap(h.add(.x2d()).first)
+        link.accept()
+        link.report(Report.running(percent: 16, minutesLeft: 90))
+        try FileManager.default.removeItem(at: h.dir)
+
+        link.report(Report.state("FINISH"))
+        XCTAssertEqual(JobLog.load(from: h.jobsURL).rows.map(\.outcome), [JobLog.outcomeOK])
+        XCTAssertEqual(try entries(h).first?["state"] as? String, "Finished")
+        XCTAssertFalse(h.logText.contains(".json: "), "nothing failed")
     }
 }
